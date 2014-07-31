@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/AROpenCVemu/AROpenCVemu.iml" filepath="$PROJECT_DIR$/AROpenCVemu/AROpenCVemu.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ARem.iml" filepath="$PROJECT_DIR$/ARem.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ARemOpenCVSample/ARemOpenCVSample.iml" filepath="$PROJECT_DIR$/ARemOpenCVSample/ARemOpenCVSample.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ARemRecorder/ARemRecorder.iml" filepath="$PROJECT_DIR$/ARemRecorder/ARemRecorder.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ARemSample/ARemSample.iml" filepath="$PROJECT_DIR$/ARemSample/ARemSample.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ARemu/ARemu.iml" filepath="$PROJECT_DIR$/ARemu/ARemu.iml" />
+      <module fileurl="file://$PROJECT_DIR$/Common/Common.iml" filepath="$PROJECT_DIR$/Common/Common.iml" />
+      <module fileurl="file://$PROJECT_DIR$/DisplayFrames/DisplayFrames.iml" filepath="$PROJECT_DIR$/DisplayFrames/DisplayFrames.iml" />
+      <module fileurl="file://$PROJECT_DIR$/OpenCV/OpenCV.iml" filepath="$PROJECT_DIR$/OpenCV/OpenCV.iml" />
+    </modules>
+  </component>
+</project>
+

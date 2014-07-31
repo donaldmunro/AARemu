@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <declare-styleable name="ADrawerLayout">
+        <attr name="innerMarginTop" format="dimension"/>
+        <attr name="innerMarginBottom" format="dimension"/>
+        <attr name="innerMarginLeft" format="dimension"/>
+        <attr name="innerMarginRight" format="dimension"/>
+        <attr name="innerMarginIsGlobalTop" format="boolean"/>
+        <attr name="innerMarginIsGlobalBottom" format="boolean"/>
+        <attr name="innerMarginIsGlobalLeft" format="boolean"/>
+        <attr name="innerMarginIsGlobalRight" format="boolean"/>
+        <attr name="peekSizeTop" format="dimension"/>
+        <attr name="peekSizeBottom" format="dimension"/>
+        <attr name="peekSizeLeft" format="dimension"/>
+        <attr name="peekSizeRight" format="dimension"/>
+        <attr name="restrictToPeekTop" format="boolean"/>
+        <attr name="restrictToPeekBottom" format="boolean"/>
+        <attr name="restrictToPeekLeft" format="boolean"/>
+        <attr name="restrictToPeekRight" format="boolean"/>
+    </declare-styleable>
+
+</resources>

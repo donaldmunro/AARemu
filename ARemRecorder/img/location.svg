@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://web.resource.org/cc/"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="50.000008"
+   height="39.999996"
+   id="svg12291"
+   sodipodi:version="0.32"
+   inkscape:version="0.44"
+   version="1.0"
+   sodipodi:docbase="D:\Home\Wikipedia"
+   sodipodi:docname="Simple icon location.svg">
+  <defs
+     id="defs12293" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     gridtolerance="10000"
+     guidetolerance="10"
+     objecttolerance="10"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="12.975001"
+     inkscape:cx="25.000004"
+     inkscape:cy="19.999998"
+     inkscape:document-units="px"
+     inkscape:current-layer="layer1"
+     inkscape:window-width="1024"
+     inkscape:window-height="682"
+     inkscape:window-x="-4"
+     inkscape:window-y="-4" />
+  <metadata
+     id="metadata12296">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-383.5714,-449.505)">
+    <path
+       style="color:black;fill:black;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-width:6.22222233;stroke-linecap:butt;stroke-linejoin:round;marker:none;marker-start:none;marker-mid:none;marker-end:none;stroke-miterlimit:4;stroke-dashoffset:0;stroke-opacity:1;visibility:visible;display:inline;overflow:visible"
+       d="M 414.57141,469.50509 C 414.57141,472.81709 411.8834,475.5051 408.5714,475.5051 C 405.2594,475.5051 402.57139,472.81709 402.57139,469.50509 C 402.57139,466.19308 405.2594,463.50508 408.5714,463.50508 C 411.8834,463.50508 414.57141,466.19308 414.57141,469.50509 z "
+       id="path3671" />
+    <path
+       style="color:black;fill:black;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-width:6.99999857;stroke-linecap:butt;stroke-linejoin:round;marker:none;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;visibility:visible;display:inline;overflow:visible"
+       d="M 408.57139,451.51235 C 398.65725,451.51235 390.57137,459.59823 390.57137,469.51237 C 390.57137,479.4265 398.65725,487.51238 408.57139,487.51238 C 418.48552,487.51238 426.5714,479.4265 426.5714,469.51237 C 426.5714,459.59823 418.48552,451.51235 408.57139,451.51235 z M 408.57139,455.51236 C 416.32127,455.51236 422.5714,461.76249 422.5714,469.51237 C 422.5714,477.26225 416.32127,483.51238 408.57139,483.51238 C 400.8215,483.51238 394.57137,477.26225 394.57137,469.51237 C 394.57137,461.76249 400.8215,455.51236 408.57139,455.51236 z "
+       id="path5561" />
+  </g>
+</svg>

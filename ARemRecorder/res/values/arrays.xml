@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+   <string-array name="increment_values">
+      <item>0.5</item>
+      <item>1</item>
+      <item>1.5</item>
+      <item>2</item>
+   </string-array>
+
+   <string-array name="sensor_values">
+      <item>Stable Fused</item>
+      <item>Rotation Vector</item>
+      <item>Fast Fused</item>
+      <item>GyroAccelMagnetic</item>
+      <item>AccelMagnetic</item>
+   </string-array>
+
+   <string-array name="file_formats">
+      <item>RGBA</item>
+      <item>RGB</item>
+      <item>RGB565</item>
+      <item>NV21</item>
+   </string-array>
+
+   <string-array name="empty_values">
+      <item></item>
+   </string-array>
+</resources>

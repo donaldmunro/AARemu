@@ -1,0 +1,1 @@
+include ':ARemRecorder', ':ARemSample', ':DisplayFrames', ':AROpenCVemu', ':Common', ':ARemOpenCVSample', 'ARemu', ':OpenCV'

@@ -1,0 +1,16 @@
+build/
+changes/
+other/
+.gradle
+/local.properties
+/.idea/workspace.xml
+.DS_Store
+*.frames
+*.head
+*.7z
+*~
+*.o
+core.*
+*.swp
+ARemRecorder/jni/test-rgb
+ARemRecorder/jni/test-rgb565

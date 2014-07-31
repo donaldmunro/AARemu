@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="GradleSettings">
+    <option name="linkedExternalProjectsSettings">
+      <GradleProjectSettings>
+        <option name="distributionType" value="DEFAULT_WRAPPED" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/AROpenCVemu" />
+            <option value="$PROJECT_DIR$/ARemOpenCVSample" />
+            <option value="$PROJECT_DIR$/ARemRecorder" />
+            <option value="$PROJECT_DIR$/ARemSample" />
+            <option value="$PROJECT_DIR$/ARemu" />
+            <option value="$PROJECT_DIR$/Common" />
+            <option value="$PROJECT_DIR$/DisplayFrames" />
+            <option value="$PROJECT_DIR$/OpenCV" />
+          </set>
+        </option>
+      </GradleProjectSettings>
+    </option>
+  </component>
+</project>
+

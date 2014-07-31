@@ -1,0 +1,120 @@
+<com.doubleTwist.drawerlib.ADrawerLayout
+      xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:drawer="http://schemas.android.com/apk/res-auto"
+      xmlns:tools="http://schemas.android.com/tools"
+      android:id="@+id/drawer"
+      drawer:peekSizeLeft="6dp"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      tools:context=".MainActivity"
+      >
+
+   <to.augmented.reality.android.em.displayframes.ARSurfaceView
+         android:id="@+id/camera_preview_surface"
+         android:layout_width="match_parent"
+         android:layout_height="match_parent"
+         android:keepScreenOn="true"
+         android:gravity="center"
+         />
+   <RelativeLayout
+         android:id="@+id/top_drawer"
+         android:layout_width="160dp"
+         android:layout_height="match_parent"
+         android:layout_gravity="left"
+         android:background="@android:color/darker_gray"
+         android:paddingRight="6dp"
+         tools:ignore="UselessParent"
+         >
+      <Button
+            android:id="@+id/load_button"
+            android:layout_width="match_parent"
+            android:layout_height="45dp"
+            android:layout_alignParentTop="true"
+            android:text="Open"
+            android:onClick="onOpen"
+            />
+
+      <TextView
+            android:id="@+id/label_bearing"
+            android:layout_width="wrap_content"
+            android:layout_height="14sp"
+            android:layout_below="@+id/load_button"
+            android:text="Bearing"
+            android:textColor="@android:color/black"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <EditText
+            android:id="@+id/bearing_text"
+            android:layout_height="20sp"
+            android:layout_width="match_parent"
+            android:layout_below="@+id/label_bearing"
+            android:background="@android:color/holo_blue_dark"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:text=""
+            />
+
+      <TextView
+            android:id="@+id/label_set_bearing"
+            android:layout_width="wrap_content"
+            android:layout_height="18sp"
+            android:layout_below="@+id/bearing_text"
+            android:text="Set Bearing"
+            android:textColor="@android:color/black"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            android:layout_marginBottom="1dp"
+            />
+
+      <EditText
+            android:id="@+id/set_bearing_text"
+            android:layout_height="20sp"
+            android:layout_width="match_parent"
+            android:layout_below="@+id/label_set_bearing"
+            android:background="@android:color/holo_blue_dark"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:layout_marginBottom="3dp"
+            android:text=""
+            android:inputType="number|numberDecimal"/>
+      <Button
+            android:id="@+id/button_display"
+            android:layout_height="45dp"
+            android:layout_width="match_parent"
+            android:layout_below="@+id/set_bearing_text"
+            android:layout_gravity="center"
+            android:text="Display"
+            android:onClick="onDisplay"
+            android:layout_marginBottom="1dp"
+            />
+      <RelativeLayout
+            android:id="@+id/frame_incdec_buttons_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/button_display"
+      >
+         <ImageButton android:id="@+id/button_left"
+               android:layout_alignParentTop="true"
+               android:layout_width="60dip"
+               android:layout_height="50dip"
+               android:layout_marginRight="35dp"
+               android:onClick="decrementBearing"
+               android:src="@drawable/left_arrow"/>
+         <ImageButton
+               android:layout_width="60dip"
+               android:layout_height="50dip"
+               android:layout_toRightOf="@+id/button_left"
+               android:onClick="incrementBearing"
+               android:src="@drawable/right_arrow"/>
+      </RelativeLayout>
+      <Button
+            android:id="@+id/button_review"
+            android:layout_height="45dp"
+            android:layout_width="match_parent"
+            android:layout_below="@+id/frame_incdec_buttons_layout"
+            android:layout_gravity="center"
+            android:text="Review"
+            android:onClick="onReview"
+            />
+
+   </RelativeLayout>
+
+</com.doubleTwist.drawerlib.ADrawerLayout>
