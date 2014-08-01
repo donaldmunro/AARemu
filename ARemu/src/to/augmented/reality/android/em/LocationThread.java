@@ -17,6 +17,7 @@
 package to.augmented.reality.android.em;
 
 import android.content.Context;
+import android.content.pm.*;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -34,7 +35,7 @@ public class LocationThread extends HandlerThread
    static final private String LOCATION_SECURITY_ERROR =
          "Security exception when setting GPS mock location. Check if ACCESS_MOCK_LOCATION, " +
          "ACCESS_COARSE_LOCATION and ACCESS_FINE_LOCATION permission is set in AndroidManifest.xml and " +
-         "mock location are enabled in Developer settings.";
+         "mock location are enabled in Developer settings on the device.";
    final static private int LOCATION_UPDATE_TIME = 500; //ms
    final static private float LOCATION_UPDATE_DISTANCE = 0.5f;
 
@@ -112,8 +113,8 @@ public class LocationThread extends HandlerThread
          locationManager.removeUpdates(locationCallback);
 
       dummyLocation = camera.getRecordedLocation();
-
-      if (dummyLocation != null)
+      boolean isDebugging = (context.getApplicationContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+      if ( (dummyLocation != null) && (isDebugging) )
       {
          try
          {
@@ -126,10 +127,16 @@ public class LocationThread extends HandlerThread
          {
             Log.e(TAG, LOCATION_SECURITY_ERROR, e);
             Toast.makeText(context, "Exception setting mock GPS location: " + LOCATION_SECURITY_ERROR, Toast.LENGTH_LONG).show();
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_UPDATE_TIME, LOCATION_UPDATE_DISTANCE,
+                                                   locationCallback);
          }
       }
-      locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_UPDATE_TIME, LOCATION_UPDATE_DISTANCE,
-                                             locationCallback);
+      else if (! isDebugging)
+      {
+         Toast.makeText(context, "Cannot use mock location in non-debug mode", Toast.LENGTH_LONG).show();
+         return;
+
+      }
    }
 
    private void onStopLocationThread()

@@ -82,8 +82,8 @@ public abstract class OrientationProvider implements SensorEventListener
 
    protected boolean isStarted = false;
    public boolean isStarted() { return isStarted; }
-   volatile protected boolean isSuspended = false;
-   public void setSuspended(boolean isSuspended) { this.isSuspended = isSuspended; }
+   volatile protected boolean isSuspended = false, isExternalSuspended = false;
+   public void setSuspended(boolean isSuspended) { this.isSuspended = isSuspended; isExternalSuspended = isSuspended; }
 
    /**
     * Starts the sensor fusion (e.g. when resuming the activity)
@@ -122,7 +122,16 @@ public abstract class OrientationProvider implements SensorEventListener
    }
 
    @Override
-   public void onAccuracyChanged(Sensor sensor, int accuracy)  {  }
+   public void onAccuracyChanged(Sensor sensor, int accuracy)
+   //--------------------------------------------------------
+   {
+      if (isExternalSuspended) return;
+      if ( (accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE) ||
+           (accuracy == SensorManager.SENSOR_STATUS_ACCURACY_LOW) )
+         isSuspended = true;
+      else if (isSuspended)
+         isSuspended = false;
+   }
 
    /**
     * @return Returns the current rotation of the device in the rotation matrix format (4x4 matrix)

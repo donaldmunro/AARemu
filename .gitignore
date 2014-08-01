@@ -12,5 +12,7 @@ other/
 *.o
 core.*
 *.swp
+*.hprof
 ARemRecorder/jni/test-rgb
 ARemRecorder/jni/test-rgb565
+.keystore/

@@ -340,8 +340,7 @@ public class RecorderActivity extends Activity
          }
 
          @Override public void onNothingSelected(AdapterView<?> parent) { }
-      }
-                                                        );
+      });
       resolutionsSpinner.setSelection(currentResolutionIndex);
       final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
       incrementSpinner.setSelection(2);
