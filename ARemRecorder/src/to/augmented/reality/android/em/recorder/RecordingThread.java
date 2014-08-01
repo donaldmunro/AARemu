@@ -29,7 +29,7 @@ public class RecordingThread implements Runnable, Freezeable
 //==========================================================
 {
    static final private String TAG = RecordingThread.class.getSimpleName();
-   static final private long FRAME_BLOCK_TIME_MS = 100, FRAME_BLOCK_TIME_NS = 100000000L;
+   static final private long FRAME_BLOCK_TIME_MS = 110, FRAME_BLOCK_TIME_NS = 110000000L;
    static final private int FRAMEWRITE_QUEUE_SIZE = 3;
 
    private GLRecorderRenderer renderer;
@@ -194,7 +194,7 @@ public class RecordingThread implements Runnable, Freezeable
                      continue;
                   }
                   frameCondVar.close();
-                  final long ts = previewer.getBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS, previewBuffer);
+                  final long ts = previewer.getBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS + 10000000L, previewBuffer);
                   if (ts > now)
                   {
                      //                     Log.d(TAG, "Search: found " + bearing + " " + ts);
