@@ -344,7 +344,7 @@ public class RecorderActivity extends Activity
                                                         );
       resolutionsSpinner.setSelection(currentResolutionIndex);
       final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
-      incrementSpinner.setSelection(1);
+      incrementSpinner.setSelection(2);
       final Spinner orientationSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_sensors);
       ORIENTATION_PROVIDER[] orientationProviders = ORIENTATION_PROVIDER.values();
       String[] orientationProviderNames = new String[orientationProviders.length];

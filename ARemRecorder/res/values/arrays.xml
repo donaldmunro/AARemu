@@ -2,6 +2,7 @@
 <resources>
    <string-array name="increment_values">
       <item>0.5</item>
+      <item>0.8</item>
       <item>1</item>
       <item>1.5</item>
       <item>2</item>
