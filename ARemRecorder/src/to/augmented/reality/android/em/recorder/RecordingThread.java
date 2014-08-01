@@ -29,7 +29,7 @@ public class RecordingThread implements Runnable, Freezeable
 //==========================================================
 {
    static final private String TAG = RecordingThread.class.getSimpleName();
-   static final private long FRAME_BLOCK_TIME_MS = 70, FRAME_BLOCK_TIME_NS = 70000000L;
+   static final private long FRAME_BLOCK_TIME_MS = 100, FRAME_BLOCK_TIME_NS = 100000000L;
    static final private int FRAMEWRITE_QUEUE_SIZE = 3;
 
    private GLRecorderRenderer renderer;
@@ -136,7 +136,6 @@ public class RecordingThread implements Runnable, Freezeable
       Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
       if (! isStartRecording)
          startFrameWriter();
-      BearingRingBuffer.RingBufferContent content = null;
       renderer.isArrowRed = true;
       if (previewBuffer == null)
          previewBuffer = renderer.previewBuffer;
@@ -151,15 +150,13 @@ public class RecordingThread implements Runnable, Freezeable
                continue;
             }
             recordingCondVar.close();
-            content = bearingBuffer.peekHead();
+            float bearing = bearingBuffer.peekLatestBearing();
             if ( (! renderer.isRecording) || (renderer.mustStopNow))
                break;
-            if (content == null)
+            if (bearing < 0)
                continue;
-            final float bearing = content.bearing;
-            final long bearingTimestamp = content.timestamp;
             if (isStartRecording)
-               checkStartRecording(bearing, bearingTimestamp);
+               checkStartRecording(bearing);
             else
             {
                //               Log.d(TAG, "Search: " + recordingCurrentBearing + " - " + recordingNextBearing);
@@ -190,7 +187,7 @@ public class RecordingThread implements Runnable, Freezeable
                   frameCondVar.close();
                   final long now = SystemClock.elapsedRealtimeNanos();
                   previewer.bufferOn();
-                  if ((! frameCondVar.block(FRAME_BLOCK_TIME_MS)) || (previewer.getBufferSize() == 0))
+                  if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
                   {
                      activity.onBearingChanged(bearing, recordingNextBearing, renderer.isArrowRed, true);
                      renderer.requestRender();
@@ -226,14 +223,17 @@ public class RecordingThread implements Runnable, Freezeable
                         break;
                      }
                      lastFrameTimestamp = ts;
-                  } else
+                  }
+                  else
                   {
+                     bearing = bearingBuffer.peekLatestBearing();
                      if (bearing > recordingNextBearing)
                      {
                         renderer.arrowRotation = 180;
                         renderer.isArrowRed = true;
                         lastFrameTimestamp++;
-                     } else
+                     }
+                     else
                      {
                         renderer.arrowRotation = 0;
                         renderer.isArrowRed = false;
@@ -276,8 +276,8 @@ public class RecordingThread implements Runnable, Freezeable
       }
    }
 
-   private boolean checkStartRecording(final float bearing, final long bearingTimestamp)
-   //------------------------------------------------------------------------------
+   private boolean checkStartRecording(final float bearing)
+   //------------------------------------------------------
    {
       long ts;
       if ( (bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing) )

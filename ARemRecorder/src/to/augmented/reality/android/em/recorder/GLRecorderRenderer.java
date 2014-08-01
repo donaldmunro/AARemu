@@ -136,7 +136,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    String lastError = null;
 
-   private RecordFileFormat recordFileFormat = RecordFileFormat.RGB;
+   private RecordFileFormat recordFileFormat = RecordFileFormat.RGBA;
    public void setRecordFileFormat(RecordFileFormat recordFileFormat) { this.recordFileFormat = recordFileFormat; }
    public RecordFileFormat getRecordFileFormat() { return recordFileFormat; }
    private ConditionVariable recordingCondVar = null, frameCondVar = null;
@@ -1251,6 +1251,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       {
          if ((recordFramesFile == null) || (! recordFramesFile.exists()) && (recordFramesFile.length() == 0))
             return true;
+         if (isCancelled)
+         {
+            recordFramesFile.delete();
+            return true;
+         }
          if ( (recordFileName == null) || (recordFileName.trim().isEmpty()) )
          {
             String name = recordFramesFile.getName();
@@ -1295,8 +1300,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                recordFramesFileOld.delete();
          }
 
-         recordHeader.put("Location", String.format("%12.7f,%12.7f,%12.7f", recordLocation.getLatitude(),
+         if (recordLocation != null)
+            recordHeader.put("Location", String.format("%12.7f,%12.7f,%12.7f", recordLocation.getLatitude(),
                                                     recordLocation.getLongitude(), recordLocation.getAltitude()));
+         if (recordFileFormat == null)
+            recordFileFormat = RecordFileFormat.RGBA;
          switch (recordFileFormat)
          {
             case RGB:      recordHeader.put("BufferSize", Integer.toString(rgbBufferSize)); break;
@@ -1311,11 +1319,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          recordHeader.put("fovx", Float.toString(fovx));
          recordHeader.put("fovy", Float.toString(fovy));
          recordHeader.put("FileFormat", recordFileFormat.name());
-         recordHeader.put("OrientationProvider", orientationProviderType.name());
+         recordHeader.put("OrientationProvider",  (orientationProviderType == null) ? ORIENTATION_PROVIDER.DEFAULT.name()
+                                                                                    : orientationProviderType.name());
          recordHeader.put("FramesFile", recordFramesFile.getName());
-         if (recordLocation != null)
-            recordHeader.put("Location", String.format("%12.7f,%12.7f", recordLocation.getLatitude(),
-                                                       recordLocation.getLongitude()));
+
          recordHeaderFile = new File(recordDir, recordFileName + ".head");
          PrintWriter headerWriter = null;
          try
@@ -1340,6 +1347,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
          isStopRecording = false;
          activity.stoppedRecording(recordHeaderFile, recordFramesFile, isCancelled);
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "Error saving recording", e);
+         toast("Error saving recording: " + e.getMessage());
       }
       finally
       {
@@ -1588,7 +1600,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   settleCount = 3;
                   return;
                }
-               if ( (absDelta >= 0.00001) && (absDelta < 1) )
+               if (absDelta >= 0.01f)
                {
                   bearingBuffer.push(timestamp, currentBearing);
                   recordingCondVar.open();

@@ -267,8 +267,14 @@ public class RecorderActivity extends Activity
             else
             {
                stopRecordingPool.submit(new Runnable()
+               //=====================================
                {
-                  @Override public void run() { previewSurface.stopRecording(true); }
+                  @Override public void run()
+                  //-------------------------
+                  {
+                     previewSurface.stopRecording(true);
+                     stoppedRecording(null, null, true);
+                  }
                });
             }
          }
@@ -478,21 +484,25 @@ public class RecorderActivity extends Activity
          {
             recordButton.setImageResource(R.drawable.record_green);
             statusProgress.setProgress(0);
-            statusText.setText("Saved " + recordHeaderFile.getName() + ", " + recordFramesFile.getName() + " in " +
-                                     recordFramesFile.getParentFile().getAbsolutePath());
-          bearingDestLabel.setVisibility(View.INVISIBLE);
-          bearingDestText.setVisibility(View.INVISIBLE);
-          statusProgress.setVisibility(View.INVISIBLE);
-          statusText.setVisibility(View.INVISIBLE);
-          locationLabel.setVisibility(View.INVISIBLE);
-          locationText.setVisibility(View.INVISIBLE);
 
-            if ( (recordHeaderFile != null) && (recordHeaderFile.exists()) && (recordHeaderFile.length() > 0) &&
-                  (recordFramesFile != null) && (recordFramesFile.exists()) && (recordFramesFile.length() > 0) )
-               Toast.makeText(RecorderActivity.this, String.format(Locale.US, "Saved recording to %s, %s",
-                                                                   recordHeaderFile.getAbsolutePath(),
-                                                                   recordFramesFile.getAbsolutePath()),
-                              Toast.LENGTH_LONG).show();
+             bearingDestLabel.setVisibility(View.INVISIBLE);
+             bearingDestText.setVisibility(View.INVISIBLE);
+             statusProgress.setVisibility(View.INVISIBLE);
+             statusText.setVisibility(View.INVISIBLE);
+             locationLabel.setVisibility(View.INVISIBLE);
+             locationText.setVisibility(View.INVISIBLE);
+
+               if ( (recordHeaderFile != null) && (recordHeaderFile.exists()) && (recordHeaderFile.length() > 0) &&
+                     (recordFramesFile != null) && (recordFramesFile.exists()) && (recordFramesFile.length() > 0) )
+               {
+                  Toast.makeText(RecorderActivity.this, String.format(Locale.US, "Saved recording to %s, %s",
+                                                                      recordHeaderFile.getAbsolutePath(),
+                                                                      recordFramesFile.getAbsolutePath()),
+                                 Toast.LENGTH_LONG).show();
+                  statusText.setText(
+                        "Saved " + recordHeaderFile.getName() + ", " + recordFramesFile.getName() + " in " +
+                              recordFramesFile.getParentFile().getAbsolutePath());
+               }
          }
       });
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
