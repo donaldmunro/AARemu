@@ -76,6 +76,12 @@ recording keeping the <b>device at a constant vertical angle</b> and <b>rotating
 reduce the number of corrections required is important. The direction of movement can seemingly also
 sometimes affect bearing accuracy which is why during correction the target bearing is set to 5 degrees
 before the target bearing to ensure that the target bearing is always approached from the same side.
+
+If the bearings seem suspect before starting recording then it may improve if the sensors are "calibrated"
+by waving the device in a figure of eight as seen in this [video](https://www.youtube.com/watch?v=sP3d00Hr14o).
+OTOH this may be an old wives tale, YMMV. If the bearings suddenly deviate by a large amount during the 
+recording then it may be best to cancel the recording (press the recording button again) and start again.
+
 The recording options allow 0.5, 1, 1,5 and 2 degree increments, however 0.5 degree recordings can be
 difficult possibly because the accuracy required is just within hardware limits which is why the default
 is 1 degree increments.
