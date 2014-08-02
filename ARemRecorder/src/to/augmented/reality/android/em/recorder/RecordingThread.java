@@ -296,19 +296,19 @@ public class RecordingThread implements Runnable, Freezeable
          frameCondVar.close();
          final long now = SystemClock.elapsedRealtimeNanos();
          previewer.bufferOn();
-         if ( (! frameCondVar.block(FRAME_BLOCK_TIME_MS)) || (previewer.getBufferSize() == 0) )
+         if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
          {
             activity.onBearingChanged(bearing, 0, true, false);
             return false;
          }
          frameCondVar.close();
 //         Log.d(TAG, "Buffer: " + previewer.dumpBuffer());
-         ts = previewer.getBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS, previewBuffer);
+         ts = previewer.getBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS + 10000000L, previewBuffer);
          if (ts < now)
          {
             if (ts > 0)
                lastFrameTimestamp = ts;
-            if ((360 - bearing) > 180)
+            if (bearing > 270)
                renderer.arrowRotation = 0;
             else
                renderer.arrowRotation = 180;
