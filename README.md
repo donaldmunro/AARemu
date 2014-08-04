@@ -1,4 +1,3 @@
-[See also](http://donaldmunro.github.io/ARem/)
 Description
 ===========
  ARem is a software tool enabling simulation of Augmented Reality
@@ -38,8 +37,8 @@ available on Google Play).
 
 The recorder displays the camera output in full screen mode with a interface drawer on the left border
 of the display which can be dragged out. To start recording drag the drawer out and click the recording
-button. At start of recording the user is asked to provide a name for the recording files, a file format,
-resolution, recording increment and which orientation sensor implementation to use.
+button. At start of recording the user is asked to provide a name for the recording files, a recording method, 
+file format, resolution, recording increment and which orientation sensor implementation to use. 
 
 The file format can currently be one of RGBA, RGB, RGB565, NV21 and YV12.
 While resulting in larger files RGBA is preferred as GPU texture units
@@ -52,13 +51,13 @@ expanded to align to 4 bytes in the recorder code). If NV21 or YV12 is chosen th
 of the implementation using the recording to convert to RGBA with an obvious time penalty
 (see the source for how to use Renderscript intrinsics to convert).
 
-
 The resolution can be selected in a spinner which provides all of the resolutions
 supported by the device. The recording increment specifies the bearing increment
 between which frames are saved. The Rotation sensor specifies which orientation sensor
 fusion method to use for calculating the device orientation and bearing. The sensor fusion
 code is based on work done by Alexander Pacha for his Masters thesis (see Credits below).
 
+The recording methods are currently Retry and Traverse until Complete. The retry method works as follows:
 Once recording the interface drawer displays the current bearing and the target bearing. At the start of the
 recording the target is set to 355 in order to start at 0 approaching in a clockwise direction. The camera
 output surface displays an overlaid arrow with the direction of movement which is red if correcting and
@@ -68,12 +67,25 @@ for a bearing increment then the target bearing is reset to 5 degrees before the
 color changes to red until the user corrects. At completion of recording the recording frame file which was
 temporarily saved in NV21 format is converted into the final format.
 
+In contrast to the Retry recording method, the Traverse recording method allows starting recording from the
+ current location instead of first moving to zero. An overlaid arrow indicates the direction of movement while
+ recording. At the start of recording all bearings are added to a set of remaining bearings. As bearings as processed
+ and saved they are removed from this set. Missed bearings do not cause the user to be prompted to move back to
+ attempt to record the missing bearing, instead missed bearings are picked up in subsequent traversals, ie more than 
+ one 360 degree traversal may be required to complete the recording. On subsequent traversals the overlaid arrow
+  will be blue for bearings which have already been processed, but will change to green 5 degrees before
+  encountering a bearing that was missed in the previous traversal.
+ 
+For both methods keeping the device at a constant vertical angle and rotating slowly and smoothly is important
+for accurate recording. For the traversal method also try to keep the movement continually in a clockwise
+direction with no reversals.
+
 <h3>Issues, Caveats and Recommendations</h3>
 The two main issues are the stability of the compass bearing sensors and ensuring that the frame that gets
 saved for a given bearing is the correct frame for that bearing. Even when using enhanced fusion sensor
 techniques the bearings can sometimes drift which can give the appearance of "frame jump" in a recording. When
-recording keeping the <b>device at a constant vertical angle</b> and <b>rotating slowly and smoothly</b> to
-reduce the number of corrections required is important. The direction of movement can seemingly also
+recording keeping the <b>device at a constant vertical angle</b> and <b>rotating slowly and smoothly</b> 
+is important. The direction of movement can seemingly also
 sometimes affect bearing accuracy which is why during correction the target bearing is set to 5 degrees
 before the target bearing to ensure that the target bearing is always approached from the same side.
 
@@ -157,5 +169,5 @@ Apache license. See their [Github site](https://github.com/doubletwist/adrawerla
     Gyroscope/Accelerometer/Magnet sensor is based on code by Kaleb Kircher
     (See his <a href="http://www.kircherelectronics.com/blog/index.php/11-android/sensors/16-android-gyroscope-fusion">blog</a>).
 </p>
-</body>
-</html>
+
+[Web Page](http://donaldmunro.github.io/ARem/) (currently just an html version of this document).

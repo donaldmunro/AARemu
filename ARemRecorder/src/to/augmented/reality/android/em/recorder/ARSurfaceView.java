@@ -154,7 +154,11 @@ public class ARSurfaceView extends GLSurfaceView
 
    public boolean isStoppingRecording() { return (renderer == null) ? false : renderer.isStopRecording; }
 
-   public boolean startRecording(File dir, String name, float increment) { return renderer.startRecording(dir, name, increment); }
+   public boolean startRecording(File dir, String name, float increment, GLRecorderRenderer.RecordMode mode)
+   //-------------------------------------------------------------------------------------------------------
+   {
+      return renderer.startRecording(dir, name, increment, mode);
+   }
 
    public void stopRecording(final boolean isCancelled) { renderer.stopRecording(isCancelled);}
 

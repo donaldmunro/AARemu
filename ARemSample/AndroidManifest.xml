@@ -23,7 +23,7 @@
    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
    <!--Comment the ACCESS_MOCK_LOCATION out for release builds - it seems more hassle than its worth to create a new flavour/build type />-->
-   <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" />
+   <!--<uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" />-->
    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 
    <uses-feature android:name="android.hardware.camera" />

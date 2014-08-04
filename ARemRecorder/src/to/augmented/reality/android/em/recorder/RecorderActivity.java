@@ -112,7 +112,8 @@ public class RecorderActivity extends Activity
    //===================================================
    {
       volatile public float bearing, targetBearing = -1;
-      volatile public boolean isRed = false, isProgress = false;
+      volatile public float[] arrowColor = null;
+      public int progress = -1;
 
       @Override public void run()
       //-------------------------
@@ -121,14 +122,16 @@ public class RecorderActivity extends Activity
          if (targetBearing >= 0)
          {
             Spannable destSpan = new SpannableString(String.format("%.4f", targetBearing));
-            ForegroundColorSpan spanColor = (isRed) ? new ForegroundColorSpan(Color.RED) : new ForegroundColorSpan(Color.GREEN);
+            final ForegroundColorSpan spanColor;
+            if (arrowColor != null)
+               spanColor = new ForegroundColorSpan(Color.argb(255, (int) (arrowColor[0]*255.0), (int) (arrowColor[1]*255.0),
+                                                              (int) (arrowColor[2]*255.0)));
+            else
+               spanColor = new ForegroundColorSpan(Color.GREEN);
             destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             bearingDestText.setText(destSpan);
-            if (isProgress)
-            {
-               int progress = (int) ((targetBearing / 360.0f) * 100f);
+            if (progress >= 0)
                statusProgress.setProgress(progress);
-            }
          }
       }
    };
@@ -342,6 +345,7 @@ public class RecorderActivity extends Activity
          @Override public void onNothingSelected(AdapterView<?> parent) { }
       });
       resolutionsSpinner.setSelection(currentResolutionIndex);
+      final Spinner modeSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_mode);
       final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
       incrementSpinner.setSelection(2);
       final Spinner orientationSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_sensors);
@@ -378,6 +382,13 @@ public class RecorderActivity extends Activity
             final String fileFormat = (String) formatSpinner.getSelectedItem();
             final File headerFile = new File(DIR, name + ".head");
             final File framesFile = new File(DIR, name + ".frames");
+            final GLRecorderRenderer.RecordMode mode;
+            s = (String) modeSpinner.getSelectedItem();
+            String[] modes = getResources().getStringArray(R.array.recording_modes);
+            if (s.equalsIgnoreCase(modes[0]))
+               mode = GLRecorderRenderer.RecordMode.RETRY;
+            else
+               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
             if (headerFile.exists())
             {
                final AlertDialog overwriteDialog = new AlertDialog.Builder(RecorderActivity.this).
@@ -409,12 +420,16 @@ public class RecorderActivity extends Activity
                      overwriteDialog.dismiss();
                      int[] wh = resolutionSpinnerAdapter.getWidthHeight(currentResolutionIndex);
                      previewSurface.startPreview(wh[0], wh[1]);
-                     startRecording(name, increment, orientationSensorType, fileFormat);
+                     startRecording(name, increment, orientationSensorType, fileFormat, mode);
                   }
                });
                overwriteDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener()
                {
-                  @Override public void onClick(DialogInterface dialog, int which) { isStartRecording = false; overwriteDialog.dismiss(); }
+                  @Override public void onClick(DialogInterface dialog, int which)
+                  {
+                     isStartRecording = false;
+                     overwriteDialog.dismiss();
+                  }
                });
                overwriteDialog.show();
             } else
@@ -422,7 +437,7 @@ public class RecorderActivity extends Activity
                recordDialog.dismiss();
                int[] wh = resolutionSpinnerAdapter.getWidthHeight(currentResolutionIndex);
                previewSurface.startPreview(wh[0], wh[1]);
-               startRecording(name, increment, orientationSensorType, fileFormat);
+               startRecording(name, increment, orientationSensorType, fileFormat, mode);
             }
          }
       });
@@ -442,7 +457,8 @@ public class RecorderActivity extends Activity
 
    private String inhuman(String s) { return s.toUpperCase().replace(" ", "_"); }
 
-   private void startRecording(String name, float increment, String orientationType, String fileFormat)
+   private void startRecording(String name, float increment, String orientationType, String fileFormat,
+                               GLRecorderRenderer.RecordMode mode)
    //--------------------------------------------------------------------------------------------------
    {
       recordDialog = null;
@@ -455,7 +471,7 @@ public class RecorderActivity extends Activity
       statusText.setVisibility(View.VISIBLE);
       locationLabel.setVisibility(View.VISIBLE);
       locationText.setVisibility(View.VISIBLE);
-      isRecording = previewSurface.startRecording(DIR, name, increment);
+      isRecording = previewSurface.startRecording(DIR, name, increment, mode);
       isStartRecording = false;
       if (isRecording)
       {
@@ -686,15 +702,16 @@ public class RecorderActivity extends Activity
       runOnUiThread(updateLocationRunner);
    }
 
-   public void onBearingChanged(final float bearing, final float targetBearing, final boolean isRed, final boolean isProgress)
+   public void onBearingChanged(final float bearing, final float targetBearing, final float[] arrowColor,
+                                final int progress)
    //----------------------------------------------------------------------------------------------
    {
       if (! isDrawerOpen)
          return;
       updateBearingRunner.bearing = bearing;
       updateBearingRunner.targetBearing = targetBearing;
-      updateBearingRunner.isRed = isRed;
-      updateBearingRunner.isProgress = isProgress;
+      updateBearingRunner.arrowColor = arrowColor;
+      updateBearingRunner.progress = progress;
       runOnUiThread(updateBearingRunner);
 
    }

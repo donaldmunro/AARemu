@@ -7,7 +7,7 @@
 >
    <RelativeLayout
          android:id="@+id/layout_name"
-         android:layout_height="35sp"
+         android:layout_height="32sp"
          android:layout_width="match_parent"
          >
       <TextView
@@ -22,7 +22,7 @@
 
       <EditText
             android:id="@+id/text_recording_name"
-            android:layout_height="30sp"
+            android:layout_height="29sp"
             android:layout_width="match_parent"
             android:layout_toRightOf="@+id/label_recording_name"
             android:background="@android:color/holo_blue_dark"
@@ -31,7 +31,7 @@
 
    <RelativeLayout
          android:id="@+id/layout_format"
-         android:layout_height="40sp"
+         android:layout_height="38sp"
          android:layout_width="match_parent"
          android:layout_below="@+id/layout_name"
          >
@@ -68,10 +68,48 @@
    </RelativeLayout>
 
    <RelativeLayout
-         android:id="@+id/layout_resolutions"
-         android:layout_height="40sp"
+         android:id="@+id/layout_mode"
+         android:layout_height="38sp"
          android:layout_width="match_parent"
          android:layout_below="@+id/layout_format"
+         >
+      <TextView
+            android:id="@+id/label_mode"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Recording"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <TextView
+            android:id="@+id/label_mode2"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:layout_below="@+id/label_mode"
+            android:text="Mode"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <Spinner
+            android:id="@+id/spinner_mode"
+            android:layout_height="36sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_mode"
+            android:prompt="@string/recording_mode"
+            android:contentDescription="@string/recording_mode"
+            android:spinnerStyle="@android:style/Widget.Spinner.DropDown"
+            android:drawSelectorOnTop="true"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:background="@android:color/holo_blue_dark"
+            android:entries="@array/recording_modes"
+            />
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_resolutions"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_mode"
 
     >
       <TextView
@@ -100,7 +138,7 @@
 
    <RelativeLayout
          android:id="@+id/layout_increments"
-         android:layout_height="40sp"
+         android:layout_height="38sp"
          android:layout_width="match_parent"
          android:layout_below="@+id/layout_resolutions"
          >
@@ -129,7 +167,7 @@
 
    <RelativeLayout
          android:id="@+id/layout_sensor"
-         android:layout_height="40sp"
+         android:layout_height="38sp"
          android:layout_width="match_parent"
          android:layout_below="@+id/layout_increments"
          >

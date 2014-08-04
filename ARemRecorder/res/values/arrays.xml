@@ -26,4 +26,8 @@
    <string-array name="empty_values">
       <item></item>
    </string-array>
+   <string-array name="recording_modes">
+      <item>Retry Missed Bearings</item>
+      <item>Multiple Traversals</item>
+   </string-array>
 </resources>

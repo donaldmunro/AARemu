@@ -21,8 +21,8 @@ import android.os.ConditionVariable;
 import android.os.SystemClock;
 import android.util.Log;
 
-class CameraPreviewConvertCallback implements Camera.PreviewCallback
-//==================================================================
+public class CameraPreviewConvertCallback implements Camera.PreviewCallback
+//=========================================================================
 {
    final static private String TAG = CameraPreviewConvertCallback.class.getSimpleName();
    final static private int RINGBUFFER_SIZE = 3;
@@ -83,7 +83,7 @@ class CameraPreviewConvertCallback implements Camera.PreviewCallback
 
    public long getLastBuffer(byte[] buffer) { synchronized(this) { return ringBuffer.peek(buffer); } }
 
-   public long getBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
+   public long findBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
    {
       return ringBuffer.find(timestampNS, epsilonNS, buffer);
    }

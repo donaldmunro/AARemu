@@ -56,6 +56,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //========================================================================================================
 {
    public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
+   public enum RecordMode { RETRY, TRAVERSE }
 
    private static final String TAG = GLRecorderRenderer.class.getSimpleName();
    private static final String VERTEX_SHADER = "vertex.glsl";
@@ -115,7 +116,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       return screenHeight;
    }
 
-   byte[] cameraBuffer = null, previewBuffer = null; //, rgbaBuffer = null;
+   byte[] cameraBuffer = null;
 
    final private ByteBuffer previewPlaneVertices =
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 12).order(ByteOrder.nativeOrder());
@@ -136,6 +137,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    String lastError = null;
 
+   private RecordMode recordingMode = null;
    private RecordFileFormat recordFileFormat = RecordFileFormat.RGBA;
    public void setRecordFileFormat(RecordFileFormat recordFileFormat) { this.recordFileFormat = recordFileFormat; }
    public RecordFileFormat getRecordFileFormat() { return recordFileFormat; }
@@ -163,7 +165,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    private Future<?> recordingFuture;
    private RecordingThread recordingThread;
-   boolean isArrowRed = true;
+   static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f };
+   float[] arrowColor = GREEN;
    float arrowRotation = 0.0f;
 
    public void getLastBuffer(byte[] buffer) { previewer.getLastBuffer(buffer); }
@@ -317,6 +320,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       B.putBoolean("isRecording", isRecording);
       B.putBoolean("isStopRecording", isStopRecording);
+      if ( (isRecording) && (recordingMode != null) )
+         B.putString("recordingMode", recordingMode.name());
       B.putInt("previewWidth", previewWidth);
       B.putInt("previewHeight", previewHeight);
       B.putInt("displayWidth", displayWidth);
@@ -390,14 +395,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       previewHeight = B.getInt("previewHeight");
       displayWidth = B.getInt("displayWidth");
       displayHeight = B.getInt("displayHeight");
-      if (isRecording)
-      {
-         if (recordingThread == null)
-         {
-            recordingThread = new RecordingThread(this, recordingCondVar, frameCondVar, bearingBuffer);
-            recordingThread.restore(B);
-         }
-      }
       rgbaBufferSize = B.getInt("rgbaBufferSize");
       rgbBufferSize = B.getInt("rgbBufferSize");
       rgb565BufferSize = B.getInt("rgb565BufferSize");
@@ -428,6 +425,16 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          recordFramesFile = new File(recordFramesFileName);
       recordFileName = B.getString("recordFileName", null);
       lastSaveBearing = B.getFloat("lastSaveBearing", 0);
+      if (isRecording)
+      {
+         try { recordingMode = RecordMode.valueOf(B.getString("recordingMode")); } catch (Exception _e) { recordingMode = null; }
+            if ( (recordingThread == null) && (recordingMode != null) )
+         {
+            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
+            recordingThread.restore(B);
+         }
+      }
+      lastInstanceState = B;
    }
 
    protected void resume()
@@ -440,12 +447,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       if (isStopRecording)
       {
          if (recordingThread == null)
-         {
-            recordingThread = new RecordingThread(this);
-            recordingThread.restore(lastInstanceState);
-         }
+            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
          else
-            recordingThread.restore(lastInstanceState);
+         recordingThread.restore(lastInstanceState);
          isRecording = true;
          ExecutorService stopRecordingPool =  Executors.newSingleThreadExecutor();
          stopRecordingPool.submit(new Runnable()
@@ -493,7 +497,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       nv21BufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
       previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
       cameraBuffer = new byte[nv21BufferSize];
-      previewBuffer = new byte[nv21BufferSize];
 
       if (DIRECT_TO_SURFACE)
       {
@@ -991,10 +994,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             Matrix.multiplyMM(arrowMVP, 0, projectionM, 0, arrowModelView, 0);
             glUseProgram(arrowShaderGlsl.shaderProgram);
             glUniformMatrix4fv(arrowMVPLocation, 1, false, arrowMVP, 0);
-            if (isArrowRed)
-               glUniform3f(arrowColorUniform, 1, 0, 0);
-            else
-               glUniform3f(arrowColorUniform, 0, 1, 0);
+            glUniform3f(arrowColorUniform, arrowColor[0], arrowColor[1], arrowColor[2]);
             arrowVerticesBuffer.rewind();
             glVertexAttribPointer(arrowShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, arrowVerticesBuffer);
             glEnableVertexAttribArray(arrowShaderGlsl.vertexAttr);
@@ -1160,8 +1160,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    String recordFileName;
    final Map<String, Object> recordHeader = new HashMap<String, Object>();
 
-   public boolean startRecording(File dir, String name, float increment)
-   //------------------------------------------------------------------
+   public boolean startRecording(File dir, String name, float increment, RecordMode mode)
+   //-------------------------------------------------------------------------------------
    {
       if (isRecording) return false;
       if (! dir.isDirectory())
@@ -1190,7 +1190,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       isRecording = true;
       recordingCondVar = new ConditionVariable(false);
       frameCondVar  = new ConditionVariable(false);
-      recordingThread = new RecordingThread(this, increment, recordingCondVar, frameCondVar, bearingBuffer);
+      this.recordingMode = mode;
+      recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar, frameCondVar);
       previewer.setFrameAvailableCondVar(frameCondVar);
       previewer.bufferOn();
       recordingFuture = recordingExecutor.submit(recordingThread);
@@ -1205,15 +1206,17 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       previewer.setFrameAvailableCondVar(frameCondVar);
       previewer.bufferOn();
       arrowRotation = 0;
-      isArrowRed = false;
+      arrowColor = GREEN;
       if ((recordingFuture == null) || (recordingFuture.isCancelled()) || (recordingFuture.isDone()))
       {
          if (recordingThread == null)
-            recordingThread = new RecordingThread(this, recordingCondVar, frameCondVar, bearingBuffer);
-         else
-            recordingThread.setBearingBuffer(bearingBuffer).setRecordingCondVar(recordingCondVar).
-                            setFrameCondVar(frameCondVar).setPreviewBuffer(previewBuffer).setPreviewer(previewer);
+         {
+            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
+            recordingThread.restore(B);
+         }
          recordingThread.restore(B);
+         recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
+                         setFrameCondVar(frameCondVar).setPreviewer(previewer);
          recordingExecutor = createRecordingExecutor();
          recordingFuture = recordingExecutor.submit(recordingThread);
       }
@@ -1355,7 +1358,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
       finally
       {
-         isArrowRed = false;
+         arrowColor = GREEN;
          arrowRotation = 0;
          recordFramesFile = null;
          recordFileName = null;
@@ -1445,7 +1448,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          NV21toRGBOutputRAF = new RandomAccessFile(dest, "rw");
          float bearing = lastSaveBearing;
          long frameCount = 0;
-         while ( (bearing <= 360) && (! mustStopNow) )
+         while ( (bearing < 360) && (! mustStopNow) )
          {
             lastSaveBearing = bearing;
             float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
@@ -1584,12 +1587,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   isSettling = false;
                else
                {
-                  activity.onBearingChanged(currentBearing, recordingThread.getNextBearing(), isArrowRed, false);
+                  activity.onBearingChanged(currentBearing, recordingThread.getNextBearing(), arrowColor, -1);
                   return;
                }
             }
             if (! isRecording)
-               activity.onBearingChanged(currentBearing, -1, false, false);
+               activity.onBearingChanged(currentBearing, -1, null, -1);
             else
             {
                bearingDelta = currentBearing - lastBearing;
