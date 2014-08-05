@@ -215,7 +215,7 @@ public class RetryRecordingThread extends RecordingThread implements Runnable, F
       {
          Log.e(TAG, "", e);
          renderer.stopRecording(true);
-         activity.updateStatus("Exception in Record thread", 100, true, Toast.LENGTH_LONG);
+         activity.updateStatus("Exception in Record thread: " + e.getMessage(), 100, true, Toast.LENGTH_LONG);
          renderer.isRecording = false;
       }
       finally

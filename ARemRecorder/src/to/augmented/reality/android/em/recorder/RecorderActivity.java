@@ -130,9 +130,11 @@ public class RecorderActivity extends Activity
                spanColor = new ForegroundColorSpan(Color.GREEN);
             destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             bearingDestText.setText(destSpan);
-            if (progress >= 0)
-               statusProgress.setProgress(progress);
          }
+         else
+            bearingDestText.setText("");
+         if (progress >= 0)
+            statusProgress.setProgress(progress);
       }
    };
    final private UpdateBearingRunner updateBearingRunner = new UpdateBearingRunner();
@@ -269,16 +271,41 @@ public class RecorderActivity extends Activity
                startRecording();
             else
             {
-               stopRecordingPool.submit(new Runnable()
-               //=====================================
+               final AlertDialog partialSaveDialog = new AlertDialog.Builder(RecorderActivity.this).setTitle("Partial Save").
+                                                     setMessage("Save incomplete recording").create();
+               partialSaveDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Yes", new DialogInterface.OnClickListener()
                {
-                  @Override public void run()
-                  //-------------------------
+                  @Override
+                  public void onClick(DialogInterface dialog, int which)
+                  //----------------------------------------------------
                   {
-                     previewSurface.stopRecording(true);
-                     stoppedRecording(null, null, true);
+                     stopRecordingPool.submit(new Runnable()
+                     //=====================================
+                     {
+                        @Override public void run() { previewSurface.stopRecording(false); }
+                     });
                   }
                });
+               partialSaveDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "No", new DialogInterface.OnClickListener()
+               {
+                  @Override
+                  public void onClick(DialogInterface dialog, int which)
+                  //----------------------------------------------------
+                  {
+                     stopRecordingPool.submit(new Runnable()
+                     //=====================================
+                     {
+                        @Override
+                        public void run()
+                        //-------------------------
+                        {
+                           previewSurface.stopRecording(true);
+                           stoppedRecording(null, null, true);
+                        }
+                     });
+                  }
+               });
+               partialSaveDialog.show();
             }
          }
       });

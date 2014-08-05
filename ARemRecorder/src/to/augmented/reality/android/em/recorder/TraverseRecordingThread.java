@@ -162,7 +162,19 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
                if (nextBearing >= 360)
                   nextBearing = 0;
                offset = (long) (Math.floor(nextBearing / recordingIncrement));
-               try { offset = remainingBearings.tailSet(offset).first(); } catch (Exception _e) { Log.e(TAG, "" + offset, _e); offset = -1; }
+               SortedSet<Long> subset = remainingBearings.tailSet(offset);
+               if (subset.isEmpty())
+               {
+                  if (nextBearing > 300)
+                     subset = remainingBearings.tailSet(0L);
+                  if (subset.isEmpty())
+                     offset = -1;
+                  else
+                     offset = subset.first();
+               }
+               else
+                  offset = subset.first();
+
 //             offset = remainingBearings.tailSet(++offset).first();
                if (offset >= 0)
                   recordingNextBearing = offset * recordingIncrement;
@@ -188,7 +200,7 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
       {
          Log.e(TAG, "", e);
          renderer.stopRecording(true);
-         activity.updateStatus("Exception in Record thread", 100, true, Toast.LENGTH_LONG);
+         activity.updateStatus("Exception in Record thread: " + e.getMessage(), 100, true, Toast.LENGTH_LONG);
          renderer.isRecording = false;
       }
       finally

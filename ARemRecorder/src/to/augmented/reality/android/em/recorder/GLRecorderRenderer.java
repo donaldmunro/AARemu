@@ -455,7 +455,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          stopRecordingPool.submit(new Runnable()
          //=====================================
          {
-            @Override public void run() { stopRecording(true); }
+            @Override public void run() { stopRecording(false); }
          });
       }
       else if (isRecording)
