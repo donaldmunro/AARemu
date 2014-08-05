@@ -4,7 +4,7 @@
     android:versionCode="1"
     android:versionName="1.0.0"
     >
-
+    <uses-sdk android:minSdkVersion="18"/>
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" />
 
@@ -22,7 +22,7 @@
         android:theme="@style/AppTheme" >
         <activity
             android:name=".RecorderActivity"
-            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:configChanges="orientation|keyboardHidden"
             android:label="@string/title_activity_recorder"
             android:screenOrientation="landscape"
             android:theme="@style/FullscreenTheme" >

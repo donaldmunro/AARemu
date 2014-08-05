@@ -3,6 +3,7 @@
     package="to.augmented.reality.android.em.sample"
     android:versionCode="1"
     android:versionName="1.0.0">
+   <uses-sdk android:minSdkVersion="18"/>
 
     <application
         android:allowBackup="true"
