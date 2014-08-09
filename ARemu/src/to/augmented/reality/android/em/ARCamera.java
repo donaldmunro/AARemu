@@ -175,14 +175,15 @@ public class ARCamera
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
     * be accessed using open() or open(int id). The Camera instance is used for delegation and to obtain an internal
-    * Camera.Size instance as Camera.Size has a private constructor.
+    * Camera.Parameter instance.
     * @param context A Context instance used to access sensor classes.
     * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
     *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
     *                 If it is the original id or the id of an existing hardware camera then the emulated camera
     *                 replaces the hadrware camera when opened using ARCamera.open(id).
     * @param camera A Camera instance is used for delegation and to obtain an internal
-    * Camera.Size instance as Camera.Size has a private constructor.
+    *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
+    *               reflection is used to obtain a Camera.Parameter.
     * @throws Exception
     */
    public ARCamera(Context context, int cameraId, Camera camera)
@@ -195,14 +196,15 @@ public class ARCamera
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
     * be accessed using open() or open(int id). The Camera instance is used for delegation and to obtain an internal
-    * Camera.Size instance as Camera.Size has a private constructor.
+    * Camera.Parameter instance.
     * @param context A Context instance used to access sensor classes.
     * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
     *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
     *                 If it is the original id or the id of an existing hardware camera then the emulated camera
     *                 replaces the hadrware camera when opened using ARCamera.open(id).
     * @param camera A Camera instance is used for delegation and to obtain an internal
-    * Camera.Size instance as Camera.Size has a private constructor.
+    *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
+    *               reflection is used to obtain a Camera.Parameter.
     * @param headerFile The recording header file of the 360 degree recording.
     * @param framesFile The recording frames file of the 360 degree recording.
     * @throws Exception
@@ -219,9 +221,7 @@ public class ARCamera
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
-    * be accessed using open() or open(int id). This constructor does not take a Camera instance so no delegation occurs
-    * and methods that return Camera.Size may return null if it proves impossible to hijack a Camera.Size instance
-    * from one of the existing hardware cameras.
+    * be accessed using open() or open(int id).
     * @param context A Context instance used to access sensor classes.
     * @param cameraId The camera id to use. It can be a id of an existing hardware camera or an id greater than the
     *                 last available hardware camera if separate ARCamera instances are desired.
@@ -233,9 +233,7 @@ public class ARCamera
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
-    * be accessed using open() or open(int id). This constructor does not take a Camera instance so no delegation occurs
-    * and methods that return Camera.Size may return null if it proves impossible to hijack a Camera.Size instance
-    * from one of the existing hardware cameras.
+    * be accessed using open() or open(int id).
     * @param context A Context instance used to access sensor classes.
     * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
     *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
@@ -712,7 +710,7 @@ public class ARCamera
          playbackFuture = playbackExecutor.submit(playbackThread);
          if (locationListener != null)
          {
-            locationHandlerThread = new LocationThread(Process.THREAD_PRIORITY_DEFAULT, this, context, locationListener);
+            locationHandlerThread = new LocationThread(Process.THREAD_PRIORITY_LESS_FAVORABLE, this, context, locationListener);
             locationHandlerThread.start();
          }
       }
@@ -807,7 +805,7 @@ public class ARCamera
        * Called when the review completes or is terminated.
        */
       void onReviewComplete();
-   };
+   }
 
    public boolean isReviewing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.isReviewing(); return false;}
    public float getReviewStartBearing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.getReviewStartBearing(); return -1; }

@@ -87,43 +87,50 @@ public class ContinuousPlaybackThread extends PlaybackThread
             for (int i=0; i<PREALLOCATED_BUFFERS; i++)
                bufferQueue.add(new byte[bufferSize]);
          }
-         long startTime = SystemClock.elapsedRealtimeNanos(), endTime;
+         long startTime, endTime;
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+            startTime = SystemClock.elapsedRealtimeNanos();
+         else
+            startTime = System.nanoTime();
          while (! mustStop)
          {
             currentBearing = bearing;
-            if (currentBearing < 0)
+            if (currentBearing >= 0)
             {
-               try { Thread.sleep(100); } catch (Exception _e) {}
+               currentBearing = (float) (Math.rint(currentBearing * 10.0f) / 10.0);
+               if (currentBearing >= 360)
+                  currentBearing = 0;
+               if (((currentBearing <= startBearing) || (currentBearing > endBearing)) &&
+                     (bufferQueue.peek() != null))
+               {
+                  frameBuffer = bufferQueue.poll();
+                  offset = (float) (Math.floor(currentBearing / recordingIncrement) * recordingIncrement);
+                  fileOffset = (int) (Math.floor(offset / recordingIncrement) * bufferSize);
+                  framesRAF.seek(fileOffset);
+                  try
+                  {
+                     framesRAF.readFully(frameBuffer);
+                  }
+                  catch (EOFException _e)
+                  {
+                     Arrays.fill(frameBuffer, (byte) 0);
+                     Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + currentBearing, _e);
+                  }
+                  startBearing = offset;
+                  endBearing = startBearing + recordingIncrement;
+                  if (! isUseBuffer)
+                     bufferQueue.add(frameBuffer);
+                  isDirty = true;
+               }
+            }
+            if (frameBuffer == null)
                continue;
-            }
-            currentBearing = (float) (Math.rint(currentBearing*10.0f)/10.0);
-            if (currentBearing >= 360)
-               currentBearing = 0;
-            if ( ( (currentBearing <= startBearing) || (currentBearing > endBearing) ) &&
-                  (bufferQueue.peek() != null) )
-            {
-               frameBuffer = bufferQueue.poll();
-               offset = (float) (Math.floor(currentBearing / recordingIncrement) * recordingIncrement);
-               fileOffset = (int) (Math.floor(offset / recordingIncrement) * bufferSize);
-               framesRAF.seek(fileOffset);
-               try
-               {
-                  framesRAF.readFully(frameBuffer);
-               }
-               catch (EOFException _e)
-               {
-                  Arrays.fill(frameBuffer, (byte) 0);
-                  Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + currentBearing, _e);
-               }
-               startBearing = offset;
-               endBearing = startBearing + recordingIncrement;
-               if (! isUseBuffer)
-                  bufferQueue.add(frameBuffer);
-               isDirty = true;
-            }
             if (fps > 0)
             {
-               endTime = SystemClock.elapsedRealtimeNanos();
+               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+                  endTime = SystemClock.elapsedRealtimeNanos();
+               else
+                  endTime = System.nanoTime();
                long dt = endTime - startTime;
                if (dt < fpsInterval)
                   onIdle(dt);
