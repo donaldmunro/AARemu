@@ -42,7 +42,7 @@ import java.util.concurrent.*;
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
 
 /**
- ARem is a software tool enabling simulation of Augmented Reality by allowing an AR developer to record
+ AARemu is a software tool enabling simulation of Augmented Reality by allowing an AR developer to record
  a 360 degree view of a location using the devices camera and orientation sensors (this functionality is provided by the
  ARemRecorder app). The ARCamera class which implements
  an emulation of the Android camera class can then be used to preview the recorded scene instead of the live camera

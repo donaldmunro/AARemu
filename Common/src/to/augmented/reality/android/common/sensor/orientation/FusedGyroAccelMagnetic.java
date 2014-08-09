@@ -1,7 +1,7 @@
 package to.augmented.reality.android.common.sensor.orientation;
 
 /*
- * Converted for OrientationProvider usage in ARem.
+ * Converted for OrientationProvider usage in AARemu.
  * Further floating point optimizations and reduced usage of heap allocations in frequently called methods.
  * Use built in native matrix multiply
  *    Donald Munro (2014)

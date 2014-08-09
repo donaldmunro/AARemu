@@ -25,7 +25,7 @@
  * authors and should not be interpreted as representing official policies, either expressed
  * or implied, of JogAmp Community.
  *
- * Some missing functionality added by Donald Munro for ARem.
+ * Some missing functionality added by Donald Munro for AARemu.
  */
 package to.augmented.reality.android.common.math;
 

@@ -1,6 +1,8 @@
+<b>NEWS:</b> Project name changed from ARem to AARemu (Android Augmented Reality Emulator) to prevent 
+any confusion between this project and Augmented Reality Environment Modeling which shares the acronym. 
 Description
 ===========
- ARem is a software tool enabling simulation of Augmented Reality
+ AARemu is a software tool enabling simulation of Augmented Reality
  by allowing an AR developer to record a 360 degree view of a
  location using the devices camera and orientation sensors (this
  functionality is provided by the ARemRecorder app). The ARCamera
@@ -28,7 +30,7 @@ Description
 
 Components
 ==========
-ARem comprises the following components (or modules in Android Studio parlance)
+AARemu comprises the following components (or modules in Android Studio parlance)
 ARemRecorder
 ------------
 <h3>Description and Usage</h3>

@@ -43,7 +43,7 @@ import java.util.concurrent.*;
  camera preview and display facilities by using the Android Camera class and which is based
  on an abstract class called CameraBridgeViewBase. EmulatorCameraView is an ARem supplied class which
  is also derived from CameraBridgeViewBase and provides view that utilises the ARCamera class instead of the Android
- Camera class. This is implemented in a separate module to avoid making the base functionality in the ARem framework
+ Camera class. This is implemented in a separate module to avoid making the base functionality in the AARemu framework
  dependent on OpenCV.
  */
 public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.PreviewCallback
