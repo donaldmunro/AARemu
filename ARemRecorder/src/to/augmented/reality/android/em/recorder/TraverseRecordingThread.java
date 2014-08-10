@@ -160,7 +160,7 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
             {
                float nextBearing = (offset + 1) * recordingIncrement;
                if (nextBearing >= 360)
-                  nextBearing = 0;
+                  nextBearing -= 360;
                offset = (long) (Math.floor(nextBearing / recordingIncrement));
                SortedSet<Long> subset = remainingBearings.tailSet(offset);
                if (subset.isEmpty())

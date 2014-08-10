@@ -83,7 +83,7 @@ public class DirtyPlaybackThread extends PlaybackThread
             }
             currentBearing = (float) (Math.rint(currentBearing*10.0f)/10.0);
             if (currentBearing >= 360)
-               currentBearing = 0;
+               currentBearing -= 360;
             if ( ( (currentBearing <= startBearing) || (currentBearing > endBearing) ) &&
                    (! bufferQueue.isEmpty()) )
             {

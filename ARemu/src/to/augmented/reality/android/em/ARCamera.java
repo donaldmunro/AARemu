@@ -118,7 +118,9 @@ public class ARCamera
    private Context context = null;
    private boolean isOpen = false;
    private Surface surface = null;
-   private int previewFrameRate = 60000, previewFrameRateMin = 10000; // Scaled by 1000 as per Camera.Parameters
+   // Scaled by 1000 as per Camera.Parameters.setPreviewFpsRange. 15 or 15000 is the default set by Android Camera.Parameters
+   // Camera.Parameters.setPreviewFrameRate is not scaled by 1000, Camera.Parameters.setPreviewFpsRange is.
+   private int previewFrameRate = 15000, previewFrameRateMin = 15000;
    private int previewWidth =-1, previewHeight =-1;
    private float focalLength = -1, fovx = -1, fovy = -1;
 
@@ -189,7 +191,7 @@ public class ARCamera
    public ARCamera(Context context, int cameraId, Camera camera)
    //-----------------------------------------------------------
    {
-      init(context, cameraId);
+      init(context, cameraId, camera);
       this.camera = camera;
    }
 
@@ -214,7 +216,7 @@ public class ARCamera
    //------------------------------------------------------------------------------------------
    {
       this.camera = camera;
-      init(context, cameraId);
+      init(context, cameraId, camera);
       if ( (headerFile != null) && (framesFile != null) )
          setFiles(headerFile, framesFile);
    }
@@ -229,7 +231,7 @@ public class ARCamera
     *                 replaces the hadrware camera when opened using ARCamera.open(id).
     * @throws Exception
     */
-   public ARCamera(Context context, int cameraId) { init(context, cameraId); }
+   public ARCamera(Context context, int cameraId) { init(context, cameraId, null); }
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
@@ -246,13 +248,13 @@ public class ARCamera
    public ARCamera(Context context, int cameraId, File headerFile, File framesFile) throws IOException
    //--------------------------------------------------------------------------------------------------
    {
-      init(context, cameraId);
+      init(context, cameraId, null);
       if ( (headerFile != null) && (framesFile != null) )
          setFiles(headerFile, framesFile);
    }
 
 
-   final private void init(Context context, int cameraId)
+   final private void init(Context context, int cameraId, Camera camera)
    //------------------------------------------------------------------------------------------
    {
       this.context = context;
@@ -270,6 +272,12 @@ public class ARCamera
       }
       INSTANCES.put(cameraId, this);
       this.id = cameraId;
+      if (camera != null)
+      {
+         Camera.Parameters parameters = camera.getParameters();
+         if (parameters != null)
+            setFrom(parameters);
+      }
    }
 
    public static int getNumberOfCameras() { return ARCAMERA_COUNT + Camera.getNumberOfCameras(); }
@@ -465,13 +473,14 @@ public class ARCamera
    private void setTo(Camera.Parameters parameters)
    //---------------------------------------------
    {
-      parameters.setPreviewSize(previewWidth, previewHeight);
-      if ( ( previewFrameRateMin > 0) && (previewFrameRate > 0) )
+      if ( (previewWidth >= 0) && (previewHeight >= 0) )
+         parameters.setPreviewSize(previewWidth, previewHeight);
+      if ( ( previewFrameRateMin >= 0) && (previewFrameRate >= 0) )
          parameters.setPreviewFpsRange(previewFrameRateMin, previewFrameRate);
-      else if (previewFrameRate > 0)
+      else if (previewFrameRate >= 0)
          parameters.setPreviewFpsRange(10000, previewFrameRate);
-      if (previewFrameRate > 0)
-         parameters.setPreviewFrameRate(previewFrameRate);
+      if (previewFrameRate >= 0)
+         parameters.setPreviewFrameRate(previewFrameRate/1000);
       if (focalLength >= 0)
          parameters.set(KEY_FOCAL_LENGTH, Float.toString(focalLength));
       if (fovx >= 0)
@@ -526,27 +535,25 @@ public class ARCamera
    private void setFrom(Camera.Parameters parameters)
    //---------------------------------------------
    {
-      parameters.setPreviewSize(previewWidth, previewHeight);
-      int fps = parameters.getPreviewFrameRate();
+      if ( (previewWidth >= 0) && (previewHeight >= 0) )
+         parameters.setPreviewSize(previewWidth, previewHeight);
+      int fps = parameters.getPreviewFrameRate()*1000;
+      int[] range = new int[2];
+      parameters.getPreviewFpsRange(range);
       if (fps != previewFrameRate)
       {
          checkFPSRange(fps);
-         previewFrameRate = fps;
+         range[1] = previewFrameRateMin = previewFrameRate = fps;
       }
-      else
+      if (range[0] != previewFrameRateMin)
       {
-         int[] range = new int[2];
-         parameters.getPreviewFpsRange(range);
-         if (range[0] != previewFrameRateMin)
-         {
-            checkFPSRange(range[0]);
-            previewFrameRateMin = range[0]; // Not used at this time
-         }
-         if (range[1] != previewFrameRate)
-         {
-            checkFPSRange(range[1]);
-            previewFrameRate = range[1];
-         }
+         checkFPSRange(range[0]);
+         previewFrameRateMin = range[0]; // Not used at this time
+      }
+      if (range[1] != previewFrameRate)
+      {
+         checkFPSRange(range[1]);
+         previewFrameRate = range[1];
       }
       if (! QuickFloat.equals(parameters.getFocalLength(), focalLength, 0.0001f))
          focalLength = parameters.getFocalLength();

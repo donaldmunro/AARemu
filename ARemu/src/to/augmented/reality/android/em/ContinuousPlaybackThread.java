@@ -57,7 +57,10 @@ public class ContinuousPlaybackThread extends PlaybackThread
    protected void onIdle(long idleTimeNS)
    //------------------------------------
    {
-      try { Thread.sleep(idleTimeNS / 1000000L); } catch (InterruptedException e) { mustStop = true; }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         SystemClock.sleep(idleTimeNS / 1000000L);
+      else
+         try { Thread.sleep(idleTimeNS / 1000000L); } catch (InterruptedException e) { mustStop = true; }
    }
 
    @Override
@@ -99,7 +102,7 @@ public class ContinuousPlaybackThread extends PlaybackThread
             {
                currentBearing = (float) (Math.rint(currentBearing * 10.0f) / 10.0);
                if (currentBearing >= 360)
-                  currentBearing = 0;
+                  currentBearing -= 360;
                if (((currentBearing <= startBearing) || (currentBearing > endBearing)) &&
                      (bufferQueue.peek() != null))
                {
@@ -133,7 +136,7 @@ public class ContinuousPlaybackThread extends PlaybackThread
                   endTime = System.nanoTime();
                long dt = endTime - startTime;
                if (dt < fpsInterval)
-                  onIdle(dt);
+                  onIdle((fpsInterval - dt)<<1); // TODO: Why does it require a multiply by 2 ???????!!!!!
                callback.onPreviewFrame(frameBuffer, null);
                startTime = endTime;
             }

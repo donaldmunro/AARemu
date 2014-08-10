@@ -163,12 +163,13 @@ abstract public class PlaybackThread implements Runnable
                      if (reviewable != null)
                         reviewable.onReview(bearing);
                      bearingAvailCondVar.open();
-                     try { Thread.sleep(pauseMs); } catch (Exception _e) { break; }
+                     if (pauseMs > 0)
+                        try { Thread.sleep(pauseMs); } catch (Exception _e) { break; }
                      if ( (mustStop) || (! isReview) ) break;
                      if (reviewable != null)
                         reviewable.onReviewed(bearing);
                      bearing += recordingIncrement;
-                     Log.i(TAG, "Preview bearing " + bearing);
+//                     Log.i(TAG, "Preview bearing " + bearing);
                      if (bearingListener != null)
                         bearingListener.onBearingChanged(bearing);
                   }
@@ -182,7 +183,8 @@ abstract public class PlaybackThread implements Runnable
                         if (reviewable != null)
                            reviewable.onReview(bearing);
                         bearingAvailCondVar.open();
-                        try { Thread.sleep(pauseMs); } catch (Exception _e) { break; }
+                        if (pauseMs > 0)
+                           try { Thread.sleep(pauseMs); } catch (Exception _e) { break; }
                         if ( (mustStop) || (! isReview) ) break;
                         if (reviewable != null)
                            reviewable.onReviewed(bearing);
@@ -278,7 +280,7 @@ abstract public class PlaybackThread implements Runnable
             if (bearing < 0)
                bearing += 360;
             if (bearing >= 360)
-               bearing = 0;
+               bearing -= 360;
             if (bearingAvailCondVar != null)
                bearingAvailCondVar.open();
             if (bearingListener != null)
