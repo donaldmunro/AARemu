@@ -21,10 +21,10 @@ import android.os.ConditionVariable;
 import android.os.SystemClock;
 import android.util.Log;
 
-public class CameraPreviewConvertCallback implements Camera.PreviewCallback
-//=========================================================================
+public class CameraPreviewCallback implements Camera.PreviewCallback
+//==================================================================
 {
-   final static private String TAG = CameraPreviewConvertCallback.class.getSimpleName();
+   final static private String TAG = CameraPreviewCallback.class.getSimpleName();
    final static private int RINGBUFFER_SIZE = 3;
 
    public interface Previewable
@@ -53,7 +53,7 @@ public class CameraPreviewConvertCallback implements Camera.PreviewCallback
 //   ScriptIntrinsicYuvToRGB yuvToRgb = null;
 
 
-   public CameraPreviewConvertCallback(GLRecorderRenderer renderer, int bufferSize)
+   public CameraPreviewCallback(GLRecorderRenderer renderer, int bufferSize)
    //-------------------------------------------------------------------------------
    {
       this.renderer = renderer;
@@ -113,12 +113,13 @@ public class CameraPreviewConvertCallback implements Camera.PreviewCallback
 //         yuvToRgb.forEach(aOut);
 //         synchronized (this) { aOut.copyTo(previewBuffer); }
 //         Log.i(TAG, "NV21 to RGBA Time = " + (SystemClock.elapsedRealtimeNanos() - timestamp) + " NS");
+
          synchronized (this) { System.arraycopy(data, 0, previewBuffer, 0, data.length); }
          if (mustBuffer)
          {
             ringBuffer.push(timestamp, previewBuffer);
             if (frameAvailCondVar != null)
-               try { frameAvailCondVar.open(); } catch (Exception _e) { }
+               try { frameAvailCondVar.open(); } catch (Exception _e) { Log.e(TAG, "", _e); }
          }
          if (previewListener != null)
             previewListener.onCameraFrame(timestamp, previewBuffer);

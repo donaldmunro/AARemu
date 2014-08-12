@@ -39,7 +39,7 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
    }
 
    protected TraverseRecordingThread(RecorderActivity activity, GLRecorderRenderer renderer, int nv21BufferSize,
-                                     float increment, CameraPreviewConvertCallback previewer,
+                                     float increment, CameraPreviewCallback previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                      BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -101,17 +101,16 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
          startFrameWriter();
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) )
          {
+            bearingCondVar.close();
             if (!bearingCondVar.block(400))
             {
                activity.onBearingChanged(renderer.currentBearing, recordingNextBearing, renderer.arrowColor, -1);
                continue;
             }
-            bearingCondVar.close();
             lastBearing = bearing;
             BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
             bearing = bearingInfo.bearing;
             long bearingTimeStamp = bearingInfo.timestamp;
-//            bearing = bearingBuffer.peekLatestBearing();
             if ((!renderer.isRecording) || (renderer.mustStopNow))
                break;
             if (bearing < 0)

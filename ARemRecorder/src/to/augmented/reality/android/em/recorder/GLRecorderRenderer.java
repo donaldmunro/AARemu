@@ -133,7 +133,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    GLSLAttributes previewShaderGlsl, arrowShaderGlsl;
 
-   CameraPreviewConvertCallback previewer;
+   CameraPreviewCallback previewer;
 
    String lastError = null;
 
@@ -521,8 +521,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          camera.setParameters(cameraParameters);
          if (previewer == null)
          {
-            previewer = new CameraPreviewConvertCallback(this, nv21BufferSize);
-            previewer.setPreviewListener(new CameraPreviewConvertCallback.Previewable()
+            previewer = new CameraPreviewCallback(this, nv21BufferSize);
+            previewer.setPreviewListener(new CameraPreviewCallback.Previewable()
             //-------------------------------------------------------------------------
             {
                @Override

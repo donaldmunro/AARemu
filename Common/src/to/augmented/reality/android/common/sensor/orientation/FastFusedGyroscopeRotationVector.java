@@ -152,6 +152,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
       if (isSuspended) return;
       if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR)
       {
+         System.arraycopy(event.values, 0, lastRotationVec, 0, ROTATION_VEC_SIZE);
          // Process rotation vector (just save it)
 
          float[] q = new float[4];
@@ -168,6 +169,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
          }
       } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE)
       {
+         System.arraycopy(event.values, 0, lastGyroVec, 0, GYRO_VEC_SIZE);
          // Process Gyroscope and perform fusion
 
          // This timestep's delta rotation to be multiplied by the current rotation

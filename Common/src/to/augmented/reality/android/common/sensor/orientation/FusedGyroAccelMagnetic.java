@@ -190,15 +190,18 @@ public class FusedGyroAccelMagnetic extends OrientationProvider
       {
          case Sensor.TYPE_MAGNETIC_FIELD:
             System.arraycopy(event.values, 0, magnetic, 0, event.values.length);
+            System.arraycopy(event.values, 0, lastMagVec, 0, MAG_VEC_SIZE);
             magnetic = meanFilterMagnetic.filterFloat(magnetic);
             break;
          case Sensor.TYPE_GRAVITY:
             System.arraycopy(event.values, 0, gravity, 0, event.values.length);
+            System.arraycopy(event.values, 0, lastGravityVec, 0, GRAVITY_VEC_SIZE);
             gravity = meanFilterAcceleration.filterFloat(gravity);
             calculateOrientation();
             break;
          case Sensor.TYPE_GYROSCOPE:
             System.arraycopy(event.values, 0, gyroscope, 0, event.values.length);
+            System.arraycopy(event.values, 0, lastGyroVec, 0, GYRO_VEC_SIZE);
             onGyroscopeSensorChanged(event.timestamp);
             break;
       }

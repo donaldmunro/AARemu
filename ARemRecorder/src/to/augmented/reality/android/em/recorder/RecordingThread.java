@@ -19,7 +19,6 @@ package to.augmented.reality.android.em.recorder;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.Process;
-import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -34,7 +33,7 @@ abstract public class RecordingThread implements Runnable, Freezeable
 //====================================================================
 {
    static final private String TAG = RecordingThread.class.getSimpleName();
-   static final protected long FRAME_BLOCK_TIME_MS = 110, FRAME_BLOCK_TIME_NS = 110000000L;
+   static final protected long FRAME_BLOCK_TIME_MS = 120, FRAME_BLOCK_TIME_NS = 120000000L;
    static final protected int FRAMEWRITE_QUEUE_SIZE = 3;
    static final protected int WRITE_BUFFER_ADD_RETRIES = 10;
    static final protected int WRITE_BUFFER_DRAIN_TIMEOUT = 20;
@@ -47,7 +46,7 @@ abstract public class RecordingThread implements Runnable, Freezeable
    protected boolean isStartRecording;
    protected RecorderActivity activity;
    protected ConditionVariable bearingCondVar = null, frameCondVar = null;
-   protected CameraPreviewConvertCallback previewer;
+   protected CameraPreviewCallback previewer;
    protected byte[] previewBuffer = null;
    protected BearingRingBuffer bearingBuffer = null;
    protected ExecutorService frameWriterExecutor;
@@ -84,7 +83,7 @@ abstract public class RecordingThread implements Runnable, Freezeable
    }
 
    protected RecordingThread(RecorderActivity activity, GLRecorderRenderer renderer, int nv21BufferSize, float increment,
-                             CameraPreviewConvertCallback previewer,
+                             CameraPreviewCallback previewer,
                              ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                              BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -110,7 +109,7 @@ abstract public class RecordingThread implements Runnable, Freezeable
    }
 
 
-   public RecordingThread setPreviewer(CameraPreviewConvertCallback previewer) { this.previewer = previewer; return this; }
+   public RecordingThread setPreviewer(CameraPreviewCallback previewer) { this.previewer = previewer; return this; }
 
    public RecordingThread setPreviewBuffer(byte[] previewBuffer) { this.previewBuffer = previewBuffer; return this; }
 

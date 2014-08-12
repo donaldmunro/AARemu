@@ -43,6 +43,7 @@ public class RotationVectorProvider extends OrientationProvider
       // that we received the proper event
       if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR)
       {
+         System.arraycopy(event.values, 0, lastRotationVec, 0, ROTATION_VEC_SIZE);
          // convert the rotation-vector to a 4x4 matrix. the matrix
          // is interpreted by Open GL as the inverse of the
          // rotation-vector, which is what we want.

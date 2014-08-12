@@ -18,10 +18,10 @@ package to.augmented.reality.android.em.recorder;
 
 import android.os.Bundle;
 import android.os.ConditionVariable;
-import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
+import android.os.Process;
 
 public class RetryRecordingThread extends RecordingThread implements Runnable, Freezeable
 //=======================================================================================
@@ -39,7 +39,7 @@ public class RetryRecordingThread extends RecordingThread implements Runnable, F
    }
 
    protected RetryRecordingThread(RecorderActivity activity, GLRecorderRenderer renderer, int nv21BufferSize, float increment,
-                                  CameraPreviewConvertCallback previewer,
+                                  CameraPreviewCallback previewer,
                                   ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                   BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -87,14 +87,15 @@ public class RetryRecordingThread extends RecordingThread implements Runnable, F
          float bearing =0, lastBearing;
          while (renderer.isRecording)
          {
+            bearingCondVar.close();
             if (! bearingCondVar.block(400))
             {
-               activity.onBearingChanged(renderer.currentBearing, recordingNextBearing, renderer.arrowColor, -1);
+               activity.onBearingChanged(renderer.currentBearing, recordingNextBearing, renderer.arrowColor, - 1);
                continue;
             }
-            bearingCondVar.close();
             lastBearing = bearing;
-            bearing = bearingBuffer.peekLatestBearing();
+            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
+            bearing = bearingInfo.bearing;
             if ( (! renderer.isRecording) || (renderer.mustStopNow))
                break;
             if (bearing < 0)
@@ -127,21 +128,27 @@ public class RetryRecordingThread extends RecordingThread implements Runnable, F
                }
                if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
                {
-                  previewer.bufferOff();
-                  previewer.clearBuffer();
-                  frameCondVar.close();
-                  final long now = SystemClock.elapsedRealtimeNanos();
-                  previewer.bufferOn();
-                  if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
+                  long targetTimeStamp = bearingInfo.timestamp, epsilon = 50000000L;
+                  long ts = previewer.findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
+                  if (ts < 0)
                   {
-                     activity.onBearingChanged(bearing, recordingNextBearing, renderer.arrowColor,
-                                               (int) ((recordingCurrentBearing / 360.0f) * 100f));
-                     renderer.requestRender();
-                     continue;
+                     bearing = bearingBuffer.peekLatestBearing();
+                     if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
+                     {
+                        previewer.bufferOff();
+                        previewer.clearBuffer();
+                        targetTimeStamp = SystemClock.elapsedRealtimeNanos(); //bearingInfo.timestamp;
+                        frameCondVar.close();
+                        previewer.bufferOn();
+                        if (frameCondVar.block(FRAME_BLOCK_TIME_MS))
+                        {
+                           frameCondVar.close();
+                           ts = previewer.findBufferAtTimestamp(targetTimeStamp, FRAME_BLOCK_TIME_NS + 10000000L,
+                                                                previewBuffer);
+                        }
+                     }
                   }
-                  frameCondVar.close();
-                  final long ts = previewer.findBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS + 10000000L, previewBuffer);
-                  if (ts > now)
+                  if ( (ts >= (targetTimeStamp - epsilon)) && (ts <= (targetTimeStamp + epsilon)) )
                   {
                      if (addFrameToWriteBuffer(writeFrameCount))
                      {

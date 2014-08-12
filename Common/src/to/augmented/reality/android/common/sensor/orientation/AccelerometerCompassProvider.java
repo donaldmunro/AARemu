@@ -52,8 +52,16 @@ public class AccelerometerCompassProvider extends OrientationProvider
       if (isSuspended) return;
       switch (event.sensor.getType())
       {
-         case Sensor.TYPE_MAGNETIC_FIELD: magnitudeValues = event.values.clone(); break;
-         case Sensor.TYPE_ACCELEROMETER:  accelerometerValues = event.values.clone(); break;
+         case Sensor.TYPE_MAGNETIC_FIELD:
+//            magnitudeValues = event.values.clone();
+            System.arraycopy(event.values, 0, magnitudeValues, 0, magnitudeValues.length);
+            System.arraycopy(event.values, 0, lastMagVec, 0, MAG_VEC_SIZE);
+            break;
+         case Sensor.TYPE_ACCELEROMETER:
+//            accelerometerValues = event.values.clone();
+            System.arraycopy(event.values, 0, accelerometerValues, 0, accelerometerValues.length);
+            System.arraycopy(event.values, 0, lastAccelVec, 0, ACCEL_VEC_SIZE);
+            break;
       }
 
       if (magnitudeValues != null && accelerometerValues != null)

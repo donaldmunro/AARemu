@@ -6,15 +6,18 @@
 
 package to.augmented.reality.android.common.sensor.orientation;
 
-import android.annotation.*;
-import android.app.*;
-import android.content.*;
-import android.hardware.*;
-import android.os.*;
-import to.augmented.reality.android.common.math.*;
+import android.app.Activity;
+import android.content.Context;
+import android.hardware.Sensor;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.Build;
+import to.augmented.reality.android.common.math.Quaternion;
+import to.augmented.reality.android.common.math.QuickFloat;
 
-import java.lang.ref.*;
-import java.util.*;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Classes implementing this interface provide an orientation of the device either by directly accessing hardware, using
@@ -62,6 +65,25 @@ public abstract class OrientationProvider implements SensorEventListener
     * The sensor manager for accessing android sensors
     */
    protected SensorManager sensorManager;
+
+   final static protected int ACCEL_VEC_SIZE = 3, GRAVITY_VEC_SIZE = 3, GYRO_VEC_SIZE = 3, MAG_VEC_SIZE = 3,
+                              ROTATION_VEC_SIZE;
+   static
+   {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2)
+         ROTATION_VEC_SIZE = 5;
+      else
+         ROTATION_VEC_SIZE = 4;
+   }
+
+   protected float[] lastAccelVec = new float[ACCEL_VEC_SIZE], lastGravityVec = new float[GRAVITY_VEC_SIZE],
+                     lastGyroVec = new float[GYRO_VEC_SIZE], lastMagVec = new float[MAG_VEC_SIZE],
+                     lastRotationVec = new float[ROTATION_VEC_SIZE];
+   public float[] getLastAccelVec() { return lastAccelVec; }
+   public float[] getLastMagVec() { return lastMagVec; }
+   public float[] getLastGyroVec() { return lastGyroVec; }
+   public float[] getLastGravityVec() { return lastGravityVec; }
+   public float[] getLastRotationVec() { return lastRotationVec; }
 
    /**
     * Initialises a new OrientationProvider
