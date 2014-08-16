@@ -33,15 +33,12 @@ import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 import android.view.*;
-import android.view.inputmethod.*;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 import com.doubleTwist.drawerlib.ADrawerLayout;
 
 import java.io.File;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,21 +66,6 @@ public class RecorderActivity extends Activity
    View decorView = null;
    int uiOptions;
 
-   private ExecutorService stopRecordingPool =  Executors.newSingleThreadExecutor(
-   new ThreadFactory()
-   //================
-   {
-      @Override
-      public Thread newThread(Runnable r)
-      //---------------------------------
-      {
-         Thread t = new Thread(r);
-         t.setDaemon(true);
-         t.setName("Stop Recording");
-         return t;
-      }
-   });
-
    final Handler hideHandler = new Handler();
    Runnable hideRunner = new Runnable()
    //==================================
@@ -91,53 +73,19 @@ public class RecorderActivity extends Activity
       @Override public void run()
       //-------------------------
       {
-         decorView.setSystemUiVisibility(uiOptions);
-         ActionBar actionBar = getActionBar();
-         if (actionBar != null)
-            actionBar.hide();
-      }
-   };
-
-   public void updateStatus(String status, int progress, boolean mustToast, int toastDuration)
-   //-----------------------------------------------------------------------------------------
-   {
-      updateStatusRunner.status = status;
-      updateStatusRunner.progress = progress;
-      updateStatusRunner.isToast = mustToast;
-      updateStatusRunner.toastDuration = toastDuration;
-      runOnUiThread(updateStatusRunner);
-   }
-
-   private class UpdateBearingRunner implements Runnable
-   //===================================================
-   {
-      volatile public float bearing, targetBearing = -1;
-      volatile public float[] arrowColor = null;
-      public int progress = -1;
-
-      @Override public void run()
-      //-------------------------
-      {
-         bearingText.setText(String.format("%.4f", bearing));
-         if (targetBearing >= 0)
+         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
          {
-            Spannable destSpan = new SpannableString(String.format("%.4f", targetBearing));
-            final ForegroundColorSpan spanColor;
-            if (arrowColor != null)
-               spanColor = new ForegroundColorSpan(Color.argb(255, (int) (arrowColor[0]*255.0), (int) (arrowColor[1]*255.0),
-                                                              (int) (arrowColor[2]*255.0)));
-            else
-               spanColor = new ForegroundColorSpan(Color.GREEN);
-            destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            bearingDestText.setText(destSpan);
+            ActionBar bar = getActionBar();
+            if (bar != null)
+               bar.hide();
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
          }
-         else
-            bearingDestText.setText("");
-         if (progress >= 0)
-            statusProgress.setProgress(progress);
+         decorView.setSystemUiVisibility(uiOptions);
+//         ActionBar actionBar = getActionBar();
+//         if (actionBar != null)
+//            actionBar.hide();
       }
    };
-   final private UpdateBearingRunner updateBearingRunner = new UpdateBearingRunner();
 
    private class UpdateLocationRunner implements Runnable
    //===================================================
@@ -157,7 +105,6 @@ public class RecorderActivity extends Activity
       }
    };
    final private UpdateLocationRunner updateLocationRunner = new UpdateLocationRunner();
-
 
    Toast lastStatusToast = null;
 
@@ -188,7 +135,7 @@ public class RecorderActivity extends Activity
          progress = -1;
       }
    };
-   final private UpdateStatusRunner updateStatusRunner = new UpdateStatusRunner();
+   //final private UpdateStatusRunner updateStatusRunner = new UpdateStatusRunner();
 
 
    private int displayFlags = 0;
@@ -275,35 +222,12 @@ public class RecorderActivity extends Activity
                                                      setMessage("Save incomplete recording").create();
                partialSaveDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Yes", new DialogInterface.OnClickListener()
                {
-                  @Override
-                  public void onClick(DialogInterface dialog, int which)
-                  //----------------------------------------------------
-                  {
-                     stopRecordingPool.submit(new Runnable()
-                     //=====================================
-                     {
-                        @Override public void run() { previewSurface.stopRecording(false); }
-                     });
-                  }
+                  @Override public void onClick(DialogInterface dialog, int which) { previewSurface.stopRecording(false); }
                });
                partialSaveDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "No", new DialogInterface.OnClickListener()
                {
                   @Override
-                  public void onClick(DialogInterface dialog, int which)
-                  //----------------------------------------------------
-                  {
-                     stopRecordingPool.submit(new Runnable()
-                     //=====================================
-                     {
-                        @Override
-                        public void run()
-                        //-------------------------
-                        {
-                           previewSurface.stopRecording(true);
-                           stoppedRecording(null, null, true);
-                        }
-                     });
-                  }
+                  public void onClick(DialogInterface dialog, int which) { previewSurface.stopRecording(true); }
                });
                partialSaveDialog.show();
             }
@@ -514,8 +438,8 @@ public class RecorderActivity extends Activity
 
    public void stoppingRecording(File recordHeaderFile, File recordFramesFile, boolean isCancelled) { }
 
-   protected void stoppedRecording(final File recordHeaderFile, final File recordFramesFile, boolean isCancelled)
-   //---------------------------------------------------------------------------------------------
+   protected void stoppedRecording(final File recordHeaderFile, final File recordFramesFile)
+   //--------------------------------------------------------------------------------------
    {
       isRecording = false;
       runOnUiThread(new Runnable()
@@ -567,7 +491,15 @@ public class RecorderActivity extends Activity
          //--------------------------------------------------------------
          {
             RecorderActivity.this.displayFlags = visibility;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+            {
+               ActionBar bar = RecorderActivity.this.getActionBar();
+               if (bar != null)
+                  bar.hide();
+               RecorderActivity.this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                                                          WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            }
+            else// if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
             {
                hideHandler.removeCallbacks(hideRunner);
                hideHandler.postDelayed(hideRunner, 1000);
@@ -593,7 +525,7 @@ public class RecorderActivity extends Activity
       {
          decorView = getWindow().getDecorView();
          uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-                     View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+                     View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN;
          decorView.setSystemUiVisibility(uiOptions);
          decorView.setOnSystemUiVisibilityChangeListener(visibilityListener);
       }
@@ -601,10 +533,12 @@ public class RecorderActivity extends Activity
       {
          decorView = getWindow().getDecorView().findViewById(android.R.id.content);
          uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION  |
-                     View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_FULLSCREEN |
+                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
          decorView.setSystemUiVisibility(uiOptions);
       }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH)
+         uiOptions |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
    }
 
    @Override
@@ -729,17 +663,45 @@ public class RecorderActivity extends Activity
       runOnUiThread(updateLocationRunner);
    }
 
-   public void onBearingChanged(final float bearing, final float targetBearing, final float[] arrowColor,
-                                final int progress)
-   //----------------------------------------------------------------------------------------------
+   public void onStatusUpdate(ProgressParam params)
+   //----------------------------------------------------------------
    {
       if (! isDrawerOpen)
          return;
-      updateBearingRunner.bearing = bearing;
-      updateBearingRunner.targetBearing = targetBearing;
-      updateBearingRunner.arrowColor = arrowColor;
-      updateBearingRunner.progress = progress;
-      runOnUiThread(updateBearingRunner);
+      if (params.bearing >= 0)
+      {
+         bearingText.setText(String.format("%.4f", params.bearing));
+         if (params.targetBearing >= 0)
+         {
+            Spannable destSpan = new SpannableString(String.format("%.4f", params.targetBearing));
+            final ForegroundColorSpan spanColor;
+            if ((params.color != null) && (params.color[0] != Float.MIN_VALUE))
+               spanColor = new ForegroundColorSpan(
+                     Color.argb(255, (int) (params.color[0] * 255.0), (int) (params.color[1] * 255.0),
+                                (int) (params.color[2] * 255.0)));
+            else
+               spanColor = new ForegroundColorSpan(Color.GREEN);
+            destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            bearingDestText.setText(destSpan);
+         } else
+            bearingDestText.setText("");
+      }
+      if (params.status != null)
+      {
+         statusText.setText(params.status);
+         if (params.isToast)
+         {
+            if (lastStatusToast != null)
+               lastStatusToast.cancel();
+            lastStatusToast = Toast.makeText(RecorderActivity.this, params.status, params.toastDuration);
+            lastStatusToast.show();
+         }
+      }
+      if (params.progress >= 0)
+         statusProgress.setProgress(params.progress);
+      params.status = null;
+      params.isToast = false;
+      params.progress = -1;
 
    }
 

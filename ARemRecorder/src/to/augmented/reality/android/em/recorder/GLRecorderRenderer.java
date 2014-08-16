@@ -30,6 +30,7 @@ import android.opengl.GLES11Ext;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import android.os.*;
+import android.os.Process;
 import android.support.v8.renderscript.*;
 import android.util.Log;
 import android.widget.Toast;
@@ -42,6 +43,7 @@ import to.augmented.reality.em.recorder.ScriptC_RGBAtoRGB565;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 import java.io.*;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -142,9 +144,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    public void setRecordFileFormat(RecordFileFormat recordFileFormat) { this.recordFileFormat = recordFileFormat; }
    public RecordFileFormat getRecordFileFormat() { return recordFileFormat; }
    private ConditionVariable recordingCondVar = null, frameCondVar = null;
-   private ExecutorService recordingExecutor = createRecordingExecutor();
-   private ExecutorService createRecordingExecutor()
-   //-----------------------------------------------
+   private ExecutorService recordingPool = createSingleThreadPool("Recording"),
+                           stopRecordingPool = createSingleThreadPool("StopRecording");
+
+
+   private ExecutorService createSingleThreadPool(final String name)
+   //---------------------------------------------------------
    {
       ExecutorService executor = Executors.newSingleThreadExecutor(
       new ThreadFactory()
@@ -156,14 +161,13 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          {
             Thread t = new Thread(r);
             t.setDaemon(true);
-            t.setName("Recording");
+            t.setName(name);
             return t;
          }
       });
       return executor;
    }
 
-   private Future<?> recordingFuture;
    private RecordingThread recordingThread;
    static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f };
    float[] arrowColor = GREEN;
@@ -368,17 +372,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       {  // @formatter:off
          isRecording = false;
          recordingCondVar.open();
-         try
-         {
-            recordingFuture.get(100, TimeUnit.MILLISECONDS);
-         }
-         catch (Exception _e)
-         {
-            if (! recordingFuture.isDone())
-               try { recordingFuture.cancel(true); } catch (Exception _ee) {}
-            try { recordingExecutor.shutdownNow(); } catch (Exception _ee) {}
-         }
-         try { recordingExecutor.shutdownNow(); } catch (Exception _ee) {}
+         try { Thread.sleep(50); } catch (Exception _e) {}
+         recordingThread.cancel(true);
+         if (recordingThread.getStatus() == AsyncTask.Status.RUNNING)
+            try { recordingPool.shutdownNow(); } catch (Exception _ee) {}
          isRecording = true;
       }  // @formatter:on
       stopCamera();
@@ -408,7 +405,23 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          double altitude = B.getDouble("altitude");
          recordLocation = new Location( (isWaitingGPS) ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER);
          recordLocation.setTime(System.currentTimeMillis());
-         recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+            recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+         else
+         {
+            // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
+            try
+            {
+               Method makeCompleteMethod = null;
+               makeCompleteMethod = Location.class.getMethod("makeComplete");
+               if (makeCompleteMethod != null)
+                  makeCompleteMethod.invoke(recordLocation);
+            }
+            catch (Exception e)
+            {
+               e.printStackTrace();
+            }
+         }
          recordLocation.setLatitude(latitude);
          recordLocation.setLongitude(longitude);
          recordLocation.setAltitude(altitude);
@@ -466,10 +479,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    public boolean startPreview(int width, int height)
    //------------------------------------------------
    {
-      if ( (camera == null) || (! isInitialised) ) return false;
+      if ((camera == null) || (! isInitialised)) return false;
       if (isPreviewing)
       {
-         if ( (previewWidth == width) && (previewHeight == height) )
+         if ((previewWidth == width) && (previewHeight == height))
             return true;
          try
          {
@@ -487,8 +500,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
       previewWidth = width;
       previewHeight = height;
-      vIndex = previewWidth*previewHeight;
-      uIndex = (int) (vIndex*1.25);
+      vIndex = previewWidth * previewHeight;
+      uIndex = (int) (vIndex * 1.25);
 
       rgbaBufferSize = previewWidth * previewHeight * 4; // RGBA buffer size
       rgbBufferSize = previewWidth * previewHeight * 3; // RGB buffer size
@@ -497,11 +510,23 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       nv21BufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
       previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
       cameraBuffer = new byte[nv21BufferSize];
+      return _startPreview();
+   }
 
+   private boolean isAwaitingTextureFix = false;
+
+   private boolean _startPreview()
+   //-----------------------------
+   {
       if (DIRECT_TO_SURFACE)
       {
          if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
-            throw new RuntimeException("Preview texture has not been initialised by OpenGL glGenTextures");
+         {
+            Log.e(TAG, "Preview texture has not been initialised by OpenGL glGenTextures. (" + previewTexture + ")");
+            isAwaitingTextureFix = true;
+            requestRender();
+            return true; // try again from render thread
+         }
          previewSurfaceTexture = new SurfaceTexture(previewTexture);
       }
       else
@@ -616,8 +641,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //         setDisplayOrientation();
 //         camera.setDisplayOrientation(0);
          Camera.Parameters cameraParameters = camera.getParameters();
-         if (cameraParameters.isVideoStabilizationSupported())
-            cameraParameters.setVideoStabilization(true);
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+            if (cameraParameters.isVideoStabilizationSupported())
+               cameraParameters.setVideoStabilization(true);
          List<String> focusModes = cameraParameters.getSupportedFocusModes();
 //         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
 //            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
@@ -816,13 +842,16 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
          glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
          glBindTexture(texTarget, 0);
-         cameraTextureUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "previewSampler");
-         if ((GLHelper.isGLError(errbuf)) || (cameraTextureUniform == -1))
+         if ( (previewShaderGlsl != null) && (previewShaderGlsl.shaderProgram >= 0) )
          {
-            Log.e(TAG, "Error getting texture uniform 'previewSampler'");
-            toast(errbuf.toString());
-            lastError = errbuf.toString();
-            return false;
+            cameraTextureUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "previewSampler");
+            if ((GLHelper.isGLError(errbuf)) || (cameraTextureUniform == - 1))
+            {
+               Log.e(TAG, "Error getting texture uniform 'previewSampler'");
+               toast(errbuf.toString());
+               lastError = errbuf.toString();
+               return false;
+            }
          }
       }
       else if ( (!DIRECT_TO_SURFACE) &&
@@ -909,6 +938,19 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glUseProgram(previewShaderGlsl.shaderProgram);
          if (DIRECT_TO_SURFACE)
          {
+            if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
+            {
+               initTextures(previewShaderGlsl, null);
+               if (isAwaitingTextureFix)
+               {
+                  if (_startPreview())
+                     isAwaitingTextureFix = false;
+                  else
+                     throw new RuntimeException("Could not create preview texture");
+               }
+            }
+
+
             glActiveTexture(GL_TEXTURE0);
             glUniform1i(cameraTextureUniform, 0);
             glBindTexture(texTarget, previewTexture);
@@ -1180,7 +1222,24 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          recordFileName = name;
       recordLocation = new Location(LocationManager.GPS_PROVIDER);
       recordLocation.setTime(System.currentTimeMillis());
-      recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+      else
+      {
+         // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
+         try
+         {
+            Method makeCompleteMethod = null;
+            makeCompleteMethod = Location.class.getMethod("makeComplete");
+            if (makeCompleteMethod != null)
+               makeCompleteMethod.invoke(recordLocation);
+         }
+         catch (Exception e)
+         {
+            e.printStackTrace();
+         }
+      }
+
       recordLocation.setLatitude(0);
       recordLocation.setLongitude(0);
       recordLocation.setAltitude(0);
@@ -1194,7 +1253,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar, frameCondVar);
       previewer.setFrameAvailableCondVar(frameCondVar);
       previewer.bufferOn();
-      recordingFuture = recordingExecutor.submit(recordingThread);
+      recordingThread.executeOnExecutor(recordingPool);
       return true;
    }
 
@@ -1207,321 +1266,60 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       previewer.bufferOn();
       arrowRotation = 0;
       arrowColor = GREEN;
-      if ((recordingFuture == null) || (recordingFuture.isCancelled()) || (recordingFuture.isDone()))
+      if (recordingThread == null)
       {
-         if (recordingThread == null)
-         {
-            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
-            recordingThread.restore(B);
-         }
+         recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
          recordingThread.restore(B);
-         recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
-                         setFrameCondVar(frameCondVar).setPreviewer(previewer);
-         recordingExecutor = createRecordingExecutor();
-         recordingFuture = recordingExecutor.submit(recordingThread);
       }
+      recordingThread.restore(B);
+      recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
+                      setFrameCondVar(frameCondVar).setPreviewer(previewer);
+      recordingPool = createSingleThreadPool("Recording");
+      recordingThread.executeOnExecutor(recordingPool);
    }
 
    private void stopRecordingThread()
    //--------------------------------
    {
-      if ( (recordingFuture != null) && (! recordingFuture.isDone()) )
+      if ( (recordingThread != null) && (recordingThread.getStatus() == AsyncTask.Status.RUNNING) )
       {
          isRecording = false;
          recordingCondVar.open();
-         try { Thread.sleep(500); } catch (Exception _e) {}
-         recordingFuture.cancel(true);
-         try { Thread.sleep(300); } catch (Exception _e) {}
-         if (! recordingFuture.isDone())
+         try { Thread.sleep(100); } catch (Exception _e) {}
+         recordingThread.cancel(true);
+         try { Thread.sleep(50); } catch (Exception _e) {}
+         if (recordingThread.getStatus() == AsyncTask.Status.RUNNING)
          {
-            recordingExecutor.shutdownNow();
-            recordingExecutor = createRecordingExecutor();
+            recordingPool.shutdownNow();
+            recordingPool = createSingleThreadPool("Recording");
          }
       }
    }
+
+   private StopRecordingThread stopRecordingThread = null;
+   private boolean isStoppingRecording = false;
 
    public boolean stopRecording(final boolean isCancelled)
    //-----------------------------------------------------
    {
-      if (recordingThread == null) return false;
-      final float increment = recordingThread.recordingIncrement;
-      isRecording = false;
-      isStopRecording = true;
-      previewer.setFrameAvailableCondVar(null);
-      previewer.bufferOff();
-      File recordHeaderFile = null;
-      try
+      if ( (recordingThread == null) || (isStoppingRecording) ) return false;
+      isStoppingRecording = true;
+      stopRecordingThread();
+      if ( (isCancelled) || (recordFramesFile == null) || (! recordFramesFile.exists()) && (recordFramesFile.length() == 0) )
       {
-         if ((recordFramesFile == null) || (! recordFramesFile.exists()) && (recordFramesFile.length() == 0))
-            return true;
-         if (isCancelled)
-         {
+         if (recordFramesFile != null)
             recordFramesFile.delete();
-            return true;
-         }
-         if ( (recordFileName == null) || (recordFileName.trim().isEmpty()) )
-         {
-            String name = recordFramesFile.getName();
-            int p = name.indexOf('.');
-            if (p > 0)
-               recordFileName = name.substring(0, p);
-            else
-               recordFileName = name;
-         }
-         File recordFramesFileOld = recordFramesFile;
-         File recordFramesFileKeep = recordFramesFile;
-         recordFramesFile = new File(recordDir, recordFileName + ".frames");
-         if (! recordFramesFileOld.getName().endsWith(".part"))
-         {
-            File f = new File(recordDir, recordFileName + ".frames.tmp");
-            recordFramesFileOld.renameTo(f);
-            recordFramesFileKeep = recordFramesFileOld = f;
-         }
-         if (isRecording)
-            activity.stoppingRecording(recordHeaderFile, recordFramesFile, isCancelled);
-         StringBuilder errbuf = new StringBuilder();
-         if (recordFileFormat == RecordFileFormat.NV21)
-            recordFramesFileOld.renameTo(recordFramesFile);
-         else
-         {
-            if (! YUVtoRGB(recordFramesFileOld, recordFramesFile, increment, errbuf))
-            {
-               if (mustStopNow)
-               {
-                  recordFramesFileOld.renameTo(recordFramesFileKeep);
-                  recordFramesFile.delete();
-               }
-               else
-               {
-                  toast("Error converting NV21 to RGB(A): " + errbuf.toString());
-                  recordFramesFile.delete();
-                  recordFramesFileOld.delete();
-               }
-               return false;
-            }
-            else
-               recordFramesFileOld.delete();
-         }
-
-         if (recordLocation != null)
-            recordHeader.put("Location", String.format("%12.7f,%12.7f,%12.7f", recordLocation.getLatitude(),
-                                                    recordLocation.getLongitude(), recordLocation.getAltitude()));
-         if (recordFileFormat == null)
-            recordFileFormat = RecordFileFormat.RGBA;
-         switch (recordFileFormat)
-         {
-            case RGB:      recordHeader.put("BufferSize", Integer.toString(rgbBufferSize)); break;
-            case RGBA:     recordHeader.put("BufferSize", Integer.toString(rgbaBufferSize)); break;
-            case RGB565:   recordHeader.put("BufferSize", Integer.toString(rgb565BufferSize)); break;
-            case NV21:     recordHeader.put("BufferSize", Integer.toString(nv21BufferSize)); break;
-         }
-         recordHeader.put("Increment", String.format("%6.2f", increment));
-         recordHeader.put("PreviewWidth", Integer.toString(previewWidth));
-         recordHeader.put("PreviewHeight", Integer.toString(previewHeight));
-         recordHeader.put("FocalLength", Float.toString(focalLen));
-         recordHeader.put("fovx", Float.toString(fovx));
-         recordHeader.put("fovy", Float.toString(fovy));
-         recordHeader.put("FileFormat", recordFileFormat.name());
-         recordHeader.put("OrientationProvider",  (orientationProviderType == null) ? ORIENTATION_PROVIDER.DEFAULT.name()
-                                                                                    : orientationProviderType.name());
-         recordHeader.put("FramesFile", recordFramesFile.getName());
-
-         recordHeaderFile = new File(recordDir, recordFileName + ".head");
-         PrintWriter headerWriter = null;
-         try
-         {
-            headerWriter = new PrintWriter(recordHeaderFile);
-            Set<Map.Entry<String, Object>> headerSet = recordHeader.entrySet();
-            for (Map.Entry<String, Object> entry : headerSet)
-               headerWriter.printf(Locale.US, "%s=%s\n", entry.getKey(), entry.getValue());
-         }
-         catch (Exception _e)
-         {
-            Log.e(TAG,
-                  "Error writing recording header file " + recordHeaderFile.getAbsolutePath(),
-                  _e);
-            toast("Error writing recording header file " + recordHeaderFile.getAbsolutePath() + ": " +
-                        _e.getMessage());
-            return false;
-         }
-         finally
-         {
-            if (headerWriter != null) try { headerWriter.close(); } catch (Exception _e) { }
-         }
-         isStopRecording = false;
-         activity.stoppedRecording(recordHeaderFile, recordFramesFile, isCancelled);
+         activity.stoppedRecording(null, null);
+         return true;
       }
-      catch (Exception e)
-      {
-         Log.e(TAG, "Error saving recording", e);
-         toast("Error saving recording: " + e.getMessage());
-      }
-      finally
-      {
-         arrowColor = GREEN;
-         arrowRotation = 0;
-         recordFramesFile = null;
-         recordFileName = null;
-         arrowRotation = 0;
-         if (isCancelled)
-            stopRecordingThread();
-         recordingFuture = null;
-      }
+      stopRecordingPool = createSingleThreadPool("Stop Recording");
+      stopRecordingThread = new StopRecordingThread();
+      stopRecordingThread.executeOnExecutor(stopRecordingPool);
       return true;
    }
 
-   final static private boolean USE_RGB565_RS = false;
-
    RandomAccessFile NV21toRGBInputRAF = null, NV21toRGBOutputRAF = null;
    float lastSaveBearing = 0;
-
-   public boolean YUVtoRGB(File src, File dest, float recordingIncrement, StringBuilder errbuf)
-   //-------------------------------------------------------------------------------------------
-   {
-      RenderScript rsYUVtoRGBA = null, rsRGBAtoRGB565 = null;
-      ScriptIntrinsicYuvToRGB YUVToRGB = null;
-      ScriptC_RGBAtoRGB565 RGBAtoRGB565script = null;
-      Type.Builder rstypRGBA = null;
-      Type.Builder rstypRGB565 =  null;
-      Allocation rgbaIn = null, rgb565Out = null;
-
-      byte[] frameBuffer = new byte[nv21BufferSize], rgbaBuffer = null, rgbBuffer = null, rgb565Buffer = null;
-//      short[] rgb565Buffer = null;
-      //ByteBuffer rgb565ByteBuffer = null;
-      try
-      {
-         rsYUVtoRGBA = RenderScript.create(activity);
-         Type.Builder yuvType = new Type.Builder(rsYUVtoRGBA, Element.U8(rsYUVtoRGBA)).setX(previewWidth).
-                                     setY(previewHeight).setMipmaps(false);
-         if (DIRECT_TO_SURFACE)
-            yuvType.setYuvFormat(ImageFormat.NV21);
-         else
-            yuvType.setYuvFormat(ImageFormat.YV12);
-         Allocation ain = Allocation.createTyped(rsYUVtoRGBA, yuvType.create(), Allocation.USAGE_SCRIPT);
-
-         Type.Builder rgbType = null;
-         switch (recordFileFormat)
-         {
-            case RGBA:
-               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-               rgbaBuffer = new byte[rgbaBufferSize];
-               break;
-            case RGB:
-               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-//               Below does not work as Renderscript only works with evenly aligned data. The below does not give
-//               an error but generates 4 bytes per pixel with the 4th byte being 255 (same as Element.U8_4)
-//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_3(rsYUVtoRGBA));
-//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_888(rsYUVtoRGBA));
-               rgbaBuffer = new byte[rgbaBufferSize];
-               rgbBuffer = new byte[rgbBufferSize];
-               break;
-            case RGB565:
-//               Should work as its aligned on 2 bytes but gives invalid format exception
-//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_2(rsYUVtoRGBA));
-//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_565(rsYUVtoRGBA));
-               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-               rgbaBuffer = new byte[rgbaBufferSize];
-               rgb565Buffer = new byte[rgb565BufferSize];
-
-               if (USE_RGB565_RS)
-               {
-                  rsRGBAtoRGB565 = RenderScript.create(activity);
-                  RGBAtoRGB565script = new ScriptC_RGBAtoRGB565(rsRGBAtoRGB565);
-                  rstypRGBA = new Type.Builder(rsRGBAtoRGB565, Element.RGBA_8888(rsRGBAtoRGB565)).setX(previewWidth).
-                              setY(previewHeight).setMipmaps(false);
-//                rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U16(rsRGBAtoRGB565)).setX(previewWidth).
-//                              setY(previewHeight).setMipmaps(false);
-                  rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U8_2(rsRGBAtoRGB565)).setX(previewWidth).
-                                setY(previewHeight).setMipmaps(false);
-                  rgbaIn = Allocation.createTyped(rsRGBAtoRGB565, rstypRGBA.create(), Allocation.USAGE_SCRIPT);
-                  rgb565Out = Allocation.createTyped(rsRGBAtoRGB565, rstypRGB565.create(), Allocation.USAGE_SCRIPT);
-               }
-               break;
-         }
-         rgbType.setX(previewWidth).setY(previewHeight).setMipmaps(false);
-         Allocation aOut = Allocation.createTyped(rsYUVtoRGBA, rgbType.create(), Allocation.USAGE_SCRIPT);
-
-         NV21toRGBInputRAF = new RandomAccessFile(src, "r");
-         NV21toRGBOutputRAF = new RandomAccessFile(dest, "rw");
-         float bearing = lastSaveBearing;
-         long frameCount = 0;
-         while ( (bearing < 360) && (! mustStopNow) )
-         {
-            lastSaveBearing = bearing;
-            float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
-            int fileOffset = (int) (Math.floor(offset / recordingIncrement) * nv21BufferSize);
-            try
-            {
-               NV21toRGBInputRAF.seek(fileOffset);
-               NV21toRGBInputRAF.readFully(frameBuffer);
-            }
-            catch (EOFException _e)
-            {
-               Arrays.fill(frameBuffer, (byte) 0);
-               Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + bearing, _e);
-            }
-            ain.copyFrom(frameBuffer);
-            YUVToRGB.setInput(ain);
-            YUVToRGB.forEach(aOut);
-            aOut.copyTo(rgbaBuffer);
-            if (mustStopNow)
-               return false;
-            switch (recordFileFormat)
-            {
-               case RGBA:
-                  NV21toRGBOutputRAF.seek(frameCount++ * rgbaBufferSize);
-                  NV21toRGBOutputRAF.write(rgbaBuffer);
-                  break;
-               case RGB:
-//                  aOut.copyTo(rgbBuffer);
-                  RGBAtoRGB.RGBAtoRGB(rgbaBuffer, rgbBuffer);
-                  NV21toRGBOutputRAF.seek(frameCount++ * rgbBufferSize);
-                  NV21toRGBOutputRAF.write(rgbBuffer);
-                  break;
-               case RGB565:
-////                  aOut.copyTo(rgb565Buffer);
-                  if (USE_RGB565_RS)
-                  {
-                     rgbaIn.copyFrom(rgbaBuffer);
-                     RGBAtoRGB565script.forEach_root(rgbaIn, rgb565Out);
-                     rgb565Out.copyTo(rgb565Buffer);
-                  }
-                  else
-                     RGBAtoRGB.RGBAtoRGB565(rgbaBuffer, rgb565Buffer);
-                  NV21toRGBOutputRAF.seek(frameCount++ * rgb565BufferSize);
-                  NV21toRGBOutputRAF.write(rgb565Buffer);
-                  break;
-            }
-            bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
-            float progress = (bearing/360.0f) * 100f;
-            activity.updateStatus(String.format(Locale.US, "Converting to %s: %.2f%%", recordFileFormat.name(), progress),
-                                  (int) progress, true, Toast.LENGTH_SHORT);
-         }
-         if (mustStopNow)
-            return false;
-         return true;
-      }
-      catch (Exception e)
-      {
-         if (errbuf != null)
-            errbuf.append(e.getMessage());
-         Log.e(TAG, "YUVtoRGB", e);
-         activity.updateStatus(
-               String.format(Locale.US, "Error converting to %s: %s", recordFileFormat.name(), e.getMessage()),
-               100, true, Toast.LENGTH_LONG);
-         return false;
-      }
-      finally
-      {
-         if (NV21toRGBInputRAF != null)
-            try { NV21toRGBInputRAF.close(); NV21toRGBInputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
-         if (NV21toRGBOutputRAF != null)
-            try { NV21toRGBOutputRAF.close(); NV21toRGBOutputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
-      }
-   }
 
    final static int REMAP_X = SensorManager.AXIS_X,  REMAP_Y = SensorManager.AXIS_Z;
    final static float MAX_BEARING_DELTA = 3;
@@ -1568,6 +1366,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          final float[] RM = new float[16];
          boolean isSettling = false;
          int settleCount = 0;
+         ProgressParam param = new ProgressParam();
 
          @Override
          public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
@@ -1587,12 +1386,16 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   isSettling = false;
                else
                {
-                  activity.onBearingChanged(currentBearing, recordingThread.getNextBearing(), arrowColor, -1);
+                  param.set(currentBearing, recordingThread.getNextBearing(), arrowColor);
+                  activity.onStatusUpdate(param);
                   return;
                }
             }
             if (! isRecording)
-               activity.onBearingChanged(currentBearing, -1, null, -1);
+            {
+               param.set(currentBearing, - 1, null);
+               activity.onStatusUpdate(param);
+            }
             else
             {
                bearingDelta = currentBearing - lastBearing;
@@ -1686,6 +1489,308 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          if (textureAttr == -1)
             textureAttr = currentAttribute++;
          return textureAttr;
+      }
+   }
+
+   final static private boolean USE_RGB565_RS = false;
+   class StopRecordingThread extends AsyncTask<Void, ProgressParam, Boolean>
+   //=========================================================================
+   {
+      File recordHeaderFile = null;
+
+      @Override
+      protected Boolean doInBackground(Void... params)
+      //----------------------------------------------
+      {
+         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+         final float increment = recordingThread.recordingIncrement;
+         isRecording = false;
+         isStopRecording = true;
+         previewer.setFrameAvailableCondVar(null);
+         previewer.bufferOff();
+         try
+         {
+
+            if ((recordFileName == null) || (recordFileName.trim().isEmpty()))
+            {
+               String name = recordFramesFile.getName();
+               int p = name.indexOf('.');
+               if (p > 0)
+                  recordFileName = name.substring(0, p);
+               else
+                  recordFileName = name;
+            }
+            File recordFramesFileOld = recordFramesFile;
+            File recordFramesFileKeep = recordFramesFile;
+            recordFramesFile = new File(recordDir, recordFileName + ".frames");
+            if (! recordFramesFileOld.getName().endsWith(".part"))
+            {
+               File f = new File(recordDir, recordFileName + ".frames.tmp");
+               recordFramesFileOld.renameTo(f);
+               recordFramesFileKeep = recordFramesFileOld = f;
+            }
+            StringBuilder errbuf = new StringBuilder();
+            if (recordFileFormat == RecordFileFormat.NV21)
+               recordFramesFileOld.renameTo(recordFramesFile);
+            else
+            {
+               if (! YUVtoRGB(recordFramesFileOld, recordFramesFile, increment, errbuf))
+               {
+                  if (mustStopNow)
+                  {
+                     recordFramesFileOld.renameTo(recordFramesFileKeep);
+                     recordFramesFile.delete();
+                  } else
+                  {
+                     toast("Error converting NV21 to RGB(A): " + errbuf.toString());
+                     recordFramesFile.delete();
+                     recordFramesFileOld.delete();
+                  }
+                  return false;
+               }
+               else
+                  recordFramesFileOld.delete();
+            }
+
+            if (recordLocation != null)
+               recordHeader.put("Location", String.format("%12.7f,%12.7f,%12.7f", recordLocation.getLatitude(),
+                                                          recordLocation.getLongitude(), recordLocation.getAltitude()));
+            if (recordFileFormat == null)
+               recordFileFormat = RecordFileFormat.RGBA;
+            switch (recordFileFormat)
+            {
+               case RGB:
+                  recordHeader.put("BufferSize", Integer.toString(rgbBufferSize));
+                  break;
+               case RGBA:
+                  recordHeader.put("BufferSize", Integer.toString(rgbaBufferSize));
+                  break;
+               case RGB565:
+                  recordHeader.put("BufferSize", Integer.toString(rgb565BufferSize));
+                  break;
+               case NV21:
+                  recordHeader.put("BufferSize", Integer.toString(nv21BufferSize));
+                  break;
+            }
+            recordHeader.put("Increment", String.format("%6.2f", increment));
+            recordHeader.put("PreviewWidth", Integer.toString(previewWidth));
+            recordHeader.put("PreviewHeight", Integer.toString(previewHeight));
+            recordHeader.put("FocalLength", Float.toString(focalLen));
+            recordHeader.put("fovx", Float.toString(fovx));
+            recordHeader.put("fovy", Float.toString(fovy));
+            recordHeader.put("FileFormat", recordFileFormat.name());
+            recordHeader.put("OrientationProvider",
+                             (orientationProviderType == null) ? ORIENTATION_PROVIDER.DEFAULT.name()
+                                                               : orientationProviderType.name());
+            recordHeader.put("FramesFile", recordFramesFile.getName());
+
+            recordHeaderFile = new File(recordDir, recordFileName + ".head");
+            PrintWriter headerWriter = null;
+            try
+            {
+               headerWriter = new PrintWriter(recordHeaderFile);
+               Set<Map.Entry<String, Object>> headerSet = recordHeader.entrySet();
+               for (Map.Entry<String, Object> entry : headerSet)
+                  headerWriter.printf(Locale.US, "%s=%s\n", entry.getKey(), entry.getValue());
+            }
+            catch (Exception _e)
+            {
+               Log.e(TAG, "Error writing recording header file " + recordHeaderFile.getAbsolutePath(), _e);
+               toast("Error writing recording header file " + recordHeaderFile.getAbsolutePath() + ": " +
+                           _e.getMessage());
+               return false;
+            }
+            finally
+            {
+               if (headerWriter != null)
+                  try { headerWriter.close(); } catch (Exception _e) { }
+            }
+            isStopRecording = false;
+
+         }
+         catch (Exception e)
+         {
+            Log.e(TAG, "Error saving recording", e);
+            toast("Error saving recording: " + e.getMessage());
+         }
+         finally
+         {
+            arrowColor = GREEN;
+            arrowRotation = 0;
+            recordFramesFile = null;
+            recordFileName = null;
+            arrowRotation = 0;
+            isRecording = isStoppingRecording = false;
+         }
+         return true;
+      }
+
+      @Override
+      protected void onProgressUpdate(ProgressParam... values)
+      {
+         activity.onStatusUpdate(values[0]);
+      }
+
+      @Override
+      protected void onPostExecute(Boolean aBoolean)
+      {
+         activity.stoppedRecording(recordHeaderFile, recordFramesFile);
+      }
+
+      @Override
+      protected void onCancelled(Boolean B)
+      {
+         activity.stoppedRecording(recordHeaderFile, recordFramesFile);
+      }
+
+      public boolean YUVtoRGB(File src, File dest, float recordingIncrement, StringBuilder errbuf)
+      //-------------------------------------------------------------------------------------------
+      {
+         RenderScript rsYUVtoRGBA = null, rsRGBAtoRGB565 = null;
+         ScriptIntrinsicYuvToRGB YUVToRGB = null;
+         ScriptC_RGBAtoRGB565 RGBAtoRGB565script = null;
+         Type.Builder rstypRGBA = null;
+         Type.Builder rstypRGB565 =  null;
+         Allocation rgbaIn = null, rgb565Out = null;
+
+         byte[] frameBuffer = new byte[nv21BufferSize], rgbaBuffer = null, rgbBuffer = null, rgb565Buffer = null;
+//      short[] rgb565Buffer = null;
+         //ByteBuffer rgb565ByteBuffer = null;
+         ProgressParam params = new ProgressParam();
+         try
+         {
+            rsYUVtoRGBA = RenderScript.create(activity);
+            Type.Builder yuvType = new Type.Builder(rsYUVtoRGBA, Element.U8(rsYUVtoRGBA)).setX(previewWidth).
+                  setY(previewHeight).setMipmaps(false);
+            if (DIRECT_TO_SURFACE)
+               yuvType.setYuvFormat(ImageFormat.NV21);
+            else
+               yuvType.setYuvFormat(ImageFormat.YV12);
+            Allocation ain = Allocation.createTyped(rsYUVtoRGBA, yuvType.create(), Allocation.USAGE_SCRIPT);
+
+            Type.Builder rgbType = null;
+            switch (recordFileFormat)
+            {
+               case RGBA:
+                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
+                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
+                  rgbaBuffer = new byte[rgbaBufferSize];
+                  break;
+               case RGB:
+                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
+                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
+//               Below does not work as Renderscript only works with evenly aligned data. The below does not give
+//               an error but generates 4 bytes per pixel with the 4th byte being 255 (same as Element.U8_4)
+//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_3(rsYUVtoRGBA));
+//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_888(rsYUVtoRGBA));
+                  rgbaBuffer = new byte[rgbaBufferSize];
+                  rgbBuffer = new byte[rgbBufferSize];
+                  break;
+               case RGB565:
+//               Should work as its aligned on 2 bytes but gives invalid format exception
+//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_2(rsYUVtoRGBA));
+//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_565(rsYUVtoRGBA));
+                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
+                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
+                  rgbaBuffer = new byte[rgbaBufferSize];
+                  rgb565Buffer = new byte[rgb565BufferSize];
+
+                  if (USE_RGB565_RS)
+                  {
+                     rsRGBAtoRGB565 = RenderScript.create(activity);
+                     RGBAtoRGB565script = new ScriptC_RGBAtoRGB565(rsRGBAtoRGB565);
+                     rstypRGBA = new Type.Builder(rsRGBAtoRGB565, Element.RGBA_8888(rsRGBAtoRGB565)).setX(previewWidth).
+                           setY(previewHeight).setMipmaps(false);
+//                rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U16(rsRGBAtoRGB565)).setX(previewWidth).
+//                              setY(previewHeight).setMipmaps(false);
+                     rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U8_2(rsRGBAtoRGB565)).setX(previewWidth).
+                           setY(previewHeight).setMipmaps(false);
+                     rgbaIn = Allocation.createTyped(rsRGBAtoRGB565, rstypRGBA.create(), Allocation.USAGE_SCRIPT);
+                     rgb565Out = Allocation.createTyped(rsRGBAtoRGB565, rstypRGB565.create(), Allocation.USAGE_SCRIPT);
+                  }
+                  break;
+            }
+            rgbType.setX(previewWidth).setY(previewHeight).setMipmaps(false);
+            Allocation aOut = Allocation.createTyped(rsYUVtoRGBA, rgbType.create(), Allocation.USAGE_SCRIPT);
+
+            NV21toRGBInputRAF = new RandomAccessFile(src, "r");
+            NV21toRGBOutputRAF = new RandomAccessFile(dest, "rw");
+            float bearing = lastSaveBearing;
+            long frameCount = 0;
+            while ( (bearing < 360) && (! mustStopNow) )
+            {
+               lastSaveBearing = bearing;
+               float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
+               int fileOffset = (int) (Math.floor(offset / recordingIncrement) * nv21BufferSize);
+               try
+               {
+                  NV21toRGBInputRAF.seek(fileOffset);
+                  NV21toRGBInputRAF.readFully(frameBuffer);
+               }
+               catch (EOFException _e)
+               {
+                  Arrays.fill(frameBuffer, (byte) 0);
+                  Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + bearing, _e);
+               }
+               ain.copyFrom(frameBuffer);
+               YUVToRGB.setInput(ain);
+               YUVToRGB.forEach(aOut);
+               aOut.copyTo(rgbaBuffer);
+               if (mustStopNow)
+                  return false;
+               switch (recordFileFormat)
+               {
+                  case RGBA:
+                     NV21toRGBOutputRAF.seek(frameCount++ * rgbaBufferSize);
+                     NV21toRGBOutputRAF.write(rgbaBuffer);
+                     break;
+                  case RGB:
+//                  aOut.copyTo(rgbBuffer);
+                     RGBAtoRGB.RGBAtoRGB(rgbaBuffer, rgbBuffer);
+                     NV21toRGBOutputRAF.seek(frameCount++ * rgbBufferSize);
+                     NV21toRGBOutputRAF.write(rgbBuffer);
+                     break;
+                  case RGB565:
+////                  aOut.copyTo(rgb565Buffer);
+                     if (USE_RGB565_RS)
+                     {
+                        rgbaIn.copyFrom(rgbaBuffer);
+                        RGBAtoRGB565script.forEach_root(rgbaIn, rgb565Out);
+                        rgb565Out.copyTo(rgb565Buffer);
+                     }
+                     else
+                        RGBAtoRGB.RGBAtoRGB565(rgbaBuffer, rgb565Buffer);
+                     NV21toRGBOutputRAF.seek(frameCount++ * rgb565BufferSize);
+                     NV21toRGBOutputRAF.write(rgb565Buffer);
+                     break;
+               }
+               bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
+               float progress = (bearing/360.0f) * 100f;
+               params.setStatus(String.format(Locale.US, "Converting to %s: %.2f%%", recordFileFormat.name(), progress),
+                                (int) progress, true, Toast.LENGTH_SHORT);
+               publishProgress(params);
+            }
+            if (mustStopNow)
+               return false;
+            return true;
+         }
+         catch (Exception e)
+         {
+            if (errbuf != null)
+               errbuf.append(e.getMessage());
+            Log.e(TAG, "YUVtoRGB", e);
+            params.setStatus(String.format(Locale.US, "Error converting to %s: %s", recordFileFormat.name(), e.getMessage()),
+                             100, true, Toast.LENGTH_LONG);
+            publishProgress(params);
+            return false;
+         }
+         finally
+         {
+            if (NV21toRGBInputRAF != null)
+               try { NV21toRGBInputRAF.close(); NV21toRGBInputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
+            if (NV21toRGBOutputRAF != null)
+               try { NV21toRGBOutputRAF.close(); NV21toRGBOutputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
+         }
       }
    }
 

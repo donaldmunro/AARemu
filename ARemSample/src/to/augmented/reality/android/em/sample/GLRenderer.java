@@ -314,7 +314,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
             camera.setFiles(headerFile, framesFile);
          else
             return false;
-         camera.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+         camera.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
 //         setDisplayOrientation();
          camera.setDisplayOrientation(180);
          Camera.Parameters cameraParameters = camera.getParameters();

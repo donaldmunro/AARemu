@@ -70,10 +70,17 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       @Override public void run()
       //-------------------------
       {
+         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+         {
+            ActionBar bar = getActionBar();
+            if (bar != null)
+               bar.hide();
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+         }
          decorView.setSystemUiVisibility(uiOptions);
-         ActionBar actionBar = getActionBar();
-         if (actionBar != null)
-            actionBar.hide();
+//         ActionBar actionBar = getActionBar();
+//         if (actionBar != null)
+//            actionBar.hide();
       }
    };
 
@@ -376,7 +383,15 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          //--------------------------------------------------------------
          {
             MainActivity.this.displayFlags = visibility;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+            {
+               ActionBar bar = MainActivity.this.getActionBar();
+               if (bar != null)
+                  bar.hide();
+               MainActivity.this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                                                          WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            }
+            else // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
             {
                hideHandler.removeCallbacks(hideRunner);
                hideHandler.postDelayed(hideRunner, 1000);
@@ -402,7 +417,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       {
          decorView = getWindow().getDecorView();
          uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-               View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+               View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN;
          decorView.setSystemUiVisibility(uiOptions);
          decorView.setOnSystemUiVisibilityChangeListener(visibilityListener);
       }
@@ -410,10 +425,12 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       {
          decorView = getWindow().getDecorView().findViewById(android.R.id.content);
          uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-               View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION  |
-               View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_FULLSCREEN |
+                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
          decorView.setSystemUiVisibility(uiOptions);
       }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH)
+         uiOptions |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
    }
 
    @Override

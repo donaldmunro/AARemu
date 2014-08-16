@@ -16,6 +16,7 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.Process;
@@ -29,8 +30,8 @@ import java.io.RandomAccessFile;
 import java.util.Arrays;
 import java.util.concurrent.*;
 
-abstract public class RecordingThread implements Runnable, Freezeable
-//====================================================================
+abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boolean> implements Freezeable
+//======================================================================================================================
 {
    static final private String TAG = RecordingThread.class.getSimpleName();
    static final protected long FRAME_BLOCK_TIME_MS = 120, FRAME_BLOCK_TIME_NS = 120000000L;
@@ -38,13 +39,14 @@ abstract public class RecordingThread implements Runnable, Freezeable
    static final protected int WRITE_BUFFER_ADD_RETRIES = 10;
    static final protected int WRITE_BUFFER_DRAIN_TIMEOUT = 20;
 
+   private RecorderActivity activity = null;
+
    protected GLRecorderRenderer renderer;
    protected float recordingIncrement = 0, recordingCurrentBearing = 0, recordingNextBearing = 0;
    protected int recordingCount = 0;
    protected long lastFrameTimestamp = -1;
    protected final float dummyStartBearing = 355;
    protected boolean isStartRecording;
-   protected RecorderActivity activity;
    protected ConditionVariable bearingCondVar = null, frameCondVar = null;
    protected CameraPreviewCallback previewer;
    protected byte[] previewBuffer = null;
@@ -53,8 +55,6 @@ abstract public class RecordingThread implements Runnable, Freezeable
    protected Future<?> frameWriterFuture;
    protected FrameWriterThread frameWriterThread = null;
 
-   @Override abstract public void run();
-
    static public RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
                                                        float increment, ConditionVariable bearingCond,
                                                        ConditionVariable frameCond)
@@ -62,9 +62,9 @@ abstract public class RecordingThread implements Runnable, Freezeable
    {
       switch (mode)
       {
-         case RETRY: return new RetryRecordingThread(renderer.activity, renderer, renderer.nv21BufferSize, increment,
+         case RETRY: return new RetryRecordingThread(renderer, renderer.nv21BufferSize, increment,
                                                      renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
-         case TRAVERSE: return new TraverseRecordingThread(renderer.activity, renderer, renderer.nv21BufferSize, increment,
+         case TRAVERSE: return new TraverseRecordingThread(renderer, renderer.nv21BufferSize, increment,
                                                            renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
 
       }
@@ -76,20 +76,20 @@ abstract public class RecordingThread implements Runnable, Freezeable
    {
       switch (mode)
       {
-         case RETRY:    return new RetryRecordingThread(renderer.activity, renderer);
-         case TRAVERSE: return new TraverseRecordingThread(renderer.activity, renderer);
+         case RETRY:    return new RetryRecordingThread(renderer);
+         case TRAVERSE: return new TraverseRecordingThread(renderer);
       }
       return null;
    }
 
-   protected RecordingThread(RecorderActivity activity, GLRecorderRenderer renderer, int nv21BufferSize, float increment,
+   protected RecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
                              CameraPreviewCallback previewer,
                              ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                              BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
       this.renderer = renderer;
-      this.activity = activity;
+      this.activity = renderer.activity;
       this.previewBuffer = new byte[nv21BufferSize];
       this.previewer = previewer;
       this.isStartRecording = true;
@@ -101,13 +101,7 @@ abstract public class RecordingThread implements Runnable, Freezeable
       this.recordingNextBearing = (float) (Math.rint((recordingCurrentBearing + recordingIncrement) * 10.0f) / 10.0);
    }
 
-   protected RecordingThread(RecorderActivity activity, GLRecorderRenderer renderer)
-   //-------------------------------------------------------------------------------
-   {
-      this.renderer = renderer;
-      this.activity = activity;
-   }
-
+   protected RecordingThread(GLRecorderRenderer renderer) { this.renderer = renderer; }
 
    public RecordingThread setPreviewer(CameraPreviewCallback previewer) { this.previewer = previewer; return this; }
 
@@ -118,6 +112,18 @@ abstract public class RecordingThread implements Runnable, Freezeable
    public RecordingThread setFrameCondVar(ConditionVariable frameCondVar) { this.frameCondVar = frameCondVar; return this; }
 
    public RecordingThread setBearingBuffer(BearingRingBuffer bearingBuffer) { this.bearingBuffer = bearingBuffer; return this; }
+
+   @Override abstract protected Boolean doInBackground(Void... params);
+
+   @Override
+   protected void onProgressUpdate(ProgressParam... values) { activity.onStatusUpdate(values[0]); }
+
+   @Override protected void onPostExecute(Boolean B)
+   //----------------------------------------------
+   {
+      if (renderer.isRecording)
+         renderer.stopRecording(false);
+   }
 
    public void pause(Bundle B)
    //-------------------------
@@ -156,8 +162,10 @@ abstract public class RecordingThread implements Runnable, Freezeable
       catch (FileNotFoundException _e)
       {
          Log.e(TAG, "Frame file permission error ? (" + renderer.recordFramesFile.getAbsolutePath() + ")", _e);
-         activity.updateStatus("Frame file permission error ? (" + renderer.recordFramesFile.getAbsolutePath() + ")",
-                               100, true, Toast.LENGTH_LONG);
+         ProgressParam params = new ProgressParam();
+         params.setStatus("Frame file permission error ? (" + renderer.recordFramesFile.getAbsolutePath() + ")",
+                          100, true, Toast.LENGTH_LONG);
+         publishProgress(params);
          return false;
       }
       frameWriterExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()

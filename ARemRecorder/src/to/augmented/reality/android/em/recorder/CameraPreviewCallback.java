@@ -17,6 +17,7 @@
 package to.augmented.reality.android.em.recorder;
 
 import android.hardware.Camera;
+import android.os.Build;
 import android.os.ConditionVariable;
 import android.os.SystemClock;
 import android.util.Log;
@@ -105,7 +106,11 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
          return;
       }
 //      Log.i(TAG, "NV21 size = " + data.length);
-      long timestamp = SystemClock.elapsedRealtimeNanos();
+      final long timestamp;
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         timestamp = SystemClock.elapsedRealtimeNanos();
+      else
+         timestamp = System.nanoTime();
       try
       {
 //         ain.copyFrom(data);

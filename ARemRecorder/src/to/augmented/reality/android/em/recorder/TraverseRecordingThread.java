@@ -16,35 +16,29 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.os.Bundle;
-import android.os.ConditionVariable;
+import android.os.*;
 import android.os.Process;
-import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
 import java.util.*;
 
-public class TraverseRecordingThread extends RecordingThread implements Runnable, Freezeable
-//=======================================================================================
+public class TraverseRecordingThread extends RecordingThread implements Freezeable
+//================================================================================
 {
    static final private String TAG = RetryRecordingThread.class.getSimpleName();
    SortedSet<Long> remainingBearings;
    int totalCount = 0, writtenCount = 0;
 
-   protected TraverseRecordingThread(RecorderActivity activity, GLRecorderRenderer renderer)
-   //-------------------------------------------------------------------------------
-   {
-      super(activity, renderer);
-   }
+   protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
 
-   protected TraverseRecordingThread(RecorderActivity activity, GLRecorderRenderer renderer, int nv21BufferSize,
+   protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
                                      float increment, CameraPreviewCallback previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                      BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
-      super(activity, renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, bearingBuffer);
+      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, bearingBuffer);
    }
 
    @Override
@@ -84,34 +78,49 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
    }
 
    @Override
-   public void run()
-   //--------------
+   protected Boolean doInBackground(Void... params)
+   //--------------------------------------------
    {
       Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
       renderer.arrowColor = GLRecorderRenderer.RED;
       if (previewBuffer == null)
          previewBuffer = new byte[renderer.nv21BufferSize];
       totalCount = (int) (360.0f / recordingIncrement);
+      ProgressParam progress = new ProgressParam();
       try
       {
-         float bearing = 0, lastBearing;
+         float bearing = 0, lastBearing = -1;
          if (remainingBearings == null)
             initBearings();
          recordingCurrentBearing = -1;
          startFrameWriter();
-         while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) )
+         long bearingTimeStamp;
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+            bearingTimeStamp = SystemClock.elapsedRealtimeNanos();
+         else
+            bearingTimeStamp = System.nanoTime();
+         while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
-            bearingCondVar.close();
-            if (!bearingCondVar.block(400))
+            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
+            final long now;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+               now = SystemClock.elapsedRealtimeNanos();
+            else
+               now = System.nanoTime();
+            if ( (bearingInfo == null) || ((now - bearingInfo.timestamp) > 150000000L) )
             {
-               activity.onBearingChanged(renderer.currentBearing, recordingNextBearing, renderer.arrowColor, -1);
+               bearingCondVar.close();
+               if (! bearingCondVar.block(400))
+               {
+                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  publishProgress(progress);
+               }
                continue;
             }
             lastBearing = bearing;
-            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
             bearing = bearingInfo.bearing;
-            long bearingTimeStamp = bearingInfo.timestamp;
-            if ((!renderer.isRecording) || (renderer.mustStopNow))
+            bearingTimeStamp = bearingInfo.timestamp;
+            if ((!renderer.isRecording) || (renderer.mustStopNow) || (isCancelled()) )
                break;
             if (bearing < 0)
                continue;
@@ -127,12 +136,16 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
                   previewer.bufferOff();
                   previewer.clearBuffer();
                   frameCondVar.close();
-                  targetTimeStamp = SystemClock.elapsedRealtimeNanos();
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+                     targetTimeStamp = SystemClock.elapsedRealtimeNanos();
+                  else
+                     targetTimeStamp = System.nanoTime();
                   previewer.bufferOn();
                   if (!frameCondVar.block(FRAME_BLOCK_TIME_MS))
                   {
                      renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     activity.onBearingChanged(bearing, recordingCurrentBearing, renderer.arrowColor, -1);
+                     progress.set(bearing, recordingCurrentBearing, renderer.arrowColor);
+                     publishProgress(progress);
                      renderer.requestRender();
                      continue;
                   }
@@ -183,29 +196,31 @@ public class TraverseRecordingThread extends RecordingThread implements Runnable
                   renderer.arrowColor = GLRecorderRenderer.BLUE;
             }
             renderer.requestRender();
-            activity.onBearingChanged(bearing, recordingNextBearing, renderer.arrowColor,
-                                      (writtenCount * 100) / totalCount);
+            progress.set(bearing, recordingNextBearing, renderer.arrowColor,
+                         (writtenCount * 100) / totalCount);
+            publishProgress(progress);
          }
          if (remainingBearings.isEmpty())
          {
             stopFrameWriter();
             renderer.lastSaveBearing = 0;
             remainingBearings = null;
-            renderer.stopRecording(false);
+            return true;
          }
          pause(renderer.lastInstanceState);
       }
       catch (Exception e)
       {
          Log.e(TAG, "", e);
-         renderer.stopRecording(true);
-         activity.updateStatus("Exception in Record thread: " + e.getMessage(), 100, true, Toast.LENGTH_LONG);
+         progress.setStatus("Exception in Record thread: " + e.getMessage(), 100, true, Toast.LENGTH_LONG);
+         publishProgress(progress);
          renderer.isRecording = false;
       }
       finally
       {
          stopFrameWriter();
       }
+      return null;
    }
 
    private void initBearings()

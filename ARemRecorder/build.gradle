@@ -5,12 +5,12 @@ android {
     compileSdkVersion 19
     buildToolsVersion '19.1.0'
     defaultConfig {
-        minSdkVersion 18
+        minSdkVersion 14
         targetSdkVersion 19
         renderscriptTargetApi 18
         renderscriptSupportMode true
-        versionCode 2
-        versionName '1.0.0'
+        versionCode 3
+        versionName '1.0.3'
     }
     sourceSets {
         main.java.srcDirs = ['src']
