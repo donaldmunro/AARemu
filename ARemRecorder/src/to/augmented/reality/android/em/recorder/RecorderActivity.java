@@ -108,36 +108,6 @@ public class RecorderActivity extends Activity
 
    Toast lastStatusToast = null;
 
-   private class UpdateStatusRunner implements Runnable
-   //===================================================
-   {
-      volatile public String status = null;
-      public boolean isToast = false;
-      public int toastDuration = Toast.LENGTH_LONG;
-      public int progress;
-
-      @Override public void run()
-      //------------------------
-      {
-         if (status != null)
-            statusText.setText(status);
-         if (progress >= 0)
-            statusProgress.setProgress(progress);
-         if (isToast)
-         {
-            if (lastStatusToast != null)
-               lastStatusToast.cancel();
-            lastStatusToast = Toast.makeText(RecorderActivity.this, status, toastDuration);
-            lastStatusToast.show();
-         }
-         status = null;
-         isToast = false;
-         progress = -1;
-      }
-   };
-   //final private UpdateStatusRunner updateStatusRunner = new UpdateStatusRunner();
-
-
    private int displayFlags = 0;
    boolean isOpeningDrawer = false, isDrawerOpen = false;
    private String[] resolutions = null;

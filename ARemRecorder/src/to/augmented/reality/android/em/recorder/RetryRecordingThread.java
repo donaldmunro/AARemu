@@ -104,8 +104,10 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                {
                   progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
                   publishProgress(progress);
+                  continue;
                }
-               continue;
+               else
+                  bearingInfo = bearingBuffer.peekHead();
             }
             lastBearing = bearing;
             bearing = bearingInfo.bearing;

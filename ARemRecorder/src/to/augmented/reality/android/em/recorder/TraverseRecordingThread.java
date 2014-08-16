@@ -114,8 +114,10 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                {
                   progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
                   publishProgress(progress);
+                  continue;
                }
-               continue;
+               else
+                  bearingInfo = bearingBuffer.peekHead();
             }
             lastBearing = bearing;
             bearing = bearingInfo.bearing;
