@@ -17,7 +17,6 @@
             android:text="Name"
             android:textColor="@android:color/white"
             android:textAppearance="@android:style/TextAppearance.Small"
-            android:labelFor="@+id/spinner_camera_resolutions"
             />
 
       <EditText
@@ -119,7 +118,6 @@
             android:text="Resolution"
             android:textColor="@android:color/white"
             android:textAppearance="@android:style/TextAppearance.Small"
-            android:labelFor="@+id/spinner_camera_resolutions"
             />
 
       <Spinner

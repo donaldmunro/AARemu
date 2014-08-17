@@ -33,6 +33,7 @@ import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.BearingListener;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Locale;
 
 
@@ -40,8 +41,25 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
 //==============================================================================
 {
    final static String TAG = MainActivity.class.getSimpleName();
-   final static File DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-                                    "ARRecorder");
+   private static File DIR;
+   static
+   {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+         DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                        "ARRecorder");
+      else
+      {
+         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                             "../Documents/ARRecorder");
+         if (! dir.mkdirs())
+         {
+            dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                           "ARRecorder");
+            dir.mkdirs();
+         }
+         try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
+      }
+   }
    final static int DEFAULT_REVIEW_DELAY = 40; //ms
 
    private File headerFile = new File(DIR, "test.head");

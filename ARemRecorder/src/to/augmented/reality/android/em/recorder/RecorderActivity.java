@@ -38,6 +38,7 @@ import android.widget.*;
 import com.doubleTwist.drawerlib.ADrawerLayout;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,8 +49,25 @@ public class RecorderActivity extends Activity
 //============================================
 {
    private static final String TAG = RecorderActivity.class.getSimpleName();
-   private static final File DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-                                            "ARRecorder");
+   private static File DIR;
+   static
+   {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+         DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                        "ARRecorder");
+      else
+      {
+         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                        "../Documents/ARRecorder");
+         if (! dir.mkdirs())
+         {
+            dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                           "ARRecorder");
+            dir.mkdirs();
+         }
+         try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
+      }
+   }
    final static private int MSG_BEARING = 1;
    final static private int MSG_LOCATION = 2;
 

@@ -66,6 +66,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    static final int SIZEOF_FLOAT = Float.SIZE / 8;
    static final int SIZEOF_SHORT = Short.SIZE / 8;
    static final boolean DIRECT_TO_SURFACE = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB);
+   final private static int GL_TEXTURE_EXTERNAL_OES = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+                                                        ? GLES11Ext.GL_TEXTURE_EXTERNAL_OES
+                                                        : 0x8D65;
 
    RecorderActivity activity;
    private ARSurfaceView view;
@@ -826,7 +829,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       if ( (DIRECT_TO_SURFACE) && ( (previewTexture < 0) || (! glIsTexture(previewTexture)) ) )
       {
-         final int texTarget = GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
+         final int texTarget = GL_TEXTURE_EXTERNAL_OES;
          int[] texnames = new int[1];
          glGenTextures(1, texnames, 0);
          previewTexture = texnames[0];
@@ -930,7 +933,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       //StringBuilder errbuf = new StringBuilder();
       boolean isPreviewed = false;
-      final int texTarget = (DIRECT_TO_SURFACE) ? GLES11Ext.GL_TEXTURE_EXTERNAL_OES : GL_TEXTURE_2D;
+      final int texTarget = (DIRECT_TO_SURFACE) ? GL_TEXTURE_EXTERNAL_OES : GL_TEXTURE_2D;
       try
       {
          glViewport(0, 0, screenWidth, screenHeight);
