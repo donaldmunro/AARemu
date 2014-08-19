@@ -83,8 +83,7 @@ public class ARSurfaceView extends GLSurfaceView
 
          setEGLConfigChooser(8, 8, 8, 8, 16, 0);
          setDebugFlags(GLSurfaceView.DEBUG_CHECK_GL_ERROR | GLSurfaceView.DEBUG_LOG_GL_CALLS);
-         renderer = new GLRecorderRenderer((RecorderActivity) activity, this,
-                                           ORIENTATION_PROVIDER.STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR);
+         renderer = new GLRecorderRenderer((RecorderActivity) activity, this, ORIENTATION_PROVIDER.DEFAULT);
          setRenderer(renderer);
          setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
       }
@@ -162,11 +161,11 @@ public class ARSurfaceView extends GLSurfaceView
 
    public void stopRecording(final boolean isCancelled) { renderer.stopRecording(isCancelled);}
 
-   public void initOrientationSensor(String orientationType)
+   public boolean initOrientationSensor(String orientationType)
    //-------------------------------------------------------
    {
       ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.valueOf(orientationType);
-      renderer.initOrientationSensor(orientationProviderType);
+      return renderer.initOrientationSensor(orientationProviderType);
    }
 
    public void setRecordFileFormat(String format)

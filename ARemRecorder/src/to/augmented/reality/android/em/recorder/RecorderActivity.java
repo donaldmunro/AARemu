@@ -160,7 +160,7 @@ public class RecorderActivity extends Activity
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
             {
                hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 500);
+               hideHandler.postDelayed(hideRunner, 1500);
             }
          }
 
@@ -172,11 +172,13 @@ public class RecorderActivity extends Activity
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
             {
                hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 500);
+               hideHandler.postDelayed(hideRunner, 1500);
             }
          }
          // @formatter:on
       });
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+         drawerLayout.open();
 
       previewSurface = (ARSurfaceView) findViewById(R.id.camera_preview_surface);
       locationLabel = (TextView) findViewById(R.id.location_label);
@@ -402,7 +404,11 @@ public class RecorderActivity extends Activity
    {
       recordDialog = null;
       if ( (isRecording) || (previewSurface.isRecording()) ) return;
-      previewSurface.initOrientationSensor(orientationType);
+      if (! previewSurface.initOrientationSensor(orientationType))
+      {
+         Toast.makeText(this, "ERROR: Device does not appear to have required orientation sensors", Toast.LENGTH_LONG).show();
+         return;
+      }
       previewSurface.setRecordFileFormat(fileFormat);
       bearingDestLabel.setVisibility(View.VISIBLE);
       bearingDestText.setVisibility(View.VISIBLE);
@@ -420,7 +426,7 @@ public class RecorderActivity extends Activity
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
       {
          hideHandler.removeCallbacks(hideRunner);
-         hideHandler.postDelayed(hideRunner, 500);
+         hideHandler.postDelayed(hideRunner, 1500);
       }
    }
 
@@ -462,7 +468,7 @@ public class RecorderActivity extends Activity
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
       {
          hideHandler.removeCallbacks(hideRunner);
-         hideHandler.postDelayed(hideRunner, 500);
+         hideHandler.postDelayed(hideRunner, 1500);
       }
    }
 
@@ -490,7 +496,7 @@ public class RecorderActivity extends Activity
             else// if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
             {
                hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 1000);
+               hideHandler.postDelayed(hideRunner, 1500);
             }
 //               if ((displayFlags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0)
 //               {
@@ -637,7 +643,7 @@ public class RecorderActivity extends Activity
          if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
          {
             hideHandler.removeCallbacks(hideRunner);
-            hideHandler.postDelayed(hideRunner, 1000);
+            hideHandler.postDelayed(hideRunner, 1500);
          }
          return true;
       }

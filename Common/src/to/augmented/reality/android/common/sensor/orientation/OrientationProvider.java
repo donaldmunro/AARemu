@@ -121,8 +121,23 @@ public abstract class OrientationProvider implements SensorEventListener
       {
          // enable our sensors when the activity is resumed, ask for
          // 20 ms updates (Sensor_delay_game)
+         if (sensor == null)
+         {
+            isStarted = false;
+            break;
+         }
          if (! sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME))
-            return false;
+         {
+            isStarted = false;
+            break;
+         }
+      }
+      if (! isStarted)
+      {
+         for (Sensor sensor : sensorList)
+         if (sensor != null)
+            sensorManager.unregisterListener(this, sensor);
+         return false;
       }
       return true;
    }
@@ -275,7 +290,8 @@ public abstract class OrientationProvider implements SensorEventListener
    //----------------------------------------------------------
    {
       SensorManager sensorManager = (SensorManager) context.getSystemService(Activity.SENSOR_SERVICE);
-      return (sensorManager.getSensorList(type).size() > 0);
+      //return (sensorManager.getSensorList(type).size() > 0);
+      return (sensorManager.getDefaultSensor(type) != null);
    }
 
    static private float[] RM = new float[16];

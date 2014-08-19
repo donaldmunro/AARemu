@@ -548,28 +548,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             cameraParameters.setPreviewFormat(ImageFormat.YV12);
          camera.setParameters(cameraParameters);
          if (previewer == null)
-         {
-            previewer = new CameraPreviewCallback(this, nv21BufferSize);
-            previewer.setPreviewListener(new CameraPreviewCallback.Previewable()
-            //-------------------------------------------------------------------------
-            {
-               @Override
-               public void onCameraFrame(long timestamp, byte[] frame)
-               //-----------------------------------------------------
-               {
-                  if (!DIRECT_TO_SURFACE)
-                  {
-                     synchronized (lockSurface)
-                     {
-                        previewByteBuffer.rewind();
-                        previewByteBuffer.put(frame);
-                        isUpdateSurface = true;
-                     }
-                     requestRender();
-                  }
-               }
-            });
-         }
+            setPreviewer();
          camera.setPreviewCallbackWithBuffer(previewer);
          if (DIRECT_TO_SURFACE)
             previewSurfaceTexture.setOnFrameAvailableListener(this);
@@ -585,6 +564,33 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          return false;
       }
       return true;
+   }
+
+   private void setPreviewer()
+    //------------------------
+   {
+      if (nv21BufferSize <= 0)
+         return;
+      previewer = new CameraPreviewCallback(this, nv21BufferSize);
+      previewer.setPreviewListener(new CameraPreviewCallback.Previewable()
+            //-------------------------------------------------------------------------
+      {
+         @Override
+         public void onCameraFrame(long timestamp, byte[] frame)
+         //-----------------------------------------------------
+         {
+            if (!DIRECT_TO_SURFACE)
+            {
+               synchronized (lockSurface)
+               {
+                  previewByteBuffer.rewind();
+                  previewByteBuffer.put(frame);
+                  isUpdateSurface = true;
+               }
+               requestRender();
+            }
+         }
+      });
    }
 
    private void stopCamera()
@@ -1209,6 +1215,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //-------------------------------------------------------------------------------------
    {
       if (isRecording) return false;
+      if (previewer == null)
+         setPreviewer();
+      if (previewer == null)
+         return false;
       if (! dir.isDirectory())
          dir.mkdirs();
       if ((! dir.isDirectory()) || (! dir.canWrite()))
@@ -1327,7 +1337,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    final static int REMAP_X = SensorManager.AXIS_X,  REMAP_Y = SensorManager.AXIS_Z;
    final static float MAX_BEARING_DELTA = 3;
 
-   public void initOrientationSensor(ORIENTATION_PROVIDER orientationProviderType)
+   public boolean initOrientationSensor(ORIENTATION_PROVIDER orientationProviderType)
    //-----------------------------------------------------------------------------
    {
       if ( (orientationProvider != null) && (orientationProvider.isStarted()) )
@@ -1418,8 +1428,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
       });
       if (! orientationProvider.start())
-         throw new RuntimeException("Could not start orientation provider");
+         return false;
       this.orientationProviderType = orientationProviderType;
+      return true;
 /*
       Sensor rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
       rotationListener = new SensorEventListener()
