@@ -23,7 +23,7 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
-import android.os.Bundle;
+import android.os.*;
 import android.support.v8.renderscript.*;
 import android.util.*;
 import android.widget.Toast;
@@ -318,8 +318,9 @@ public class GLRenderer implements GLSurfaceView.Renderer
 //         setDisplayOrientation();
          camera.setDisplayOrientation(180);
          Camera.Parameters cameraParameters = camera.getParameters();
-         if (cameraParameters.isVideoStabilizationSupported())
-            cameraParameters.setVideoStabilization(true);
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+            if (cameraParameters.isVideoStabilizationSupported())
+               cameraParameters.setVideoStabilization(true);
          List<Camera.Size> L = cameraParameters.getSupportedPreviewSizes();
          Camera.Size sz = cameraParameters.getPreviewSize();
          List<String> focusModes = cameraParameters.getSupportedFocusModes();

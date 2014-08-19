@@ -49,7 +49,7 @@ public class RecorderActivity extends Activity
 //============================================
 {
    private static final String TAG = RecorderActivity.class.getSimpleName();
-   private static File DIR;
+   static File DIR;
    static
    {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)

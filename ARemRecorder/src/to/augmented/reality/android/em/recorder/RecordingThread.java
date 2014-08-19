@@ -291,6 +291,10 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
                }
             }
          }
+         catch (Exception e)
+         {
+            Log.e(TAG, "", e);
+         }
          finally
          {
             try { framesRAF.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
