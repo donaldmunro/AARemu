@@ -26,7 +26,7 @@ import java.util.*;
 public class TraverseRecordingThread extends RecordingThread implements Freezeable
 //================================================================================
 {
-   static final private String TAG = RetryRecordingThread.class.getSimpleName();
+   static final private String TAG = TraverseRecordingThread.class.getSimpleName();
    SortedSet<Long> remainingBearings;
    int totalCount = 0, writtenCount = 0;
 
