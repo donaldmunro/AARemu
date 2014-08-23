@@ -213,17 +213,25 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       this.screenWidth = width;
       this.screenHeight = height;
-      displayWidth = width - 1;
-      displayHeight = height - 1;
+      displayWidth = width - 2;
+      displayHeight = height - 2;
       xScaleArrow = screenWidth / (ARROW_WIDTH * 4); // width of arrow = 5 : 5x = screenWidth/4 -> x = screenWidth/5 * 4
       yScaleArrow = screenHeight / (ARROW_HEIGHT * 4);  // height of arrow = 1 : y = screenHeight/4
       xTranslateArrow = screenWidth / 2.0f - (xScaleArrow * ARROW_WIDTH) / 2.0f;
       yTranslateArrow = screenHeight / 2.0f - (yScaleArrow * ARROW_HEIGHT) / 2.0f;
 
-      initRender();
-      if (camera == null)
-         initCamera();
-      isInitialised = true;
+      try
+      {
+         initRender();
+         if (camera == null)
+            initCamera();
+         isInitialised = true;
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "OpenGL Initialization error", e);
+         throw new RuntimeException("OpenGL Initialization error", e);
+      }
    }
 
    boolean isLocationSensorInititialised = false;
@@ -523,7 +531,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       if (DIRECT_TO_SURFACE)
       {
-         if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
+         if (previewTexture < 0)
          {
             Log.e(TAG, "Preview texture has not been initialised by OpenGL glGenTextures. (" + previewTexture + ")");
             isAwaitingTextureFix = true;
@@ -587,10 +595,18 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   previewByteBuffer.put(frame);
                   isUpdateSurface = true;
                }
-               requestRender();
+               view.requestRender();
             }
          }
       });
+   }
+
+   @Override
+   public void onFrameAvailable(SurfaceTexture surfaceTexture)
+   //-------------------------------------------------------------------
+   {
+      synchronized (lockSurface) { isUpdateSurface = true; }
+      view.requestRender();
    }
 
    private void stopCamera()
@@ -833,15 +849,16 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private boolean initTextures(GLSLAttributes previewShaderGlsl, StringBuilder errbuf)
    //------------------------------------------------
    {
-      if ( (DIRECT_TO_SURFACE) && ( (previewTexture < 0) || (! glIsTexture(previewTexture)) ) )
+      if (DIRECT_TO_SURFACE)
       {
          final int texTarget = GL_TEXTURE_EXTERNAL_OES;
          int[] texnames = new int[1];
+         texnames[0] = -1;
          glGenTextures(1, texnames, 0);
          previewTexture = texnames[0];
          glActiveTexture(GL_TEXTURE0);
          glBindTexture(texTarget, previewTexture);
-         if (GLHelper.isGLError(errbuf))
+         if ( (GLHelper.isGLError(errbuf)) || (! glIsTexture(previewTexture)) )
          {
             Log.e(TAG, "Error binding texture");
             return false;
@@ -863,7 +880,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             }
          }
       }
-      else if ( (!DIRECT_TO_SURFACE) &&
+      else if ( (! DIRECT_TO_SURFACE) &&
                 ( (yComponent < 0) || (! glIsTexture(yComponent)) ||
                   (uComponent < 0) || (! glIsTexture(uComponent))  ||
                   (vComponent < 0) || (! glIsTexture(vComponent)) ) )
@@ -918,26 +935,19 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       return true;
    }
 
-   @Override
-   public void onFrameAvailable(SurfaceTexture surfaceTexture)
-   //-------------------------------------------------------------------
-   {
-      synchronized (lockSurface) { isUpdateSurface = true; }
-      view.requestRender();
-   }
-
    final static private float ARROW_WIDTH = 5;
    final static private float ARROW_HEIGHT = 1;
    private float xScaleArrow = 1, yScaleArrow = 1, xTranslateArrow = 0, yTranslateArrow = 0;
 
    private float[] arrowModelView = new float[16], scaleM = new float[16], translateM = new float[16],
          rotateM = new float[16], modelM = new float[16];
+   StringBuilder glerrbuf = new StringBuilder();
 
    @Override
    public void onDrawFrame(GL10 gl)
    //------------------------------
    {
-      //StringBuilder errbuf = new StringBuilder();
+      glerrbuf.setLength(0);
       boolean isPreviewed = false;
       final int texTarget = (DIRECT_TO_SURFACE) ? GL_TEXTURE_EXTERNAL_OES : GL_TEXTURE_2D;
       try
@@ -1007,11 +1017,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, hw, hh, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE,
                                previewByteBuffer.slice());
                }
-//               if (GLHelper.isGLError(errbuf))
-//                  throw new RuntimeException(errbuf.toString());
                isPreviewed = true;
             }
          }
+         if (GLHelper.isGLError(glerrbuf))
+            throw new RuntimeException(glerrbuf.toString());
 
          glUniformMatrix4fv(previewMVPLocation, 1, false, previewMVP, 0);
 //         if (DIRECT_TO_SURFACE)
@@ -1028,6 +1038,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, previewPlaneFaces.asShortBuffer());
 //         glDrawArrays(GL10.GL_TRIANGLE_STRIP, 0, 4);
          glBindTexture(texTarget, 0);
+
+         if (GLHelper.isGLError(glerrbuf))
+            throw new RuntimeException(glerrbuf.toString());
 
          if (isRecording)
          {
@@ -1055,9 +1068,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             arrowFacesBuffer.rewind();
             glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_SHORT, arrowFacesBuffer.asShortBuffer());
          }
-
-//         if (GLHelper.isGLError(errbuf)) Log.e(TAG, "onDrawFrame: " + errbuf.toString());
-//         glFinish();
+         if (GLHelper.isGLError(glerrbuf))
+            throw new RuntimeException(glerrbuf.toString());
       }
       catch (Exception e)
       {
@@ -1391,6 +1403,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             currentBearing = (float) Math.toDegrees(Math.atan2(RM[1], RM[5]));
             if (currentBearing < 0)
                currentBearing += 360;
+            bearingDelta = currentBearing - lastBearing;
+            float absDelta = Math.abs(bearingDelta);
             currentBearingTimestamp = timestamp;
             if (isSettling)
             {
@@ -1404,15 +1418,13 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   return;
                }
             }
-            if (! isRecording)
+            if ( (! isRecording) && (absDelta >= 0.1f) )
             {
                param.set(currentBearing, - 1, null);
                activity.onStatusUpdate(param);
             }
-            else
+            else if (isRecording)
             {
-               bearingDelta = currentBearing - lastBearing;
-               float absDelta = Math.abs(bearingDelta);
                if (absDelta >= MAX_BEARING_DELTA)
                {
                   isSettling = true;

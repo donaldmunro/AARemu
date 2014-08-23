@@ -16,12 +16,16 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.os.*;
-import android.os.Process;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.ConditionVariable;
+import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.util.*;
+import java.util.Locale;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 public class TraverseRecordingThread extends RecordingThread implements Freezeable
 //================================================================================
@@ -81,12 +85,14 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    protected Boolean doInBackground(Void... params)
    //--------------------------------------------
    {
-      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+//      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+      long present = -1, time = -1, maxtime =0, mintime = Long.MAX_VALUE, tottime = 0, avgcount =0;
       renderer.arrowColor = GLRecorderRenderer.RED;
       if (previewBuffer == null)
          previewBuffer = new byte[renderer.nv21BufferSize];
       totalCount = (int) (360.0f / recordingIncrement);
       ProgressParam progress = new ProgressParam();
+      final long epsilon = 50000000L;
       try
       {
          float bearing = 0, lastBearing = -1;
@@ -101,12 +107,12 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             bearingTimeStamp = System.nanoTime();
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
-            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
             final long now;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                now = SystemClock.elapsedRealtimeNanos();
             else
                now = System.nanoTime();
+            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
             if ( (bearingInfo == null) || ((now - bearingInfo.timestamp) > 150000000L) )
             {
                bearingCondVar.close();
@@ -119,43 +125,54 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                else
                   bearingInfo = bearingBuffer.peekHead();
             }
+
+            time = present;
+            present = System.nanoTime();
+            if (time >= 0)
+            {
+               time = present - time;
+               if (time > maxtime)
+                  maxtime = time;
+               if (time < mintime)
+                  mintime = time;
+               tottime += time;
+               avgcount++;
+            }
+
+
             lastBearing = bearing;
             bearing = bearingInfo.bearing;
-            bearingTimeStamp = bearingInfo.timestamp;
             if ((!renderer.isRecording) || (renderer.mustStopNow) || (isCancelled()) )
                break;
             if (bearing < 0)
+            {
+               renderer.arrowColor = GLRecorderRenderer.RED;
+               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               publishProgress(progress);
                continue;
+            }
+            if (bearing < lastBearing)
+            {
+               boolean isWrapped =  ( ( (lastBearing > 350) && (lastBearing <= 360) ) &&
+                                   ( (bearing >= 0) && (bearing < 10) ) );
+               if (! isWrapped)
+               {
+                  renderer.arrowColor = GLRecorderRenderer.RED;
+                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  publishProgress(progress);
+                  continue;
+               }
+            }
+            bearingTimeStamp = bearingInfo.timestamp;
             if (recordingCurrentBearing < 0)
                recordingCurrentBearing = bearing;
             long offset = (long) (Math.floor(bearing / recordingIncrement));
             if (remainingBearings.contains(offset))
             {
-               long targetTimeStamp = bearingTimeStamp, epsilon = 50000000L;
-               long ts = previewer.findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
+               long ts = previewer.findBufferAtTimestamp(bearingTimeStamp, epsilon, previewBuffer);
                if (ts < 0)
-               {
-                  previewer.bufferOff();
-                  previewer.clearBuffer();
-                  frameCondVar.close();
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-                     targetTimeStamp = SystemClock.elapsedRealtimeNanos();
-                  else
-                     targetTimeStamp = System.nanoTime();
-                  previewer.bufferOn();
-                  if (!frameCondVar.block(FRAME_BLOCK_TIME_MS))
-                  {
-                     renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     progress.set(bearing, recordingCurrentBearing, renderer.arrowColor);
-                     publishProgress(progress);
-                     renderer.requestRender();
-                     continue;
-                  }
-                  frameCondVar.close();
-                  epsilon = FRAME_BLOCK_TIME_NS + 10000000L;
-                  ts = previewer.findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
-               }
-               if ( (ts >= (targetTimeStamp - epsilon)) && (ts <= (targetTimeStamp + epsilon)) )
+                  ts = previewer.awaitFrame(FRAME_BLOCK_TIME_MS, previewBuffer);
+               if ( (ts >= (bearingTimeStamp - epsilon)) && (ts <= (bearingTimeStamp + epsilon)) )
                {
                   if (addFrameToWriteBuffer(offset))
                   {
@@ -221,6 +238,9 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
       finally
       {
          stopFrameWriter();
+
+         Log.i(TAG, String.format(Locale.US, "Stats: min = %d, max = %d, average = %.3f", mintime, maxtime,
+                                  (float)tottime / (float) avgcount));
       }
       return null;
    }

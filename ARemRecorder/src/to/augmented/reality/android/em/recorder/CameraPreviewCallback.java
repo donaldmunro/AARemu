@@ -37,6 +37,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 //   private final int bufferSize;
 
    byte[] previewBuffer = null;
+   long timestamp =-1;
    RecorderRingBuffer ringBuffer;
 
    private volatile boolean mustBuffer = false;
@@ -106,7 +107,6 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
          return;
       }
 //      Log.i(TAG, "NV21 size = " + data.length);
-      final long timestamp;
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
          timestamp = SystemClock.elapsedRealtimeNanos();
       else
@@ -124,7 +124,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
          {
             ringBuffer.push(timestamp, previewBuffer);
             if (frameAvailCondVar != null)
-               try { frameAvailCondVar.open(); } catch (Exception _e) { Log.e(TAG, "", _e); }
+               try { synchronized (this) { frameAvailCondVar.open(); } } catch (Exception _e) { Log.e(TAG, "", _e); }
          }
          if (previewListener != null)
             previewListener.onCameraFrame(timestamp, previewBuffer);
@@ -134,4 +134,23 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
          Log.e(TAG, "", e);
       }
    }
+
+   public long awaitFrame(long frameBlockTimeMs, byte[] previewBuffer)
+   //-----------------------------------------------------------------
+   {
+      if (frameAvailCondVar == null)
+         return -1;
+      synchronized (this) { frameAvailCondVar.close(); }
+      if (frameAvailCondVar.block(frameBlockTimeMs))
+      {
+         synchronized (this)
+         {
+            System.arraycopy(this.previewBuffer, 0, previewBuffer, 0, this.previewBuffer.length);
+            return timestamp;
+         }
+//         return findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
+      }
+      return -1;
+   }
+
 }

@@ -103,6 +103,22 @@ public class BearingRingBuffer
       return null;
    }
 
+   public synchronized RingBufferContent findLess(long timestampCompareNS, long epsilonNS)
+   //-------------------------------------------------------------------------------------
+   {
+      if (length == 0)
+         return null;
+      int index = head;
+      for (int i=0; i<length; i++)
+      {
+         final long ts = bearings[index].timestamp;
+         if ( (ts >= timestampCompareNS - epsilonNS) && (ts <= timestampCompareNS) )
+            return bearings[index];
+         index = indexDecrement(index);
+      }
+      return null;
+   }
+
    public synchronized float peekBearing()
    //-------------------------------------
    {
@@ -146,5 +162,5 @@ public class BearingRingBuffer
    }
 
    private int indexIncrement(int i) { return (++i >= count) ? 0 : i; }
-//   private int indexDecrement(int i) { return (0 == i) ? (length - 1) : (i - 1);  }
+   private int indexDecrement(int i) { return (0 == i) ? (length - 1) : (i - 1);  }
 }
