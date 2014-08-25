@@ -149,11 +149,23 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   long ts = previewer.findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
                   if (ts < 0)
                   {
-                     bearingInfo = bearingBuffer.peekHead();
-                     bearing = bearingInfo.bearing;
-                     targetTimeStamp = bearingInfo.timestamp;
-                     if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
-                        ts = previewer.awaitFrame(FRAME_BLOCK_TIME_MS, previewBuffer);
+                     ts = previewer.awaitFrame(FRAME_BLOCK_TIME_MS, previewBuffer);
+                     if (ts >= 0)
+                     {
+                        if ( (ts < (targetTimeStamp - epsilon)) || (ts > (targetTimeStamp + epsilon)) )
+                        {
+                           bearingInfo = bearingBuffer.find(ts, epsilon);
+                           if ((bearingInfo != null) &&
+                                 ((bearingInfo.bearing >= recordingCurrentBearing) &&
+                                  (bearingInfo.bearing < recordingNextBearing)))
+                           {
+                              bearing = bearingInfo.bearing;
+                              ts = targetTimeStamp = bearingInfo.timestamp;
+                           }
+                        }
+                        else
+                           ts = targetTimeStamp;
+                     }
                   }
                   if ( (ts >= (targetTimeStamp - epsilon)) && (ts <= (targetTimeStamp + epsilon)) )
                   {

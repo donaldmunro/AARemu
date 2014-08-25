@@ -156,6 +156,15 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                long ts = previewer.findBufferAtTimestamp(bearingTimeStamp, epsilon, previewBuffer);
                if (ts < 0)
                   ts = previewer.awaitFrame(FRAME_BLOCK_TIME_MS, previewBuffer);
+               if ( (ts >= 0) && ( (ts < (bearingTimeStamp - epsilon)) || (ts > (bearingTimeStamp + epsilon)) ) )
+               {
+                  bearingInfo = bearingBuffer.find(ts, epsilon);
+                  if (bearingInfo != null)
+                  {
+                     recordingCurrentBearing = bearing = bearingInfo.bearing;
+                     ts = bearingTimeStamp = bearingInfo.timestamp;
+                  }
+               }
                if ( (ts >= (bearingTimeStamp - epsilon)) && (ts <= (bearingTimeStamp + epsilon)) )
                {
                   if (addFrameToWriteBuffer(offset))
