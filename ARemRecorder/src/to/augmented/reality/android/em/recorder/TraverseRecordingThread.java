@@ -86,7 +86,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    //--------------------------------------------
    {
 //      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-      long present = -1, time = -1, maxtime =0, mintime = Long.MAX_VALUE, tottime = 0, avgcount =0;
       renderer.arrowColor = GLRecorderRenderer.RED;
       if (previewBuffer == null)
          previewBuffer = new byte[renderer.nv21BufferSize];
@@ -125,21 +124,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                else
                   bearingInfo = bearingBuffer.peekHead();
             }
-
-            time = present;
-            present = System.nanoTime();
-            if (time >= 0)
-            {
-               time = present - time;
-               if (time > maxtime)
-                  maxtime = time;
-               if (time < mintime)
-                  mintime = time;
-               tottime += time;
-               avgcount++;
-            }
-
-
             lastBearing = bearing;
             bearing = bearingInfo.bearing;
             if ((!renderer.isRecording) || (renderer.mustStopNow) || (isCancelled()) )
@@ -238,9 +222,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
       finally
       {
          stopFrameWriter();
-
-         Log.i(TAG, String.format(Locale.US, "Stats: min = %d, max = %d, average = %.3f", mintime, maxtime,
-                                  (float)tottime / (float) avgcount));
       }
       return null;
    }
