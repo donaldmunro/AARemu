@@ -144,7 +144,7 @@ public class GLHelper
    {
       boolean isError = false;
       int shaderProgram = glCreateProgram();
-      if ( (shaderProgram == 0) || (GLHelper.isGLError(errbuf)) )
+      if ((shaderProgram == 0) || (GLHelper.isGLError(errbuf)))
          return -1;
       for (int shader : shaders)
       {
@@ -156,8 +156,14 @@ public class GLHelper
             return -1;
          }
       }
+      return shaderProgram;
+   }
+
+   static public boolean linkShaderProgram(int shaderProgram, StringBuilder errbuf)
+   //------------------------------------------------------------------------------
+   {
       glLinkProgram(shaderProgram);
-      isError = isGLError(errbuf);
+      boolean isError = isGLError(errbuf);
       int[] status = new int[1];
       status[0] = -1;
       glGetProgramiv(shaderProgram, GL_LINK_STATUS, status, 0);
@@ -168,19 +174,15 @@ public class GLHelper
             errbuf.append(error);
          else
             Log.e(TAG, "glLinkProgram: " + error);
-         for (int shader : shaders)
-            glDeleteShader(shader);
          glDeleteProgram(shaderProgram);
-         return -1;
+         return false;
       }
       if (isError)
       {
-         for (int shader : shaders)
-            glDeleteShader(shader);
          glDeleteProgram(shaderProgram);
-         return -1;
+         return false;
       }
-      return shaderProgram;
+      return true;
    }
 
    static public String resource2String(String resname) throws IOException

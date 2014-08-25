@@ -1133,13 +1133,13 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          return null;
       }
       GLSLAttributes shaderAttr = new GLSLAttributes(program);
-      glUseProgram(shaderAttr.shaderProgram);
+
       if (vertexAttrName != null)
       {
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.vertexAttr(), vertexAttrName);
          if (GLHelper.isGLError(errbuf))
          {
-            Log.e(TAG, "Error binding vertex attribute " + vertexAttrName);
+            Log.e(TAG, "Error binding vertex attribute " + vertexAttrName + " (" + errbuf.toString() + ")");
             toast(errbuf.toString());
             lastError = errbuf.toString();
             return null;
@@ -1152,7 +1152,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.textureAttr(), textureAttrName);
          if (GLHelper.isGLError(errbuf))
          {
-            Log.e(TAG, "Error binding texture attribute " + textureAttrName);
+            Log.e(TAG, "Error binding texture attribute " + textureAttrName + " (" + errbuf.toString() + ")");
             toast(errbuf.toString());
             lastError = errbuf.toString();
             return null;
@@ -1165,7 +1165,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.colorAttr(), colorAttrName);
          if (GLHelper.isGLError(errbuf))
          {
-            Log.e(TAG, "Error binding normal attribute " + colorAttrName);
+            Log.e(TAG, "Error binding normal attribute " + colorAttrName + " (" + errbuf.toString() + ")");
             toast(errbuf.toString());
             lastError = errbuf.toString();
             return null;
@@ -1178,12 +1178,27 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.normalAttr(), normalAttrName);
          if (GLHelper.isGLError(errbuf))
          {
-            Log.e(TAG, "Error binding normal attribute " + normalAttrName);
+            Log.e(TAG, "Error binding normal attribute " + normalAttrName + " (" + errbuf.toString() + ")");
             toast(errbuf.toString());
             lastError = errbuf.toString();
             return null;
          }
          glEnableVertexAttribArray(shaderAttr.normalAttr());
+      }
+      if (! GLHelper.linkShaderProgram(shaderAttr.shaderProgram, errbuf))
+      {
+         Log.e(TAG, "Error linking shader program");
+         toast(errbuf.toString());
+         lastError = errbuf.toString();
+         return null;
+      }
+      glUseProgram(shaderAttr.shaderProgram);
+      if (GLHelper.isGLError(errbuf))
+      {
+         Log.e(TAG, "Error binding vertex attribute " + vertexAttrName + " (" + errbuf.toString() + ")");
+         toast(errbuf.toString());
+         lastError = errbuf.toString();
+         return null;
       }
       return shaderAttr;
    }

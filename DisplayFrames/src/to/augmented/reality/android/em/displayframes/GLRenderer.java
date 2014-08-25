@@ -534,7 +534,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
          return null;
       }
       GLSLAttributes shaderAttr = new GLSLAttributes(program);
-      glUseProgram(shaderAttr.shaderProgram);
+
       if (vertexAttrName != null)
       {
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.vertexAttr(), vertexAttrName);
@@ -596,24 +596,46 @@ public class GLRenderer implements GLSurfaceView.Renderer
    }
 
       if (normalAttrName != null)
-   {
+      {
          glBindAttribLocation(shaderAttr.shaderProgram, shaderAttr.normalAttr(), normalAttrName);
          if (GLHelper.isGLError(errbuf))
-      {
+         {
             Log.e(TAG, "Error binding normal attribute " + normalAttrName);
             activity.runOnUiThread(new Runnable()
-         {
+            {
                @Override
                public void run()
-            {
+               {
                   Toast.makeText(activity, errbuf.toString(), Toast.LENGTH_LONG).show();
-            }
+               }
             });
             lastError = errbuf.toString();
             return null;
-            }
-         glEnableVertexAttribArray(shaderAttr.normalAttr());
          }
+         glEnableVertexAttribArray(shaderAttr.normalAttr());
+      }
+      if (! GLHelper.linkShaderProgram(shaderAttr.shaderProgram, errbuf))
+      {
+         Log.e(TAG, "Error linking shader program");
+         activity.runOnUiThread(new Runnable()
+         {
+            @Override
+            public void run()
+            {
+               Toast.makeText(activity, errbuf.toString(), Toast.LENGTH_LONG).show();
+            }
+         });
+         lastError = errbuf.toString();
+         return null;
+      }
+      glUseProgram(shaderAttr.shaderProgram);
+      if (GLHelper.isGLError(errbuf))
+      {
+         Log.e(TAG, "Error binding vertex attribute " + vertexAttrName + " (" + errbuf.toString() + ")");
+         toast(errbuf.toString());
+         lastError = errbuf.toString();
+         return null;
+      }
       return shaderAttr;
    }
 

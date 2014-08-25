@@ -4,10 +4,10 @@
 uniform mediump mat4 MVP;
 //uniform lowp mat4 ST;
 
-attribute mediump vec3 vPosition;
-attribute lowp vec2 vTexCoord;
+attribute vec3 vPosition;
+attribute vec2 vTexCoord;
 
-varying lowp vec2 texCoord;
+varying vec2 texCoord;
 
 void main()
 {
