@@ -23,9 +23,11 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.concurrent.*;
 
 public class TraverseRecordingThread extends RecordingThread implements Freezeable
 //================================================================================
@@ -33,6 +35,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    static final private String TAG = TraverseRecordingThread.class.getSimpleName();
    SortedSet<Long> remainingBearings;
    int totalCount = 0, writtenCount = 0;
+   protected ProcessBearingThread processBearingThread = null;
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
 
@@ -91,38 +94,45 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          previewBuffer = new byte[renderer.nv21BufferSize];
       totalCount = (int) (360.0f / recordingIncrement);
       ProgressParam progress = new ProgressParam();
-      final long epsilon = 50000000L;
+      final long hundredMs = 100000000L;
+      boolean b;
       try
       {
          float bearing = 0, lastBearing = -1;
          if (remainingBearings == null)
             initBearings();
          recordingCurrentBearing = -1;
+         previewer.clearBuffer();
+         previewer.awaitFrame(400, previewBuffer);
          startFrameWriter();
-         long bearingTimeStamp;
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-            bearingTimeStamp = SystemClock.elapsedRealtimeNanos();
-         else
-            bearingTimeStamp = System.nanoTime();
-         while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
+         processBearingThread = new ProcessBearingThread(processBearingQueue);
+         startBearingProcessor(processBearingThread);
+         long now;
+         while ( (! processBearingThread.isComplete) && (renderer.isRecording) && (! isCancelled()) )
          {
-            final long now;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                now = SystemClock.elapsedRealtimeNanos();
             else
                now = System.nanoTime();
-            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
-            if ( (bearingInfo == null) || ((now - bearingInfo.timestamp) > 150000000L) )
+            BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.pop();
+            if (bearingInfo == null)
+            {
+               try { Thread.sleep(25); } catch (Exception _e) { break; }
+               continue;
+            }
+            if ((now - bearingInfo.timestamp) > 200000000L)
             {
                bearingCondVar.close();
-               if (! bearingCondVar.block(400))
+               if (! bearingCondVar.block(100))
                {
                   progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
                   publishProgress(progress);
                   continue;
                }
                else
-                  bearingInfo = bearingBuffer.peekHead();
+                  bearingInfo = bearingBuffer.pop();
+               if (bearingInfo == null)
+                  continue;
             }
             lastBearing = bearing;
             bearing = bearingInfo.bearing;
@@ -147,72 +157,67 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                   continue;
                }
             }
-            bearingTimeStamp = bearingInfo.timestamp;
-            if (recordingCurrentBearing < 0)
-               recordingCurrentBearing = bearing;
             long offset = (long) (Math.floor(bearing / recordingIncrement));
-            if (remainingBearings.contains(offset))
+            synchronized(this) { b = remainingBearings.contains(offset); }
+            if (b)
             {
-               long ts = previewer.findBufferAtTimestamp(bearingTimeStamp, epsilon, previewBuffer);
-               if (ts < 0)
-                  ts = previewer.awaitFrame(FRAME_BLOCK_TIME_MS, previewBuffer);
-               if ( (ts >= 0) && ( (ts < (bearingTimeStamp - epsilon)) || (ts > (bearingTimeStamp + epsilon)) ) )
+               try
                {
-                  bearingInfo = bearingBuffer.find(ts, epsilon);
-                  if (bearingInfo != null)
-                  {
-                     recordingCurrentBearing = bearing = bearingInfo.bearing;
-                     ts = bearingTimeStamp = bearingInfo.timestamp;
-                  }
+                  processBearingQueue.add(bearingInfo);
+//                     if (! remainingBearings.remove(offset))
+//                        Log.w(TAG, "No remove bearing " + bearing);
                }
-               if ( (ts >= (bearingTimeStamp - epsilon)) && (ts <= (bearingTimeStamp + epsilon)) )
+               catch (Exception _e)
                {
-                  if (addFrameToWriteBuffer(offset))
-                  {
-                     remainingBearings.remove(offset);
-                     writtenCount++;
-                     renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     lastFrameTimestamp = ts;
-                  }
-                  else
-                     renderer.arrowColor = GLRecorderRenderer.RED;
+                  Log.e(TAG, "", _e);
+                  continue;
                }
-               else
-                  renderer.arrowColor = GLRecorderRenderer.RED;
             }
-            if (! remainingBearings.isEmpty())
+
+            synchronized(this) { b = remainingBearings.isEmpty(); }
+            if (! b)
             {
                float nextBearing = (offset + 1) * recordingIncrement;
                if (nextBearing >= 360)
                   nextBearing -= 360;
                offset = (long) (Math.floor(nextBearing / recordingIncrement));
-               SortedSet<Long> subset = remainingBearings.tailSet(offset);
-               if (subset.isEmpty())
+               synchronized(this)
                {
-                  if (nextBearing > 300)
-                     subset = remainingBearings.tailSet(0L);
+                  SortedSet<Long> subset = remainingBearings.tailSet(offset);
                   if (subset.isEmpty())
-                     offset = -1;
+                  {
+                     if (nextBearing > 300)
+                        subset = remainingBearings.tailSet(0L);
+                     if (subset.isEmpty())
+                        offset = - 1;
+                     else
+                        try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+                  } else
+                     try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+               }
+
+               if (offset >= 0)
+               {
+                  recordingNextBearing = offset * recordingIncrement;
+                  if (Math.abs(recordingNextBearing - bearing) < 5)
+                     renderer.arrowColor = GLRecorderRenderer.GREEN;
                   else
-                     offset = subset.first();
+                     renderer.arrowColor = GLRecorderRenderer.BLUE;
                }
                else
-                  offset = subset.first();
-
-//             offset = remainingBearings.tailSet(++offset).first();
-               if (offset >= 0)
-                  recordingNextBearing = offset * recordingIncrement;
-               if (Math.abs(recordingNextBearing - bearing) < 5)
-                  renderer.arrowColor = GLRecorderRenderer.GREEN;
-               else
-                  renderer.arrowColor = GLRecorderRenderer.BLUE;
+                  renderer.arrowColor = GLRecorderRenderer.RED;
+               progress.set(bearing, recordingNextBearing, renderer.arrowColor,
+                            (writtenCount * 100) / totalCount);
+               publishProgress(progress);
             }
-            renderer.requestRender();
+            else
+               recordingNextBearing = -1;
             progress.set(bearing, recordingNextBearing, renderer.arrowColor,
                          (writtenCount * 100) / totalCount);
             publishProgress(progress);
+            renderer.requestRender();
          }
-         if (remainingBearings.isEmpty())
+         if (processBearingThread.isComplete)
          {
             stopFrameWriter();
             renderer.lastSaveBearing = 0;
@@ -231,6 +236,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
       finally
       {
          stopFrameWriter();
+         stopBearingProcessor(processBearingThread);
       }
       return null;
    }
@@ -248,5 +254,74 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
       }
       pause(renderer.lastInstanceState);
+   }
+
+   class ProcessBearingThread implements Runnable, Stoppable
+   //=======================================================
+   {
+      final ArrayBlockingQueue<BearingRingBuffer.RingBufferContent> queue;
+      volatile boolean mustStop = false, isComplete = false;
+
+      ProcessBearingThread(ArrayBlockingQueue<BearingRingBuffer.RingBufferContent> queue)
+      //---------------------------------------------------------------------------------
+      {
+         this.queue = queue;
+      }
+
+      @Override public void stop() { mustStop = true; }
+
+      @Override
+      public void run()
+      //-------------------------
+      {
+         BearingRingBuffer.RingBufferContent bi = null;
+         final long epsilon = 65000000L;
+         Map<Long, Void> completed = new HashMap<Long, Void>();
+         while ( (! mustStop) && (! isComplete) )
+         {
+            try
+            {
+               bi = queue.poll(50, TimeUnit.MILLISECONDS);
+            }
+            catch (InterruptedException e)
+            {
+               break;
+            }
+            if ( (bi == null) || (bi.bearing < 0) )
+               continue;
+            float bearing = bi.bearing;
+            long offset = (long) (Math.floor(bearing / recordingIncrement));
+            if (completed.containsKey(offset))
+               continue;
+            final long bearingTimeStamp = bi.timestamp;
+            long ts = previewer.findFirstBufferAtTimestamp(bearingTimeStamp, epsilon, previewBuffer);
+            if (ts < 0) // && (bearingTimestamp < lastFrameTimestamp) )
+            {
+               final long now;
+               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+                  now = SystemClock.elapsedRealtimeNanos();
+               else
+                  now = System.nanoTime();
+               if ((now - bearingTimeStamp) <= epsilon)
+                  ts = previewer.awaitFrame(90, previewBuffer);
+            }
+            if ((ts >= (bearingTimeStamp - epsilon)) && (ts <= (bearingTimeStamp + epsilon)))
+            {
+               if (addFrameToWriteBuffer(offset))
+               {
+                  synchronized (this) { remainingBearings.remove(offset); completed.put(offset, null); }
+                  writtenCount++;
+                  renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  lastFrameTimestamp = ts;
+                  isComplete = remainingBearings.isEmpty();
+                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
+                  continue;
+               }
+               else
+                  renderer.arrowColor = GLRecorderRenderer.RED;
+            }
+            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
+         }
+      }
    }
 }

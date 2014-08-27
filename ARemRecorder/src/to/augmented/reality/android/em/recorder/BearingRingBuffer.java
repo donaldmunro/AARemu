@@ -19,6 +19,8 @@ package to.augmented.reality.android.em.recorder;
 public class BearingRingBuffer
 //============================
 {
+   public RingBufferContent createContent() { return new RingBufferContent(); }
+
    public class RingBufferContent
    //============================
    {
@@ -103,22 +105,6 @@ public class BearingRingBuffer
       return null;
    }
 
-   public synchronized RingBufferContent findLess(long timestampCompareNS, long epsilonNS)
-   //-------------------------------------------------------------------------------------
-   {
-      if (length == 0)
-         return null;
-      int index = head;
-      for (int i=0; i<length; i++)
-      {
-         final long ts = bearings[index].timestamp;
-         if ( (ts >= timestampCompareNS - epsilonNS) && (ts <= timestampCompareNS) )
-            return bearings[index];
-         index = indexDecrement(index);
-      }
-      return null;
-   }
-
    public synchronized RingBufferContent find(long timestampCompareNS, long epsilonNS)
    //-------------------------------------------------------------------------------------
    {
@@ -132,6 +118,32 @@ public class BearingRingBuffer
             return bearings[index];
          index = indexDecrement(index);
       }
+      return null;
+   }
+
+   public synchronized RingBufferContent findClosest(long timestampCompareNS, long epsilonNS)
+   //-------------------------------------------------------------------------------------
+   {
+      if (length == 0)
+         return null;
+      int index = head, ii = -1;;
+      long mindiff = Long.MAX_VALUE;
+      for (int i=0; i<length; i++)
+      {
+         final long ts = bearings[index].timestamp;
+         if ( (ts >= (timestampCompareNS - epsilonNS)) && (ts <= (timestampCompareNS + epsilonNS)) )
+         {
+            final long diff = Math.abs(ts - timestampCompareNS);
+            if (diff < mindiff)
+            {
+               mindiff = diff;
+               ii = index;
+            }
+         }
+         index = indexDecrement(index);
+      }
+      if (ii >= 0)
+         return bearings[ii];
       return null;
    }
 

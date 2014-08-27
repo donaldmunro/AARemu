@@ -16,6 +16,8 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.app.*;
+import android.content.*;
 import android.hardware.Camera;
 import android.os.Build;
 import android.os.ConditionVariable;
@@ -26,7 +28,6 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 //==================================================================
 {
    final static private String TAG = CameraPreviewCallback.class.getSimpleName();
-   final static private int RINGBUFFER_SIZE = 3;
 
    public interface Previewable
    {
@@ -60,7 +61,20 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
    {
       this.renderer = renderer;
       previewBuffer = new byte[bufferSize];
-      ringBuffer = new RecorderRingBuffer(RINGBUFFER_SIZE, bufferSize);
+      ActivityManager activityManager = (ActivityManager) renderer.activity.getSystemService(Context.ACTIVITY_SERVICE);
+      ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+      activityManager.getMemoryInfo(memoryInfo);
+      long availSize = memoryInfo.availMem/2;
+      //int totalsize = RINGBUFFER_SIZE * bufferSize;
+      int n = 20;
+      for (; n>=3; n--)
+      {
+         long totalsize = n * bufferSize;
+         if (totalsize <= availSize)
+            break;
+      }
+      ringBuffer = new RecorderRingBuffer(n, bufferSize);
+      Log.i(TAG, "Buffer size " + n + " x " + bufferSize + " = " + n * bufferSize);
 //      this.previewWidth = previewWidth;
 //      this.previewHeight = previewHeight;
 //      this.bufferSize = bufferSize;
@@ -85,9 +99,9 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 
    public long getLastBuffer(byte[] buffer) { synchronized(this) { return ringBuffer.peek(buffer); } }
 
-   public long findBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
+   public long findFirstBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
    {
-      return ringBuffer.find(timestampNS, epsilonNS, buffer);
+      return ringBuffer.findFirst(timestampNS, epsilonNS, buffer);
    }
 
    public int getBufferSize() { return ringBuffer.length; }
@@ -96,21 +110,32 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 
    public void clearBuffer() { ringBuffer.clear(); }
 
+//   long lastTimestamp = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+//                        ? SystemClock.elapsedRealtimeNanos()
+//                        : System.nanoTime();
+//   long timestampCount  = 0, timestampTot;
+
    @Override
    public void onPreviewFrame(byte[] data, Camera camera)
    //----------------------------------------------------
    {
-      if (data == null)
+      if ( (data == null) || (data.length > previewBuffer.length) )
       {
          if (camera != null)
             camera.addCallbackBuffer(renderer.cameraBuffer);
          return;
       }
-//      Log.i(TAG, "NV21 size = " + data.length);
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
          timestamp = SystemClock.elapsedRealtimeNanos();
       else
          timestamp = System.nanoTime();
+
+//      timestampTot += (timestamp - lastTimestamp);
+//      timestampCount++;
+//      lastTimestamp = timestamp;
+//      if ( (timestampCount % 200) == 0)
+//         Log.i(TAG, "Frame update speed average: " + timestampTot/timestampCount);
+
       try
       {
 //         ain.copyFrom(data);
@@ -133,6 +158,10 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
       {
          Log.e(TAG, "", e);
       }
+//      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+//         Log.i(TAG, "onPreviewFrame: Processing time " + (SystemClock.elapsedRealtimeNanos() - timestamp));
+//      else
+//         Log.i(TAG, "onPreviewFrame: Processing time " + (System.nanoTime() - timestamp));
    }
 
    public long awaitFrame(long frameBlockTimeMs, byte[] previewBuffer)
@@ -148,9 +177,16 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
             System.arraycopy(this.previewBuffer, 0, previewBuffer, 0, this.previewBuffer.length);
             return timestamp;
          }
-//         return findBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
+//         return findFirstBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
       }
       return -1;
+   }
+
+   public long findBufferGreater(long timestamp, long frameBlockTimeMs, byte[] buffer)
+   //---------------------------------------------------------------------------------
+   {
+      long ts = ringBuffer.findGreater(timestamp, buffer);
+      return (ts < 0) ? awaitFrame(frameBlockTimeMs, buffer) : ts;
    }
 
 }

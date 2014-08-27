@@ -16,7 +16,7 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.app.Activity;
+import android.app.*;
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.ImageFormat;

@@ -113,7 +113,7 @@ public class RecorderRingBuffer
       return ts;
    }
 
-   public synchronized long find(long timestampCompareNS, long epsilonNS, byte[] buffer)
+   public synchronized long findBest(long timestampCompareNS, long epsilonNS, byte[] buffer)
    //----------------------------------------------------------------------------
    {
       if (length == 0)
@@ -143,6 +143,38 @@ public class RecorderRingBuffer
       return Long.MIN_VALUE;
    }
 
+   public synchronized long findFirst(final long timestampCompareNS, final long epsilonNS, final byte[] buffer)
+   //----------------------------------------------------------------------------
+   {
+      if (length == 0)
+         return Long.MIN_VALUE;
+      int index = tail;
+      for (int i=0; i<length; i++)
+      {
+         final long ts = buffers[index].timestamp;
+         if ( (ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)) )
+         {
+            System.arraycopy(buffers[index].buffer, 0, buffer, 0, size);
+            return ts;
+         }
+         index = indexIncrement(index);
+      }
+      return Long.MIN_VALUE;
+   }
+
+   synchronized public long findGreater(long timestamp, byte[] buffer)
+   //----------------------------------------------------
+   {
+      if (length == 0)
+         return -1;
+      final long ts = buffers[head].timestamp;
+      if (ts < timestamp)
+         return -1;
+      System.arraycopy(buffers[head].buffer, 0, buffer, 0, size);
+      return ts;
+   }
+
+
    @Override
    public String toString()
    //----------------------
@@ -160,10 +192,7 @@ public class RecorderRingBuffer
       return sb.toString();
    }
 
-   private int indexIncrement(int i)
-   {
-      return  (++i >= count) ? 0 : i;
-   }
+   private int indexIncrement(int i) { return  (++i >= count) ? 0 : i; }
 
-//   private int indexDecrement(int i) { return (0 == i) ? (count - 1) : (i - 1);  }
+   private int indexDecrement(int i) { return (0 == i) ? (count - 1) : (i - 1);  }
 }

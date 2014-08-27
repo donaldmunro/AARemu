@@ -54,6 +54,10 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    protected ExecutorService frameWriterExecutor;
    protected Future<?> frameWriterFuture;
    protected FrameWriterThread frameWriterThread = null;
+   protected ExecutorService processBearingExecutor;
+   protected Future<?> processBearingFuture;
+   final protected ArrayBlockingQueue<BearingRingBuffer.RingBufferContent> processBearingQueue =
+         new ArrayBlockingQueue<BearingRingBuffer.RingBufferContent>(1000);
 
    static public RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
                                                        float increment, ConditionVariable bearingCond,
@@ -149,6 +153,58 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          isStartRecording = B.getBoolean("RecordingThread.isStartRecording", true);
       }
    }
+
+   public interface Stoppable
+   //========================
+   {
+      public void stop();
+   }
+
+   protected void startBearingProcessor(Runnable thread)
+   //-------------------------------------------------
+   {
+      if (processBearingFuture != null)
+         stopBearingProcessor((Stoppable) thread);
+      processBearingExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
+      {
+         @Override
+         public Thread newThread(Runnable r)
+         //-------------------------------------------
+         {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            t.setName("ProcessBearing");
+            return t;
+         }
+      });
+      processBearingFuture = processBearingExecutor.submit(thread);
+      return;
+   }
+
+   protected void stopBearingProcessor(Stoppable thread)
+   //---------------------------------------------------
+   {
+      if ( (processBearingFuture != null) && (! processBearingFuture.isDone()))
+      {  // @formatter:off
+         thread.stop();
+         if (processBearingQueue != null)
+            try { processBearingQueue.put(bearingBuffer.createContent()); } catch (InterruptedException _e) { Log.e(TAG, "", _e); }
+         if (! processBearingFuture.isDone())
+         {
+            try
+            {
+               processBearingFuture.get(60, TimeUnit.MILLISECONDS);
+            }
+            catch (Exception e)
+            {
+               processBearingFuture.cancel(true);
+               try { processBearingExecutor.shutdownNow(); } catch (Exception _e) { }
+            }
+         }
+      } // @formatter:on
+      processBearingFuture = null;
+   }
+
 
    protected boolean startFrameWriter()
    //-----------------------------------
