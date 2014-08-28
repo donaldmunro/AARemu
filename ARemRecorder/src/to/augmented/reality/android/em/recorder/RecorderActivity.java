@@ -327,9 +327,10 @@ public class RecorderActivity extends Activity
             s = (String) modeSpinner.getSelectedItem();
             String[] modes = getResources().getStringArray(R.array.recording_modes);
             if (s.equalsIgnoreCase(modes[0]))
-               mode = GLRecorderRenderer.RecordMode.RETRY;
-            else
                mode = GLRecorderRenderer.RecordMode.TRAVERSE;
+            else
+               mode = GLRecorderRenderer.RecordMode.RETRY;
+
             if (headerFile.exists())
             {
                final AlertDialog overwriteDialog = new AlertDialog.Builder(RecorderActivity.this).

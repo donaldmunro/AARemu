@@ -22,8 +22,9 @@ public class RecorderRingBuffer
    class RingBufferContent
    //=====================
    {
-      long timestamp;
+      long timestamp = -1;
       byte[] buffer;
+      boolean isUsed = false;
 
       RingBufferContent(int bufferSize) { buffer = new byte[bufferSize]; timestamp = -1; }
    }
@@ -122,15 +123,18 @@ public class RecorderRingBuffer
       int index = tail, ii = -1;
       for (int i=0; i<length; i++)
       {
-         final long ts = buffers[index].timestamp;
-         if ( (ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)) )
+         if (! buffers[index].isUsed)
          {
-            final long diff = Math.abs(ts - timestampCompareNS);
-            if (diff < mindiff)
+            final long ts = buffers[index].timestamp;
+            if ((ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)))
             {
-               mindiff = diff;
-               tss = ts;
-               ii = index;
+               final long diff = Math.abs(ts - timestampCompareNS);
+               if (diff < mindiff)
+               {
+                  mindiff = diff;
+                  tss = ts;
+                  ii = index;
+               }
             }
          }
          index = indexIncrement(index);
@@ -138,28 +142,34 @@ public class RecorderRingBuffer
       if (ii >= 0)
       {
          System.arraycopy(buffers[ii].buffer, 0, buffer, 0, size);
+         buffers[ii].isUsed = true;
          return tss;
       }
       return Long.MIN_VALUE;
    }
 
-   public synchronized long findFirst(final long timestampCompareNS, final long epsilonNS, final byte[] buffer)
+   public synchronized RingBufferContent findFirst(final long timestampCompareNS, final long epsilonNS, final byte[] buffer)
    //----------------------------------------------------------------------------
    {
       if (length == 0)
-         return Long.MIN_VALUE;
+         return null;
       int index = tail;
       for (int i=0; i<length; i++)
       {
-         final long ts = buffers[index].timestamp;
-         if ( (ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)) )
+         final RingBufferContent rbc = buffers[index];
+         if (! rbc.isUsed)
          {
-            System.arraycopy(buffers[index].buffer, 0, buffer, 0, size);
-            return ts;
+            final long ts = rbc.timestamp;
+            if ((ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)))
+            {
+               System.arraycopy(rbc.buffer, 0, buffer, 0, size);
+               rbc.isUsed = true;
+               return rbc;
+            }
          }
          index = indexIncrement(index);
       }
-      return Long.MIN_VALUE;
+      return null;
    }
 
    synchronized public long findGreater(long timestamp, byte[] buffer)

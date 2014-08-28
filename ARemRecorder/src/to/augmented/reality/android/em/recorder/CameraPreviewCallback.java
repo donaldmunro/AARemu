@@ -99,7 +99,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 
    public long getLastBuffer(byte[] buffer) { synchronized(this) { return ringBuffer.peek(buffer); } }
 
-   public long findFirstBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
+   public RecorderRingBuffer.RingBufferContent findFirstBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
    {
       return ringBuffer.findFirst(timestampNS, epsilonNS, buffer);
    }

@@ -294,7 +294,9 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             if (completed.containsKey(offset))
                continue;
             final long bearingTimeStamp = bi.timestamp;
-            long ts = previewer.findFirstBufferAtTimestamp(bearingTimeStamp, epsilon, previewBuffer);
+            RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(bearingTimeStamp, epsilon,
+                                                                                            previewBuffer);
+            long ts = (rbc == null) ? -1 : rbc.timestamp;
             if (ts < 0) // && (bearingTimestamp < lastFrameTimestamp) )
             {
                final long now;
@@ -309,18 +311,21 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             {
                if (addFrameToWriteBuffer(offset))
                {
-                  synchronized (this) { remainingBearings.remove(offset); completed.put(offset, null); }
+                  synchronized (this) { remainingBearings.remove(offset);  }
+                  completed.put(offset, null);
                   writtenCount++;
                   renderer.arrowColor = GLRecorderRenderer.GREEN;
                   lastFrameTimestamp = ts;
                   isComplete = remainingBearings.isEmpty();
-                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
+//                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
                   continue;
                }
                else
                   renderer.arrowColor = GLRecorderRenderer.RED;
             }
-            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
+            if (rbc != null)
+               rbc.isUsed = false;
+//            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
          }
       }
    }

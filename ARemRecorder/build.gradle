@@ -9,8 +9,8 @@ android {
         targetSdkVersion 19
         renderscriptTargetApi 18
         renderscriptSupportMode true
-        versionCode 8
-        versionName '1.0.8'
+        versionCode 9
+        versionName '1.0.9'
     }
     sourceSets {
         main.java.srcDirs = ['src']

@@ -189,13 +189,13 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          }
          previewer.bufferOff();
          previewer.clearBuffer();
-         frameCondVar.close();
          final long now;
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
             now = SystemClock.elapsedRealtimeNanos();
          else
             now = System.nanoTime();
          previewer.bufferOn();
+         frameCondVar.close();
          if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
          {
             renderer.arrowColor = GLRecorderRenderer.RED;
@@ -205,7 +205,10 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          }
          frameCondVar.close();
 //         Log.d(TAG, "Buffer: " + previewer.dumpBuffer());
-         ts = previewer.findFirstBufferAtTimestamp(now, FRAME_BLOCK_TIME_NS + 10000000L, previewBuffer);
+         RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(now,
+                                                                                         FRAME_BLOCK_TIME_NS + 10000000L,
+                                                                                         previewBuffer);
+         ts = (rbc == null) ? -1 : rbc.timestamp;
          if (ts < now)
          {
             if (ts > 0)
@@ -217,6 +220,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             renderer.arrowColor = GLRecorderRenderer.RED;
             progress.set(bearing, 0, renderer.arrowColor);
             publishProgress(progress);
+            rbc.isUsed = false;
             return false;
          }
 
@@ -337,7 +341,9 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
             {
                long targetTimeStamp = bearingInfo.timestamp;
-               long ts = previewer.findFirstBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
+               RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(targetTimeStamp, epsilon,
+                                                                                               previewBuffer);
+               long ts = (rbc == null) ? -1 : rbc.timestamp;
                if (ts < 0)
                {
                   final long now;
@@ -390,6 +396,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                      renderer.arrowRotation = 0;
                      renderer.arrowColor = GLRecorderRenderer.GREEN;
                   }
+                  if (rbc != null)
+                     rbc.isUsed = false;
                }
             }
             else
