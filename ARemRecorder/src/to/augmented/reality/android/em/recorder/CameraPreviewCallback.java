@@ -35,9 +35,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
    }
 
 //   private final int previewWidth, previewHeight;
-//   private final int bufferSize;
-
-   byte[] previewBuffer = null;
+   private final int bufferSize;
    long timestamp =-1;
    RecorderRingBuffer ringBuffer;
 
@@ -60,7 +58,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
    //-------------------------------------------------------------------------------
    {
       this.renderer = renderer;
-      previewBuffer = new byte[bufferSize];
+      this.bufferSize = bufferSize;
       ActivityManager activityManager = (ActivityManager) renderer.activity.getSystemService(Context.ACTIVITY_SERVICE);
       ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
       activityManager.getMemoryInfo(memoryInfo);
@@ -119,7 +117,7 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
    public void onPreviewFrame(byte[] data, Camera camera)
    //----------------------------------------------------
    {
-      if ( (data == null) || (data.length > previewBuffer.length) )
+      if ( (data == null) || (data.length > bufferSize) )
       {
          if (camera != null)
             camera.addCallbackBuffer(renderer.cameraBuffer);
@@ -144,15 +142,14 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 //         synchronized (this) { aOut.copyTo(previewBuffer); }
 //         Log.i(TAG, "NV21 to RGBA Time = " + (SystemClock.elapsedRealtimeNanos() - timestamp) + " NS");
 
-         synchronized (this) { System.arraycopy(data, 0, previewBuffer, 0, data.length); }
          if (mustBuffer)
          {
-            ringBuffer.push(timestamp, previewBuffer);
+            ringBuffer.push(timestamp, data);
             if (frameAvailCondVar != null)
                try { synchronized (this) { frameAvailCondVar.open(); } } catch (Exception _e) { Log.e(TAG, "", _e); }
          }
          if (previewListener != null)
-            previewListener.onCameraFrame(timestamp, previewBuffer);
+            previewListener.onCameraFrame(timestamp, data);
       }
       catch (Throwable e)
       {
@@ -174,19 +171,10 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
       {
          synchronized (this)
          {
-            System.arraycopy(this.previewBuffer, 0, previewBuffer, 0, this.previewBuffer.length);
-            return timestamp;
+            return ringBuffer.peek(previewBuffer);
          }
 //         return findFirstBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
       }
       return -1;
    }
-
-   public long findBufferGreater(long timestamp, long frameBlockTimeMs, byte[] buffer)
-   //---------------------------------------------------------------------------------
-   {
-      long ts = ringBuffer.findGreater(timestamp, buffer);
-      return (ts < 0) ? awaitFrame(frameBlockTimeMs, buffer) : ts;
-   }
-
 }

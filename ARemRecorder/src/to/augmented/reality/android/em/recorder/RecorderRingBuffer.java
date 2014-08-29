@@ -114,6 +114,18 @@ public class RecorderRingBuffer
       return ts;
    }
 
+   public long peekHead(byte[] buffer)
+   //------------------------
+   {
+      long ts = -1;
+      if (length > 0)
+      {
+         ts = buffers[head].timestamp;
+         System.arraycopy(buffers[head].buffer, 0, buffer, 0, size);
+      }
+      return ts;
+   }
+
    public synchronized long findBest(long timestampCompareNS, long epsilonNS, byte[] buffer)
    //----------------------------------------------------------------------------
    {
@@ -170,18 +182,6 @@ public class RecorderRingBuffer
          index = indexIncrement(index);
       }
       return null;
-   }
-
-   synchronized public long findGreater(long timestamp, byte[] buffer)
-   //----------------------------------------------------
-   {
-      if (length == 0)
-         return -1;
-      final long ts = buffers[head].timestamp;
-      if (ts < timestamp)
-         return -1;
-      System.arraycopy(buffers[head].buffer, 0, buffer, 0, size);
-      return ts;
    }
 
 
