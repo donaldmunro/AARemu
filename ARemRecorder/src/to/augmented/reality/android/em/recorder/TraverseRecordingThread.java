@@ -40,7 +40,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
-                                     float increment, CameraPreviewCallback previewer,
+                                     float increment, CameraPreviewThread previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                      BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -209,22 +209,14 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                progress.set(bearing, recordingNextBearing, renderer.arrowColor,
                             (writtenCount * 100) / totalCount);
                publishProgress(progress);
-            }
-            else
-               recordingNextBearing = -1;
-            progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                         (writtenCount * 100) / totalCount);
-            publishProgress(progress);
             renderer.requestRender();
+            }
          }
-         if (processBearingThread.isComplete)
-         {
-            stopFrameWriter();
-            renderer.lastSaveBearing = 0;
-            remainingBearings = null;
-            return true;
-         }
+         stopFrameWriter();
+         renderer.lastSaveBearing = 0;
+         remainingBearings = null;
          pause(renderer.lastInstanceState);
+         return true;
       }
       catch (Exception e)
       {

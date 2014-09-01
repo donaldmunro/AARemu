@@ -134,10 +134,6 @@ public class ARSurfaceView extends GLSurfaceView
 
    public void getLastBuffer(byte[] buffer) { renderer.getLastBuffer(buffer); }
 
-   public int getPreviewWidth() { return renderer.getPreviewWidth(); }
-
-   public int getPreviewHeight() { return renderer.getPreviewHeight(); }
-
    public Renderer getRenderer() { return renderer; }
 
    public void startPreview(int width, int height)
@@ -147,7 +143,7 @@ public class ARSurfaceView extends GLSurfaceView
          renderer.startPreview(width, height);
    }
 
-   public boolean isPreviewing() { return (renderer == null) ? false : renderer.isPreviewing; }
+   public boolean isPreviewing() { return (renderer == null) ? false : renderer.isPreviewing(); }
 
    public boolean isRecording() { return (renderer == null) ? false : renderer.isRecording; }
 
