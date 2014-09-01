@@ -108,6 +108,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          processBearingThread = new ProcessBearingThread(processBearingQueue);
          startBearingProcessor(processBearingThread);
          long now;
+         float roundedBearing = -1;
          while ( (! processBearingThread.isComplete) && (renderer.isRecording) && (! isCancelled()) )
          {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
@@ -172,24 +173,25 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                   Log.e(TAG, "", _e);
                   continue;
                }
+               roundedBearing = (float) (offset + 1) * recordingIncrement;
             }
 
+
             synchronized(this) { b = remainingBearings.isEmpty(); }
-            if (! b)
+            if ( (! b) && (roundedBearing != recordingNextBearing) )
             {
-               float nextBearing = (offset + 1) * recordingIncrement;
-               if (nextBearing >= 360)
-                  nextBearing -= 360;
-               offset = (long) (Math.floor(nextBearing / recordingIncrement));
+               if (roundedBearing >= 360)
+                  roundedBearing -= 360;
+               offset = (long) (Math.floor(roundedBearing / recordingIncrement));
                synchronized(this)
                {
                   SortedSet<Long> subset = remainingBearings.tailSet(offset);
                   if (subset.isEmpty())
                   {
-                     if (nextBearing > 300)
+                     if (roundedBearing > 300)
                         subset = remainingBearings.tailSet(0L);
                      if (subset.isEmpty())
-                        offset = - 1;
+                        offset = -1;
                      else
                         try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
                   } else
@@ -199,32 +201,32 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                if (offset >= 0)
                {
                   recordingNextBearing = offset * recordingIncrement;
+                  progress.set(bearing, recordingNextBearing, renderer.arrowColor,
+                               (writtenCount * 100) / totalCount);
+                  publishProgress(progress);
+               }
+               if ((bearing > 354) && ((recordingNextBearing >= 0) && (recordingNextBearing <= 5)))
+               {
+                  if (((360 - bearing) + recordingNextBearing) < 5)
+                     renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  else
+                     renderer.arrowColor = GLRecorderRenderer.BLUE;
+               } else
+               {
                   if (Math.abs(recordingNextBearing - bearing) < 5)
                      renderer.arrowColor = GLRecorderRenderer.GREEN;
                   else
                      renderer.arrowColor = GLRecorderRenderer.BLUE;
                }
-               else
-                  renderer.arrowColor = GLRecorderRenderer.RED;
-               progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                            (writtenCount * 100) / totalCount);
-               publishProgress(progress);
+
+               renderer.requestRender();
             }
-            else
-               recordingNextBearing = -1;
-            progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                         (writtenCount * 100) / totalCount);
-            publishProgress(progress);
-            renderer.requestRender();
          }
-         if (processBearingThread.isComplete)
-         {
-            stopFrameWriter();
-            renderer.lastSaveBearing = 0;
-            remainingBearings = null;
-            return true;
-         }
+         stopFrameWriter();
+         renderer.lastSaveBearing = 0;
+         remainingBearings = null;
          pause(renderer.lastInstanceState);
+         return true;
       }
       catch (Exception e)
       {
@@ -305,27 +307,28 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                else
                   now = System.nanoTime();
                if ((now - bearingTimeStamp) <= epsilon)
-                  ts = previewer.awaitFrame(90, previewBuffer);
+               {
+                  ts = previewer.awaitFrame(100, previewBuffer);
+                  if (ts >= 0)
+                     ts = bearingTimeStamp;
+               }
             }
             if ((ts >= (bearingTimeStamp - epsilon)) && (ts <= (bearingTimeStamp + epsilon)))
             {
                if (addFrameToWriteBuffer(offset))
                {
+                  writtenCount++;
                   synchronized (this) { remainingBearings.remove(offset);  }
                   completed.put(offset, null);
-                  writtenCount++;
-                  renderer.arrowColor = GLRecorderRenderer.GREEN;
                   lastFrameTimestamp = ts;
                   isComplete = remainingBearings.isEmpty();
-//                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
+                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
                   continue;
                }
-               else
-                  renderer.arrowColor = GLRecorderRenderer.RED;
             }
             if (rbc != null)
                rbc.isUsed = false;
-//            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
+            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
          }
       }
    }
