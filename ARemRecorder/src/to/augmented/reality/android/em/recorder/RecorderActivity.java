@@ -628,7 +628,20 @@ public class RecorderActivity extends Activity
       this.resolutions = resolutions;
       if (resolutions.length > 0)
       {
-         currentResolutionIndex = this.resolutions.length >> 1;
+         int i = 0;
+         currentResolutionIndex = -1;
+         for (String resolution : resolutions)
+         {
+            int[] wh = ResolutionAdapter.getWidthHeight(resolution);
+            if (wh[0] == 640)
+            {
+               currentResolutionIndex = i;
+               break;
+            }
+            i++;
+         }
+         if (currentResolutionIndex < 0)
+            currentResolutionIndex = this.resolutions.length >> 1;
          int[] wh = ResolutionAdapter.getWidthHeight(this.resolutions[currentResolutionIndex]);
          previewSurface.startPreview(wh[0], wh[1]);
       }
