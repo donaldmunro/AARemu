@@ -42,7 +42,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    private RecorderActivity activity = null;
 
    protected GLRecorderRenderer renderer;
-   protected float recordingIncrement = 0, recordingCurrentBearing = 0, recordingNextBearing = 0;
+   protected float recordingIncrement = 0, recordingCurrentBearing = 0, recordingNextBearing = -1;
    protected int recordingCount = 0;
    protected long lastFrameTimestamp = -1;
    protected final float dummyStartBearing = 355;
