@@ -89,7 +89,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    //--------------------------------------------
    {
 //      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-      renderer.arrowColor = GLRecorderRenderer.RED;
+      renderer.arrowColor = GLRecorderRenderer.GREEN;
       if (previewBuffer == null)
          previewBuffer = new byte[renderer.nv21BufferSize];
       totalCount = (int) (360.0f / recordingIncrement);
