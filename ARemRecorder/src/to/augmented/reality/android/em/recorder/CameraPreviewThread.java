@@ -51,8 +51,8 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    protected void bufferOn() { mustBuffer = true; }
    protected void bufferOff() { mustBuffer = false; }
 
-   private volatile ConditionVariable frameAvailCondVar = null;
-   protected void setFrameAvailableCondVar(ConditionVariable recordingCondVar) { this.frameAvailCondVar = recordingCondVar; }
+   private volatile ConditionVariable frameAvailCondVar = new ConditionVariable(false);;
+   public ConditionVariable getFrameAvailCondVar() { return frameAvailCondVar;  }
 
    Previewable previewListener = null;
    public void setPreviewListener(Previewable listener) { previewListener = listener; }
@@ -395,11 +395,8 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
 //         Log.i(TAG, "NV21 to RGBA Time = " + (SystemClock.elapsedRealtimeNanos() - timestamp) + " NS");
 
          if (mustBuffer)
-         {
             ringBuffer.push(timestamp, data);
-            if (frameAvailCondVar != null)
-               try { synchronized (this) { frameAvailCondVar.open(); } } catch (Exception _e) { Log.e(TAG, "", _e); }
-         }
+         frameAvailCondVar.open();
          if (previewListener != null)
             previewListener.onCameraFrame(timestamp, data);
       }
@@ -416,9 +413,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    public long awaitFrame(long frameBlockTimeMs, byte[] previewBuffer)
    //-----------------------------------------------------------------
    {
-      if (frameAvailCondVar == null)
-         return -1;
-      synchronized (this) { frameAvailCondVar.close(); }
+      frameAvailCondVar.close();
       if (frameAvailCondVar.block(frameBlockTimeMs))
       {
          synchronized (this)

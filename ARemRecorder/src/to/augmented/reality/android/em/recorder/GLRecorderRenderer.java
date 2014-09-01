@@ -147,7 +147,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private RecordFileFormat recordFileFormat = RecordFileFormat.RGBA;
    public void setRecordFileFormat(RecordFileFormat recordFileFormat) { this.recordFileFormat = recordFileFormat; }
    public RecordFileFormat getRecordFileFormat() { return recordFileFormat; }
-   private ConditionVariable recordingCondVar = null, frameCondVar = null;
+   private ConditionVariable recordingCondVar = null;
    private ExecutorService recordingPool = createSingleThreadPool("Recording"),
                            stopRecordingPool = createSingleThreadPool("StopRecording");
 
@@ -1130,10 +1130,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
       isRecording = true;
       recordingCondVar = new ConditionVariable(false);
-      frameCondVar  = new ConditionVariable(false);
       this.recordingMode = mode;
-      recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar, frameCondVar);
-      previewer.setFrameAvailableCondVar(frameCondVar);
+      recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar,
+                                                              previewer.getFrameAvailCondVar());
       previewer.bufferOn();
       recordingThread.executeOnExecutor(recordingPool);
       return true;
@@ -1143,8 +1142,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //---------------------------------
    {
       recordingCondVar = new ConditionVariable(false);
-      frameCondVar  = new ConditionVariable(false);
-      previewer.setFrameAvailableCondVar(frameCondVar);
       previewer.bufferOn();
       arrowRotation = 0;
       arrowColor = GREEN;
@@ -1155,7 +1152,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
       recordingThread.restore(B);
       recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
-                      setFrameCondVar(frameCondVar).setPreviewer(previewer);
+                      setFrameCondVar(previewer.getFrameAvailCondVar()).setPreviewer(previewer);
       recordingPool = createSingleThreadPool("Recording");
       recordingThread.executeOnExecutor(recordingPool);
    }
@@ -1389,7 +1386,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          final float increment = recordingThread.recordingIncrement;
          isRecording = false;
          isStopRecording = true;
-         previewer.setFrameAvailableCondVar(null);
          previewer.bufferOff();
          try
          {
