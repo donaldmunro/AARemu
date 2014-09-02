@@ -88,7 +88,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    boolean isPreviewing = false;
    private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
    OrientationProvider orientationProvider = null;
-   BearingRingBuffer bearingBuffer = new BearingRingBuffer(15);
+   BearingRingBuffer bearingBuffer = new BearingRingBuffer(2000);
    volatile float currentBearing = 0, lastBearing = -1, bearingDelta = 0;
    long currentBearingTimestamp =-1L, lastBearingTimestamp = -1L;
    volatile boolean isRecording = false, isStopRecording = false, mustStopNow = false;
@@ -175,8 +175,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f };
    float[] arrowColor = GREEN;
    float arrowRotation = 0.0f;
-
-   public void getLastBuffer(byte[] buffer) { previewer.getLastBuffer(buffer); }
 
    GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView, ORIENTATION_PROVIDER orientationProviderType)
    //------------------------------------------------------------------------------------------------------------

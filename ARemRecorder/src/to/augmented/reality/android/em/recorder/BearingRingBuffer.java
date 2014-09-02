@@ -16,6 +16,8 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.util.*;
+
 public class BearingRingBuffer
 //============================
 {
@@ -101,19 +103,26 @@ public class BearingRingBuffer
    //----------------------------------------------
    {
       if (length > 0)
-         return bearings[head];
+      {
+         int index = indexDecrement(head);
+         return bearings[index];
+      }
       return null;
    }
 
-   public synchronized RingBufferContent find(long timestampCompareNS, long epsilonNS)
+   public synchronized RingBufferContent find(final long timestampCompareNS, final long epsilonNS)
    //-------------------------------------------------------------------------------------
    {
       if (length == 0)
          return null;
-      int index = head;
+      int index = indexDecrement(head);
+      final long gt = timestampCompareNS - epsilonNS;
       for (int i=0; i<length; i++)
       {
          final long ts = bearings[index].timestamp;
+         if (gt > ts)
+            return null;
+         //Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts) + " " + (gt > ts));
          if ( (ts >= (timestampCompareNS - epsilonNS)) && (ts <= (timestampCompareNS + epsilonNS)) )
             return bearings[index];
          index = indexDecrement(index);
@@ -126,7 +135,7 @@ public class BearingRingBuffer
    {
       if (length == 0)
          return null;
-      int index = head, ii = -1;;
+      int index = indexDecrement(head), ii = -1;;
       long mindiff = Long.MAX_VALUE;
       for (int i=0; i<length; i++)
       {
@@ -159,7 +168,10 @@ public class BearingRingBuffer
    //-------------------------------------------
    {
       if (length > 0)
-         return bearings[head].bearing;
+      {
+         int index = indexDecrement(head);
+         return bearings[index].bearing;
+      }
       return Float.MIN_VALUE;
    }
 

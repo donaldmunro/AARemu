@@ -62,15 +62,14 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
       ActivityManager activityManager = (ActivityManager) renderer.activity.getSystemService(Context.ACTIVITY_SERVICE);
       ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
       activityManager.getMemoryInfo(memoryInfo);
-      long availSize = memoryInfo.availMem/2;
-      //int totalsize = RINGBUFFER_SIZE * bufferSize;
-      int n = 20;
-      for (; n>=3; n--)
-      {
-         long totalsize = n * bufferSize;
-         if (totalsize <= availSize)
-            break;
-      }
+      int n = 5; //20;
+//      long availSize = memoryInfo.availMem/2;
+//      for (; n>=3; n--)
+//      {
+//         long totalsize = n * bufferSize;
+//         if (totalsize <= availSize)
+//            break;
+//      }
       ringBuffer = new RecorderRingBuffer(n, bufferSize);
       Log.i(TAG, "Buffer size " + n + " x " + bufferSize + " = " + n * bufferSize);
 //      this.previewWidth = previewWidth;
@@ -95,12 +94,12 @@ public class CameraPreviewCallback implements Camera.PreviewCallback
 
    public long getLastTimestamp() { synchronized(this) { return ringBuffer.peekHeadTime(); } }
 
-   public long getLastBuffer(byte[] buffer) { synchronized(this) { return ringBuffer.peek(buffer); } }
-
    public RecorderRingBuffer.RingBufferContent findFirstBufferAtTimestamp(long timestampNS, long epsilonNS, byte[] buffer)
    {
       return ringBuffer.findFirst(timestampNS, epsilonNS, buffer);
    }
+
+   public long getLastBuffer(byte[] buffer) { synchronized(this) { return ringBuffer.peekHead(buffer); } }
 
    public int getBufferSize() { return ringBuffer.length; }
 

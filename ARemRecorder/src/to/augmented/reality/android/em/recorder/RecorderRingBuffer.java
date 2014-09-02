@@ -110,7 +110,10 @@ public class RecorderRingBuffer
    {
       long ts = -1;
       if (length > 0)
-         ts = buffers[head].timestamp;
+      {
+         final int index = indexDecrement(head);
+         ts = buffers[index].timestamp;
+      }
       return ts;
    }
 
@@ -120,8 +123,9 @@ public class RecorderRingBuffer
       long ts = -1;
       if (length > 0)
       {
-         ts = buffers[head].timestamp;
-         System.arraycopy(buffers[head].buffer, 0, buffer, 0, size);
+         final int index = indexDecrement(head);
+         ts = buffers[index].timestamp;
+         System.arraycopy(buffers[index].buffer, 0, buffer, 0, size);
       }
       return ts;
    }

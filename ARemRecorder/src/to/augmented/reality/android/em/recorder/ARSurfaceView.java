@@ -132,8 +132,6 @@ public class ARSurfaceView extends GLSurfaceView
       return bb;
    }
 
-   public void getLastBuffer(byte[] buffer) { renderer.getLastBuffer(buffer); }
-
    public int getPreviewWidth() { return renderer.getPreviewWidth(); }
 
    public int getPreviewHeight() { return renderer.getPreviewHeight(); }
