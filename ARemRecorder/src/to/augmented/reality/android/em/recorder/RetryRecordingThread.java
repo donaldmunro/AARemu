@@ -132,11 +132,52 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             checkStartRecording(bearing, progress);
          }
 
-         long ts = previewer.getLastBuffer(previewBuffer);
+         long ts;
          boolean isComplete = false;
          final long epsilon = 65000000L;
          while ( (! isComplete) && (renderer.isRecording) && (! isCancelled()) )
          {
+            if (isCorrecting)
+            {
+               BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
+               if (bearingInfo == null)
+               {
+                  bearingCondVar.close();
+                  if (! bearingCondVar.block(100))
+                  {
+                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                     publishProgress(progress);
+                     continue;
+                  }
+                  bearingInfo = bearingBuffer.peekHead();
+               }
+               lastBearing = bearing;
+               bearing = bearingInfo.bearing;
+               if ( ( ( (correctingBearing >= 355) && (correctingBearing <= 360) ) &&
+                     ( (bearing > 340) && (bearing < correctingBearing) ) ) ||
+                     ( (correctingBearing > 0) && (bearing < correctingBearing) ) ||
+                     ( (correctingBearing == 0) && ( (bearing > 340) && (bearing < 360) ) )
+                     )
+               {
+                  isCorrecting = false;
+                  renderer.arrowRotation = 0;
+                  renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  progress.set(bearing, recordingNextBearing, renderer.arrowColor);
+                  publishProgress(progress);
+               }
+               else
+               {
+                  renderer.arrowRotation = 180;
+                  renderer.arrowColor = GLRecorderRenderer.RED;
+                  progress.set(bearing, correctingBearing, renderer.arrowColor);
+                  publishProgress(progress);
+                  renderer.requestRender();
+                  continue;
+               }
+            }
+            ts = previewer.getLastBuffer(previewBuffer);
+            if (ts < 0)
+               ts = previewer.awaitFrame(200, previewBuffer);
             if (ts >= 0)
             {
                BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.find(ts, epsilon);
@@ -148,7 +189,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                      progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
                      publishProgress(progress);
                      continue;
-                  } else
+                  }
+                  else
                      bearingInfo = bearingBuffer.peekHead();
                }
                if (bearingInfo == null)
@@ -167,29 +209,6 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   renderer.arrowColor = GLRecorderRenderer.RED;
                   progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
                   publishProgress(progress);
-                  continue;
-               }
-               if (isCorrecting)
-               {
-                  if ( ( ( (correctingBearing >= 355) && (correctingBearing <= 360) ) &&
-                        ( (bearing > 340) && (bearing < correctingBearing) ) ) ||
-                        ( (correctingBearing > 0) && (bearing < correctingBearing) ) ||
-                        ( (correctingBearing == 0) && ( (bearing > 340) && (bearing < 360) ) )
-                        )
-                  {
-                     isCorrecting = false;
-                     renderer.arrowRotation = 0;
-                     renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     progress.set(bearing, recordingNextBearing, renderer.arrowColor);
-                     publishProgress(progress);
-                  }
-                  else
-                  {
-                     renderer.arrowRotation = 180;
-                     renderer.arrowColor = GLRecorderRenderer.RED;
-                     progress.set(bearing, correctingBearing, renderer.arrowColor);
-                     publishProgress(progress);
-                  }
                   continue;
                }
                if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
@@ -223,6 +242,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   }
                   else
                   {
+                     bearing = bearingBuffer.peekLatestBearing();
+                     lastBearing = bearingBuffer.findLess(bearing);
                      boolean isWrapped =  ( ( (bearing > 340) && ( (lastBearing >= 0) && (lastBearing < 20) ) ) ||
                            ( (bearing < 20) && (lastBearing >= 350) ) );
                      if ( (bearing > recordingNextBearing) && (! isWrapped) )
@@ -240,6 +261,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                }
                else
                {
+                  bearing = bearingBuffer.peekLatestBearing();
+                  lastBearing = bearingBuffer.findLess(bearing);
                   boolean isWrapped =  ( (bearing > 300) && ( (lastBearing >= 0) && (lastBearing < 100) ) );
                   if ( (bearing > recordingNextBearing) && (! isWrapped) )
                   {
@@ -256,12 +279,33 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                      renderer.arrowColor = GLRecorderRenderer.GREEN;
                   }
                }
-               ts = previewer.getLastBuffer(previewBuffer);
-               if (ts < 0)
-                  ts = previewer.awaitFrame(200, previewBuffer);
+               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               publishProgress(progress);
+               renderer.requestRender();
             }
             else
-               ts = previewer.awaitFrame(200, previewBuffer);
+            {
+               bearing = bearingBuffer.peekLatestBearing();
+               lastBearing = bearingBuffer.findLess(bearing);
+               boolean isWrapped =  ( (bearing > 300) && ( (lastBearing >= 0) && (lastBearing < 100) ) );
+               if ( (bearing > recordingNextBearing) && (! isWrapped) )
+               {
+                  isCorrecting = true;
+                  correctingBearing = recordingCurrentBearing - 5;
+                  if (correctingBearing < 0)
+                     correctingBearing += 360;
+                  renderer.arrowRotation = 180;
+                  renderer.arrowColor = GLRecorderRenderer.RED;
+               }
+               else
+               {
+                  renderer.arrowRotation = 0;
+                  renderer.arrowColor = GLRecorderRenderer.GREEN;
+               }
+               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               publishProgress(progress);
+               renderer.requestRender();
+            }
          }
          pause(renderer.lastInstanceState);
       }

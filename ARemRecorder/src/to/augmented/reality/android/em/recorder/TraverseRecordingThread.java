@@ -103,11 +103,14 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          recordingCurrentBearing = -1;
          previewer.clearBuffer();
          startFrameWriter();
-         long now;
+         long offset = -1;
          float roundedBearing = -1;
          long ts = previewer.awaitFrame(400, previewBuffer);
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
+            ts = previewer.getLastBuffer(previewBuffer);
+            if (ts < 0)
+               ts = previewer.awaitFrame(200, previewBuffer);
             if (ts >= 0)
             {
                BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.find(ts, epsilon);
@@ -151,7 +154,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                      continue;
                   }
                }
-               long offset = (long) (Math.floor(bearing / recordingIncrement));
+               offset = (long) (Math.floor(bearing / recordingIncrement));
                if ((remainingBearings.contains(offset)) && (addFrameToWriteBuffer(offset)))
                {
                   writtenCount++;
@@ -163,54 +166,68 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                   renderer.arrowColor = GLRecorderRenderer.BLUE;
                else
                   renderer.arrowColor = GLRecorderRenderer.RED;
-               if (remainingBearings.isEmpty())
-                  break;
-               roundedBearing = (float) (offset + 1) * recordingIncrement;
-               if (roundedBearing != recordingNextBearing)
-               {
-                  if (roundedBearing >= 360)
-                     roundedBearing -= 360;
-                  offset = (long) (Math.floor(roundedBearing / recordingIncrement));
-                  SortedSet<Long> subset = remainingBearings.tailSet(offset);
-                  if (subset.isEmpty())
-                  {
-                     if (roundedBearing > 300)
-                        subset = remainingBearings.tailSet(0L);
-                     if (subset.isEmpty())
-                        offset = - 1;
-                     else
-                        try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
-                  }
-                  else
-                     try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
-                  if (offset >= 0)
-                  {
-                     recordingNextBearing = offset * recordingIncrement;
-                     progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                                  (writtenCount * 100) / totalCount);
-                     publishProgress(progress);
-                  }
-                  if ((bearing > 354) && ((recordingNextBearing >= 0) && (recordingNextBearing <= 5)))
-                  {
-                     if (((360 - bearing) + recordingNextBearing) < 5)
-                        renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     else
-                        renderer.arrowColor = GLRecorderRenderer.BLUE;
-                  } else
-                  {
-                     if (Math.abs(recordingNextBearing - bearing) < 5)
-                        renderer.arrowColor = GLRecorderRenderer.GREEN;
-                     else
-                        renderer.arrowColor = GLRecorderRenderer.BLUE;
-                  }
-                  renderer.requestRender();
-               }
-               ts = previewer.getLastBuffer(previewBuffer);
-               if (ts < 0)
-                  ts = previewer.awaitFrame(200, previewBuffer);
             }
             else
-               ts = previewer.awaitFrame(200, previewBuffer);
+            {
+               BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
+               if (bearingInfo == null)
+               {
+                  bearingCondVar.close();
+                  if (! bearingCondVar.block(100))
+                  {
+                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                     publishProgress(progress);
+                     continue;
+                  }
+                  bearingInfo = bearingBuffer.peekHead();
+               }
+               lastBearing = bearing;
+               bearing = bearingInfo.bearing;
+               offset = (long) (Math.floor(bearing / recordingIncrement));
+            }
+
+            if (remainingBearings.isEmpty())
+               break;
+            roundedBearing = (float) (offset + 1) * recordingIncrement;
+            if (roundedBearing != recordingNextBearing)
+            {
+               if (roundedBearing >= 360)
+                  roundedBearing -= 360;
+               offset = (long) (Math.floor(roundedBearing / recordingIncrement));
+               SortedSet<Long> subset = remainingBearings.tailSet(offset);
+               if (subset.isEmpty())
+               {
+                  if (roundedBearing > 300)
+                     subset = remainingBearings.tailSet(0L);
+                  if (subset.isEmpty())
+                     offset = - 1;
+                  else
+                     try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+               }
+               else
+                  try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+               if (offset >= 0)
+               {
+                  recordingNextBearing = offset * recordingIncrement;
+                  progress.set(bearing, recordingNextBearing, renderer.arrowColor,
+                               (writtenCount * 100) / totalCount);
+                  publishProgress(progress);
+               }
+               if ((bearing > 354) && ((recordingNextBearing >= 0) && (recordingNextBearing <= 5)))
+               {
+                  if (((360 - bearing) + recordingNextBearing) < 5)
+                     renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  else
+                     renderer.arrowColor = GLRecorderRenderer.BLUE;
+               } else
+               {
+                  if (Math.abs(recordingNextBearing - bearing) < 5)
+                     renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  else
+                     renderer.arrowColor = GLRecorderRenderer.BLUE;
+               }
+               renderer.requestRender();
+            }
          }
          stopFrameWriter();
          renderer.lastSaveBearing = 0;

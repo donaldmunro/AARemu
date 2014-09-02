@@ -104,7 +104,7 @@ public class BearingRingBuffer
    {
       if (length > 0)
       {
-         int index = indexDecrement(head);
+         final int index = indexDecrement(head);
          return bearings[index];
       }
       return null;
@@ -169,8 +169,22 @@ public class BearingRingBuffer
    {
       if (length > 0)
       {
-         int index = indexDecrement(head);
+         final int index = indexDecrement(head);
          return bearings[index].bearing;
+      }
+      return Float.MIN_VALUE;
+   }
+
+   public float findLess(float bearing)
+   {
+      if (length > 0)
+      {
+         final int index = indexDecrement(head);
+         for (int i=0; i<length; i++)
+         {
+            if (bearings[index].bearing < bearing)
+               return bearings[index].bearing;
+         }
       }
       return Float.MIN_VALUE;
    }
