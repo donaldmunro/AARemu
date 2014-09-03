@@ -48,7 +48,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    protected final float dummyStartBearing = 355;
    protected boolean isStartRecording;
    protected ConditionVariable bearingCondVar = null, frameCondVar = null;
-   protected CameraPreviewCallback previewer;
+   protected CameraPreviewThread previewer;
    protected byte[] previewBuffer = null;
    protected BearingRingBuffer bearingBuffer = null;
    protected ExecutorService frameWriterExecutor;
@@ -87,7 +87,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    }
 
    protected RecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
-                             CameraPreviewCallback previewer,
+                             CameraPreviewThread previewer,
                              ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                              BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -107,7 +107,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
 
    protected RecordingThread(GLRecorderRenderer renderer) { this.renderer = renderer; }
 
-   public RecordingThread setPreviewer(CameraPreviewCallback previewer) { this.previewer = previewer; return this; }
+   public RecordingThread setPreviewer(CameraPreviewThread previewer) { this.previewer = previewer; return this; }
 
    public RecordingThread setPreviewBuffer(byte[] previewBuffer) { this.previewBuffer = previewBuffer; return this; }
 

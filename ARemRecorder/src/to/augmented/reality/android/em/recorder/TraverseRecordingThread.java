@@ -39,7 +39,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
-                                     float increment, CameraPreviewCallback previewer,
+                                     float increment, CameraPreviewThread previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                      BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
