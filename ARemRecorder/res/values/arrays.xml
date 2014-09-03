@@ -27,7 +27,8 @@
       <item></item>
    </string-array>
    <string-array name="recording_modes">
-      <item>Multiple Traversals</item>
+      <item>Bearing-based Multiple Traversals</item>
+      <item>Frame-based Multiple Traversals</item>
       <item>Retry Missed Bearings</item>
    </string-array>
 </resources>

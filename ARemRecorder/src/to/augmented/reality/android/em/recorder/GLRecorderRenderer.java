@@ -57,7 +57,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //========================================================================================================
 {
    public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
-   public enum RecordMode { RETRY, TRAVERSE }
+   public enum RecordMode { RETRY, TRAVERSE, TRAVERSE2 }
 
    private static final String TAG = GLRecorderRenderer.class.getSimpleName();
    private static final String VERTEX_SHADER = "vertex.glsl";

@@ -66,11 +66,12 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    {
       switch (mode)
       {
-         case RETRY: return new RetryRecordingThread(renderer, renderer.nv21BufferSize, increment,
+         case RETRY:       return new RetryRecordingThread(renderer, renderer.nv21BufferSize, increment,
                                                      renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
-         case TRAVERSE: return new TraverseRecordingThread(renderer, renderer.nv21BufferSize, increment,
+         case TRAVERSE:    return new TraverseRecordingThread(renderer, renderer.nv21BufferSize, increment,
                                                            renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
-
+         case TRAVERSE2:   return new TraverseRecordingThread2(renderer, renderer.nv21BufferSize, increment,
+                                                            renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
       }
       return null;
    }
@@ -82,6 +83,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       {
          case RETRY:    return new RetryRecordingThread(renderer);
          case TRAVERSE: return new TraverseRecordingThread(renderer);
+         case TRAVERSE2: return new TraverseRecordingThread2(renderer);
       }
       return null;
    }
