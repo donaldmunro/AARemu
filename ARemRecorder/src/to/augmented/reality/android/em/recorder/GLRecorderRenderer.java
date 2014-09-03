@@ -21,7 +21,6 @@ import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
-import android.hardware.Camera;
 import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
@@ -74,18 +73,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private ARSurfaceView view;
    private boolean isInitialised = false;
 
-         Camera camera = null;
-   int cameraId = -1;
-
-   private float focalLen = 0, fovx = 0, fovy = 0;
-
-   private int previewWidth = -1, previewHeight = -1, uIndex =-1, vIndex;
-   int getPreviewWidth() { return previewWidth; }
-   int getPreviewHeight() { return previewHeight; }
+   private int uIndex =-1, vIndex;
 
    private int displayWidth, displayHeight;
 
-   boolean isPreviewing = false;
    private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
    OrientationProvider orientationProvider = null;
    BearingRingBuffer bearingBuffer = new BearingRingBuffer(15);
@@ -100,11 +91,18 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    boolean isWaitingGPS = true, isWaitingNetLoc = true;
    Location recordLocation = null;
 
-   private int previewTexture = -1, yComponent =-1, uComponent =-1, vComponent =-1;
+   int previewTexture = -1;
+   private int yComponent =-1;
+   private int uComponent =-1;
+   private int vComponent =-1;
+   public int getPreviewTexture() { return previewTexture; }
+
    private int rgbaBufferSize = 0;
    private int rgbBufferSize = 0;
    int nv21BufferSize = 0;
    private int rgb565BufferSize = 0;
+   boolean isAwaitingTextureFix = false;
+
    private int previewMVPLocation = -1, cameraTextureUniform = -1, yComponentUniform =-1, uComponentUniform =-1,
                vComponentUniform; //, previewSTMLocation = -1
    private float[] previewMVP = new float[16]; //, previewSTM = new float[16];
@@ -121,8 +119,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       return screenHeight;
    }
 
-   byte[] cameraBuffer = null;
-
    final private ByteBuffer previewPlaneVertices =
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 12).order(ByteOrder.nativeOrder());
    final private ByteBuffer previewPlaneTextures =
@@ -136,9 +132,14 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    float[] projectionM = new float[16], viewM = new float[16];
 
+   public int previewWidth;
+   public int previewHeight;
+
    GLSLAttributes previewShaderGlsl, arrowShaderGlsl;
 
-   CameraPreviewCallback previewer;
+   CameraPreviewThread previewer;
+
+   byte[] cameraBuffer = null;
 
    String lastError = null;
 
@@ -223,8 +224,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       try
       {
          initRender();
-         if (camera == null)
-            initCamera();
+         if ( (previewer == null) || (previewer.camera == null) )
+            initPreviewer(true);
+         else
+            previewer.initCamera();
          isInitialised = true;
       }
       catch (Exception e)
@@ -333,12 +336,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    public void onSaveInstanceState(Bundle B)
    //----------------------------------------------
    {
+      if (previewer != null)
+         previewer.pause(B);;
       B.putBoolean("isRecording", isRecording);
       B.putBoolean("isStopRecording", isStopRecording);
       if ( (isRecording) && (recordingMode != null) )
          B.putString("recordingMode", recordingMode.name());
-      B.putInt("previewWidth", previewWidth);
-      B.putInt("previewHeight", previewHeight);
       B.putInt("displayWidth", displayWidth);
       B.putInt("displayHeight", displayHeight);
       if (recordingThread != null)
@@ -394,13 +397,52 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       isLocationSensorInititialised = false;
    }
 
+   public void startPreview(int width, int height)
+   //---------------------------------------------
+   {
+      if (previewer != null)
+      {
+         if (previewer.isPreviewing())
+         {
+            if ((previewer.getPreviewWidth() == width) && (previewer.getPreviewHeight() == height))
+               return;
+            if (previewSurfaceTexture != null)
+               previewSurfaceTexture.setOnFrameAvailableListener(null);
+         }
+         rgbaBufferSize = width * height * 4; // RGBA buffer size
+         rgbBufferSize = width * height * 3; // RGB buffer size
+         rgb565BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8;
+         // or nv21BufferSize = Width * Height + ((Width + 1) / 2) * ((Height + 1) / 2) * 2
+         if (DIRECT_TO_SURFACE)
+            nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
+         else
+            nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.YV12) / 8;
+         vIndex = width * height;
+         uIndex = (int) (vIndex * 1.25);
+         previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
+         cameraBuffer = new byte[nv21BufferSize];
+         previewer.startPreview(width, height);
+      }
+   }
+
+   public boolean isPreviewing() { return (previewer != null) ? previewer.isPreviewing() : false; }
+
+   private void stopCamera()
+   //----------------------
+   {
+      if (previewSurfaceTexture != null)
+         previewSurfaceTexture.setOnFrameAvailableListener(null);
+      if ( (previewer != null) && (previewer.isPreviewing()) )
+         previewer.stopCamera();
+   }
+
    public void onRestoreInstanceState(Bundle B)
    //------------------------------------------
    {
+      if (previewer != null)
+         previewer.restore(B);
       isRecording = B.getBoolean("isRecording");
       isStopRecording = B.getBoolean("isStopRecording");
-      previewWidth = B.getInt("previewWidth");
-      previewHeight = B.getInt("previewHeight");
       displayWidth = B.getInt("displayWidth");
       displayHeight = B.getInt("displayHeight");
       rgbaBufferSize = B.getInt("rgbaBufferSize");
@@ -487,101 +529,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       lastSaveBearing = 0;
    }
 
-   public boolean startPreview(int width, int height)
-   //------------------------------------------------
+   private void initPreviewer(boolean isInitCamera)
+    //---------------------------------------------
    {
-      if ((camera == null) || (! isInitialised)) return false;
-      if (isPreviewing)
-      {
-         if ((previewWidth == width) && (previewHeight == height))
-            return true;
-         try
-         {
-            camera.setPreviewCallbackWithBuffer(null);
-            if (previewSurfaceTexture != null)
-               previewSurfaceTexture.setOnFrameAvailableListener(null);
-            camera.stopPreview();
-            isPreviewing = false;
-            previewer = null;
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-         }
-      }
-      previewWidth = width;
-      previewHeight = height;
-      vIndex = previewWidth * previewHeight;
-      uIndex = (int) (vIndex * 1.25);
-
-      rgbaBufferSize = previewWidth * previewHeight * 4; // RGBA buffer size
-      rgbBufferSize = previewWidth * previewHeight * 3; // RGB buffer size
-      rgb565BufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8;
-      // or nv21BufferSize = Width * Height + ((Width + 1) / 2) * ((Height + 1) / 2) * 2
-      nv21BufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
-      previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
-      cameraBuffer = new byte[nv21BufferSize];
-      return _startPreview();
-   }
-
-   private boolean isAwaitingTextureFix = false;
-
-   private boolean _startPreview()
-   //-----------------------------
-   {
-      if (DIRECT_TO_SURFACE)
-      {
-         if (previewTexture < 0)
-         {
-            Log.e(TAG, "Preview texture has not been initialised by OpenGL glGenTextures. (" + previewTexture + ")");
-            isAwaitingTextureFix = true;
-            requestRender();
-            return true; // try again from render thread
-         }
-         previewSurfaceTexture = new SurfaceTexture(previewTexture);
-      }
-      else
-      {
-         previewSurfaceTexture = new SurfaceTexture(10);
-         isUpdateTexture = true;
-      }
-      try
-      {
-         Camera.Parameters cameraParameters = camera.getParameters();
-         cameraParameters.setPreviewSize(previewWidth, previewHeight);
-
-         if (DIRECT_TO_SURFACE)
-            cameraParameters.setPreviewFormat(ImageFormat.NV21);
-         else
-            cameraParameters.setPreviewFormat(ImageFormat.YV12);
-         camera.setParameters(cameraParameters);
-         if (previewer == null)
-            setPreviewer();
-         camera.setPreviewCallbackWithBuffer(previewer);
-         if (DIRECT_TO_SURFACE)
-            previewSurfaceTexture.setOnFrameAvailableListener(this);
-         camera.addCallbackBuffer(cameraBuffer);
-         camera.setPreviewTexture(previewSurfaceTexture);
-         camera.startPreview();
-         isPreviewing = true;
-      }
-      catch (final Exception e)
-      {
-         Log.e(TAG, "Initialising camera preview", e);
-         toast("Error initialising camera preview: " + e.getMessage());
-         return false;
-      }
-      return true;
-   }
-
-   private void setPreviewer()
-    //------------------------
-   {
-      if (nv21BufferSize <= 0)
-         return;
-      previewer = new CameraPreviewCallback(this, nv21BufferSize);
-      previewer.setPreviewListener(new CameraPreviewCallback.Previewable()
-            //-------------------------------------------------------------------------
+      previewer = new CameraPreviewThread(this, isInitCamera);
+      previewer.setPreviewListener(new CameraPreviewThread.Previewable()
+      //-------------------------------------------------------------------------
       {
          @Override
          public void onCameraFrame(long timestamp, byte[] frame)
@@ -599,6 +552,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             }
          }
       });
+      previewer.start();
    }
 
    @Override
@@ -609,120 +563,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       view.requestRender();
    }
 
-   private void stopCamera()
-   //----------------------
-   {
-      if (camera != null)
-      {
-         if (isPreviewing)
-         {
-            try
-            {
-               if (previewSurfaceTexture != null)
-                  previewSurfaceTexture.setOnFrameAvailableListener(null);
-               camera.setPreviewCallbackWithBuffer(null);
-               camera.stopPreview();
-               isPreviewing = false;
-            }
-            catch (Exception e)
-            {
-               Log.e(TAG, "", e);
-            }
-         }
-         try
-         {
-            camera.release();
-         }
-         catch (Exception _e)
-         {
-            Log.e(TAG, _e.getMessage());
-         }
-      }
-      camera = null;
-   }
-
-   protected boolean initCamera()
-   //--------------------------
-   {
-      try
-      {
-         stopCamera();
-         Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
-         for (int i = 0; i < Camera.getNumberOfCameras(); i++)
-         {
-            Camera.getCameraInfo(i, cameraInfo);
-            if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_BACK)
-            {
-               cameraId = i;
-               try { camera = Camera.open(cameraId); } catch (Exception _e) { camera = null; }
-               break;
-            }
-         }
-         if (camera == null)
-         {
-            toast("Could not obtain rear facing camera.");
-            return false;
-         }
-//         setDisplayOrientation();
-//         camera.setDisplayOrientation(0);
-         Camera.Parameters cameraParameters = camera.getParameters();
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
-            if (cameraParameters.isVideoStabilizationSupported())
-               cameraParameters.setVideoStabilization(true);
-         List<String> focusModes = cameraParameters.getSupportedFocusModes();
-//         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
-//            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-//         else
-         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
-            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
-         if (cameraParameters.isZoomSupported())
-            cameraParameters.setZoom(0);
-         List<int[]> fpsRanges = cameraParameters.getSupportedPreviewFpsRange();
-         if ( (fpsRanges != null) && (fpsRanges.size() > 0) )
-         {
-            int[] fpsRange = fpsRanges.get(fpsRanges.size() - 1);
-            cameraParameters.setPreviewFpsRange(fpsRange[0], fpsRange[1]);
-         }
-         camera.setParameters(cameraParameters);
-         focalLen = cameraParameters.getFocalLength();
-         fovx = cameraParameters.getHorizontalViewAngle();
-         fovy = cameraParameters.getVerticalViewAngle();
-
-         List<Camera.Size> resolutions = cameraParameters.getSupportedPreviewSizes();
-         Collections.sort(resolutions, new Comparator<Camera.Size>()
-         {
-            @Override
-            public int compare(Camera.Size lhs, Camera.Size rhs)
-            //--------------------------------------------------
-            {
-               return (lhs.width > rhs.width) ? -1 : (lhs.width < rhs.width) ? 1 : 0;
-            }
-         });
-         final String[] availResolutions = new String[resolutions.size()];
-         int i = 0;
-         for (Camera.Size resolution : resolutions)
-         {
-            if ((resolution.width <= screenWidth) && (resolution.height <= screenHeight))
-               availResolutions[i++] = String.format(Locale.UK, "%dx%d", resolution.width, resolution.height);
-         }
-         activity.runOnUiThread(new Runnable()
-         {
-            @Override public void run() { activity.onResolutionChange(availResolutions); }
-         });
-
-         return true;
-      }
-      catch (Exception e)
-      {
-         camera = null;
-         toast(String.format("Could not obtain rear facing camera (%s). Check if it is in use by another application.",
-                             e.getMessage()));
-         Log.e(TAG, "Camera.open()", e);
-         return false;
-      }
-   }
-
-   private void toast(final String s)
+   void toast(final String s)
    //--------------------------------
    {
       toast(s, Toast.LENGTH_LONG);
@@ -967,12 +808,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             {
                initTextures(previewShaderGlsl, null);
                if (isAwaitingTextureFix)
-               {
-                  if (_startPreview())
-                     isAwaitingTextureFix = false;
-                  else
-                     throw new RuntimeException("Could not create preview texture");
-               }
+                  previewer.startFixedPreview();
             }
 
 
@@ -1084,8 +920,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
       finally
       {
-         if ((camera != null) && (isPreviewed))
-            camera.addCallbackBuffer(cameraBuffer);
+         if ((previewer.camera != null) && (isPreviewed))
+            previewer.camera.addCallbackBuffer(cameraBuffer);
       }
    }
 
@@ -1249,7 +1085,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       if (isRecording) return false;
       if (previewer == null)
-         setPreviewer();
+         initPreviewer(false);
       if (previewer == null)
          return false;
       if (! dir.isDirectory())
@@ -1618,9 +1454,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             recordHeader.put("Increment", String.format("%6.2f", increment));
             recordHeader.put("PreviewWidth", Integer.toString(previewWidth));
             recordHeader.put("PreviewHeight", Integer.toString(previewHeight));
-            recordHeader.put("FocalLength", Float.toString(focalLen));
-            recordHeader.put("fovx", Float.toString(fovx));
-            recordHeader.put("fovy", Float.toString(fovy));
+            recordHeader.put("FocalLength", Float.toString(previewer.focalLen));
+            recordHeader.put("fovx", Float.toString(previewer.fovx));
+            recordHeader.put("fovy", Float.toString(previewer.fovy));
             recordHeader.put("FileFormat", recordFileFormat.name());
             recordHeader.put("OrientationProvider",
                              (orientationProviderType == null) ? ORIENTATION_PROVIDER.DEFAULT.name()

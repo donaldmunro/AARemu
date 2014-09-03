@@ -141,7 +141,7 @@ public class ARSurfaceView extends GLSurfaceView
          renderer.startPreview(width, height);
    }
 
-   public boolean isPreviewing() { return (renderer == null) ? false : renderer.isPreviewing; }
+   public boolean isPreviewing() { return (renderer == null) ? false : renderer.isPreviewing(); }
 
    public boolean isRecording() { return (renderer == null) ? false : renderer.isRecording; }
 

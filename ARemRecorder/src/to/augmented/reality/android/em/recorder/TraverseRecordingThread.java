@@ -40,7 +40,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
-                                     float increment, CameraPreviewCallback previewer,
+                                     float increment, CameraPreviewThread previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                      BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
@@ -146,18 +146,18 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                publishProgress(progress);
                continue;
             }
-            if (bearing < lastBearing)
-            {
-               boolean isWrapped =  ( ( (lastBearing > 350) && (lastBearing <= 360) ) &&
-                                   ( (bearing >= 0) && (bearing < 10) ) );
-               if (! isWrapped)
-               {
-                  renderer.arrowColor = GLRecorderRenderer.RED;
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                  publishProgress(progress);
-                  continue;
-               }
-            }
+//            if (bearing < lastBearing)
+//            {
+//               boolean isWrapped =  ( ( (lastBearing > 350) && (lastBearing <= 360) ) &&
+//                                   ( (bearing >= 0) && (bearing < 10) ) );
+//               if (! isWrapped)
+//               {
+//                  renderer.arrowColor = GLRecorderRenderer.RED;
+//                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+//                  publishProgress(progress);
+//                  continue;
+//               }
+//            }
             long offset = (long) (Math.floor(bearing / recordingIncrement));
             synchronized(this) { b = remainingBearings.contains(offset); }
             if (b)

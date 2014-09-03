@@ -43,7 +43,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
    }
 
    protected RetryRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
-                                  CameraPreviewCallback previewer,
+                                  CameraPreviewThread previewer,
                                   ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
                                   BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
