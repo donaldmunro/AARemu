@@ -738,7 +738,10 @@ public class RecorderActivity extends Activity
    {
       static final Pattern RESOLUTION_PATTERN = Pattern.compile("(\\d+)x(\\d+)");
 
-      private ResolutionAdapter(Context context, int resource, String[] resolutions) { super(context, resource, resolutions); }
+      private ResolutionAdapter(Context context, int resource, String[] resolutions)
+      {
+         super(context, resource, (resolutions != null) ? resolutions : new String[0]);
+      }
 
       public int[] getWidthHeight(int position) { return getWidthHeight(getItem(position)); }
 
