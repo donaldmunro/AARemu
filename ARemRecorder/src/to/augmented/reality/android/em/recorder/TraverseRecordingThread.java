@@ -104,7 +104,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          previewer.clearBuffer();
          startFrameWriter();
          long offset = -1;
-         float roundedBearing = -1;
+         float roundedBearing = -1, lastPublishedBearing =-1;
          long ts = previewer.awaitFrame(400, previewBuffer);
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
@@ -142,18 +142,18 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                   publishProgress(progress);
                   continue;
                }
-               if (bearing < lastBearing)
-               {
-                  boolean isWrapped = (((lastBearing > 350) && (lastBearing <= 360)) &&
-                        ((bearing >= 0) && (bearing < 10)));
-                  if (! isWrapped)
-                  {
-                     renderer.arrowColor = GLRecorderRenderer.RED;
-                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                     publishProgress(progress);
-                     continue;
-                  }
-               }
+//               if (bearing < lastBearing)
+//               {
+//                  boolean isWrapped = (((lastBearing > 350) && (lastBearing <= 360)) &&
+//                        ((bearing >= 0) && (bearing < 10)));
+//                  if (! isWrapped)
+//                  {
+//                     renderer.arrowColor = GLRecorderRenderer.RED;
+//                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+//                     publishProgress(progress);
+//                     continue;
+//                  }
+//               }
                offset = (long) (Math.floor(bearing / recordingIncrement));
                if ((remainingBearings.contains(offset)) && (addFrameToWriteBuffer(offset)))
                {
@@ -227,6 +227,17 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                      renderer.arrowColor = GLRecorderRenderer.BLUE;
                }
                renderer.requestRender();
+            }
+            else
+            {
+               bearing = (float) Math.floor(bearingBuffer.peekLatestBearing());
+               if (bearing != lastPublishedBearing)
+               {
+                  progress.set(bearing, recordingNextBearing, renderer.arrowColor,
+                               (writtenCount * 100) / totalCount);
+                  publishProgress(progress);
+                  lastPublishedBearing = bearing;
+               }
             }
          }
          stopFrameWriter();

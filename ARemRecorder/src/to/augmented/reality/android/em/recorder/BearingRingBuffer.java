@@ -175,15 +175,17 @@ public class BearingRingBuffer
       return Float.MIN_VALUE;
    }
 
-   public float findLess(float bearing)
+   public float findLess(long timestamp)
+   //-----------------------------------
    {
       if (length > 0)
       {
-         final int index = indexDecrement(head);
+         int index = indexDecrement(head);
          for (int i=0; i<length; i++)
          {
-            if (bearings[index].bearing < bearing)
+            if (bearings[index].timestamp < timestamp)
                return bearings[index].bearing;
+            index = indexDecrement(index);
          }
       }
       return Float.MIN_VALUE;

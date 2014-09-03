@@ -90,10 +90,11 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
       {
          previewer.clearBuffer();
          previewer.awaitFrame(400, previewBuffer);
-         float bearing =0, lastBearing = -1;
+         float bearing =0;
          long now;
          while ( (isStartRecording) && (renderer.isRecording) && (! isCancelled()) )
          {
+            float lastBearing = -1;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                now = SystemClock.elapsedRealtimeNanos();
             else
@@ -145,13 +146,13 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   bearingCondVar.close();
                   if (! bearingCondVar.block(100))
                   {
-                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                     progress.set(bearingBuffer.peekLatestBearing(), recordingNextBearing, renderer.arrowColor);
                      publishProgress(progress);
                      continue;
                   }
                   bearingInfo = bearingBuffer.peekHead();
+                  if (bearingInfo == null) continue;
                }
-               lastBearing = bearing;
                bearing = bearingInfo.bearing;
                if ( ( ( (correctingBearing >= 355) && (correctingBearing <= 360) ) &&
                      ( (bearing > 340) && (bearing < correctingBearing) ) ) ||
@@ -186,20 +187,14 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   bearingCondVar.close();
                   if (!bearingCondVar.block(100))
                   {
-                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                     progress.set(bearingBuffer.peekLatestBearing(), recordingNextBearing, renderer.arrowColor);
                      publishProgress(progress);
                      continue;
                   }
                   else
                      bearingInfo = bearingBuffer.peekHead();
                }
-               if (bearingInfo == null)
-               {
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                  publishProgress(progress);
-                  continue;
-               }
-               lastBearing = bearing;
+               if (bearingInfo == null) continue;
                bearing = bearingInfo.bearing;
                final long bearingTimestamp = bearingInfo.timestamp;
                if ((!renderer.isRecording) || (renderer.mustStopNow) || (isCancelled()))
@@ -207,7 +202,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                if (bearing < 0)
                {
                   renderer.arrowColor = GLRecorderRenderer.RED;
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  progress.set(bearingBuffer.peekLatestBearing(), recordingNextBearing, renderer.arrowColor);
                   publishProgress(progress);
                   continue;
                }
@@ -242,8 +237,9 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   }
                   else
                   {
-                     bearing = bearingBuffer.peekLatestBearing();
-                     lastBearing = bearingBuffer.findLess(bearing);
+                     bearingInfo = bearingBuffer.peekHead();
+                     bearing = bearingInfo.bearing;
+                     float lastBearing = bearingBuffer.findLess(bearingInfo.timestamp);
                      boolean isWrapped =  ( ( (bearing > 340) && ( (lastBearing >= 0) && (lastBearing < 20) ) ) ||
                            ( (bearing < 20) && (lastBearing >= 350) ) );
                      if ( (bearing > recordingNextBearing) && (! isWrapped) )
@@ -261,8 +257,9 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                }
                else
                {
-                  bearing = bearingBuffer.peekLatestBearing();
-                  lastBearing = bearingBuffer.findLess(bearing);
+                  bearingInfo = bearingBuffer.peekHead();
+                  bearing = bearingInfo.bearing;
+                  float lastBearing = bearingBuffer.findLess(bearingInfo.timestamp);
                   boolean isWrapped =  ( (bearing > 300) && ( (lastBearing >= 0) && (lastBearing < 100) ) );
                   if ( (bearing > recordingNextBearing) && (! isWrapped) )
                   {
@@ -279,14 +276,15 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                      renderer.arrowColor = GLRecorderRenderer.GREEN;
                   }
                }
-               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               progress.set(bearingBuffer.peekLatestBearing(), recordingNextBearing, renderer.arrowColor);
                publishProgress(progress);
                renderer.requestRender();
             }
             else
             {
-               bearing = bearingBuffer.peekLatestBearing();
-               lastBearing = bearingBuffer.findLess(bearing);
+               BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.peekHead();
+               bearing = bearingInfo.bearing;
+               float lastBearing = bearingBuffer.findLess(bearingInfo.timestamp);
                boolean isWrapped =  ( (bearing > 300) && ( (lastBearing >= 0) && (lastBearing < 100) ) );
                if ( (bearing > recordingNextBearing) && (! isWrapped) )
                {
@@ -302,7 +300,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   renderer.arrowRotation = 0;
                   renderer.arrowColor = GLRecorderRenderer.GREEN;
                }
-               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               progress.set(bearingBuffer.peekLatestBearing(), recordingNextBearing, renderer.arrowColor);
                publishProgress(progress);
                renderer.requestRender();
             }
