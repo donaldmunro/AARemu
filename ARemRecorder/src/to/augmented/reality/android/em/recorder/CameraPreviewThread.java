@@ -196,7 +196,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
          int i = 0;
          for (Camera.Size resolution : resolutions)
          {
-            if ((resolution.width <= renderer.screenWidth) && (resolution.height <= renderer.screenHeight))
+//            if ((resolution.width <= renderer.screenWidth) && (resolution.height <= renderer.screenHeight))
                availResolutions[i++] = String.format(Locale.UK, "%dx%d", resolution.width, resolution.height);
          }
          renderer.activity.runOnUiThread(new Runnable()

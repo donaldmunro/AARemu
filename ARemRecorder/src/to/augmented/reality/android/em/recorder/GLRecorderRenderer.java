@@ -1145,11 +1145,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       previewer.bufferOn();
       arrowRotation = 0;
       arrowColor = GREEN;
-      if (recordingThread == null)
-      {
-         recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
-         recordingThread.restore(B);
-      }
+      recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
       recordingThread.restore(B);
       recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
                       setFrameCondVar(previewer.getFrameAvailCondVar()).setPreviewer(previewer);
@@ -1172,6 +1168,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             recordingPool.shutdownNow();
             recordingPool = createSingleThreadPool("Recording");
          }
+         recordingThread = null;
       }
    }
 

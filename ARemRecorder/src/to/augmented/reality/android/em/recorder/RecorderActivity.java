@@ -24,10 +24,7 @@ import android.content.DialogInterface;
 import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationManager;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Environment;
-import android.os.Handler;
+import android.os.*;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
@@ -36,6 +33,7 @@ import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 import com.doubleTwist.drawerlib.ADrawerLayout;
+import to.augmented.reality.android.em.recorder.fullscreen.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -68,8 +66,7 @@ public class RecorderActivity extends Activity
          try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
       }
    }
-   final static private int MSG_BEARING = 1;
-   final static private int MSG_LOCATION = 2;
+   private static final int AUTO_HIDE_DELAY_MILLIS = 2000;
 
    ADrawerLayout drawerLayout;
    ARSurfaceView previewSurface;
@@ -84,26 +81,12 @@ public class RecorderActivity extends Activity
    View decorView = null;
    int uiOptions;
 
-   final Handler hideHandler = new Handler();
-   Runnable hideRunner = new Runnable()
-   //==================================
-   {
-      @Override public void run()
-      //-------------------------
-      {
-         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
-         {
-            ActionBar bar = getActionBar();
-            if (bar != null)
-               bar.hide();
-            getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-         }
-         decorView.setSystemUiVisibility(uiOptions);
-//         ActionBar actionBar = getActionBar();
-//         if (actionBar != null)
-//            actionBar.hide();
-      }
-   };
+// if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
+   private SystemUiHider systemUiHider;
+   Handler hideHandler;
+   Runnable hideRunnable;
+   View.OnTouchListener delayHideTouchListener;
+// end if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
 
    private class UpdateLocationRunner implements Runnable
    //===================================================
@@ -136,14 +119,45 @@ public class RecorderActivity extends Activity
    //--------------------------------
    {
       super.onCreate(B);
-      requestWindowFeature(Window.FEATURE_NO_TITLE);
-      setupFullScreen();
-
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+      {
+         requestWindowFeature(Window.FEATURE_NO_TITLE);
+         decorView = getWindow().getDecorView().findViewById(android.R.id.content);
+         uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+               View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_FULLSCREEN |
+               View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+         decorView.setSystemUiVisibility(uiOptions);
+      }
+      else
+      {
+         hideHandler = new Handler();
+         hideRunnable = new Runnable()
+         {
+            @Override public void run()
+            {
+               systemUiHider.hide();
+//               if (isDrawerOpen) drawerLayout.invalidate();
+            }
+         };
+         delayHideTouchListener = new View.OnTouchListener()
+         {
+            @Override
+            public boolean onTouch(View view, MotionEvent motionEvent)
+            //------------------------------------------------------
+            {
+               delayedHide(AUTO_HIDE_DELAY_MILLIS);
+               return false;
+            }
+         };
+      }
       setContentView(R.layout.activity_recorder);
       drawerLayout = (ADrawerLayout) findViewById(R.id.drawer);
       int contentPadding = getResources().getDimensionPixelSize(R.dimen.drawer_padding);
       drawerLayout.setRestrictTouchesToArea(ADrawerLayout.LEFT_DRAWER, contentPadding);
       drawerLayout.setParalaxFactorX(0.5f);
+      drawerLayout.setDimContent(false);
+      drawerLayout.setAnimateScrolling(false);
+//      drawerLayout.setInnerIsGlobal(true);
       drawerLayout.setListener(new ADrawerLayout.DrawerLayoutListener()
       {
          // @formatter:off
@@ -158,10 +172,11 @@ public class RecorderActivity extends Activity
          {
             isDrawerOpen = isOpeningDrawer = false;
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-            {
-               hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 1500);
-            }
+               delayedHide(500);
+//            {
+//               hideHandler.removeCallbacks(hideRunner);
+//               hideHandler.postDelayed(hideRunner, 1500);
+//            }
          }
 
          @Override
@@ -171,13 +186,20 @@ public class RecorderActivity extends Activity
             isDrawerOpen = true;
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
             {
-               hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 1500);
+//               systemUiHider.show();
+               if (isRecording)
+                  delayedHide(500);
+               else
+                  delayedHide(3000);
             }
+//            {
+//               hideHandler.removeCallbacks(hideRunner);
+//               hideHandler.postDelayed(hideRunner, 1500);
+//            }
          }
          // @formatter:on
       });
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
          drawerLayout.open();
 
       previewSurface = (ARSurfaceView) findViewById(R.id.camera_preview_surface);
@@ -223,6 +245,12 @@ public class RecorderActivity extends Activity
             }
          }
       });
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
+      {
+         setupFullScreen(recordButton);
+         recordButton.setOnTouchListener(delayHideTouchListener);
+         drawerLayout.setOnTouchListener(delayHideTouchListener);
+      }
       if (B != null)
          previewSurface.onRestoreInstanceState(B);
    }
@@ -426,11 +454,11 @@ public class RecorderActivity extends Activity
          recordButton.setImageResource(R.drawable.record_red);
          statusText.setText("Recording");
       }
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-      {
-         hideHandler.removeCallbacks(hideRunner);
-         hideHandler.postDelayed(hideRunner, 1500);
-      }
+//      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
+//      {
+//         hideHandler.removeCallbacks(hideRunner);
+//         hideHandler.postDelayed(hideRunner, 1500);
+//      }
    }
 
    public void stoppingRecording(File recordHeaderFile, File recordFramesFile, boolean isCancelled) { }
@@ -468,74 +496,54 @@ public class RecorderActivity extends Activity
                }
          }
       });
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-      {
-         hideHandler.removeCallbacks(hideRunner);
-         hideHandler.postDelayed(hideRunner, 1500);
-      }
+//      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
+//      {
+//         hideHandler.removeCallbacks(hideRunner);
+//         hideHandler.postDelayed(hideRunner, 1500);
+//      }
    }
 
-   private void setupFullScreen()
-   //----------------------------
+   private void setupFullScreen(final View controlsView)
+   //---------------------------------------------------
    {
       ActionBar actionBar = getActionBar();
       if (actionBar != null)
          actionBar.hide();
-      View.OnSystemUiVisibilityChangeListener visibilityListener = new View.OnSystemUiVisibilityChangeListener()
+      systemUiHider = SystemUiHider.getInstance(this, previewSurface, SystemUiHider.HIDER_FLAGS);
+      systemUiHider.setup();
+      systemUiHider.setOnVisibilityChangeListener(new SystemUiHider.OnVisibilityChangeListener()
+      //========================================================================================
       {
          @Override
-         public void onSystemUiVisibilityChange(int visibility)
-         //--------------------------------------------------------------
+         public void onVisibilityChange(boolean visible)
+         //--------------------------------------------
          {
-            RecorderActivity.this.displayFlags = visibility;
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
-            {
-               ActionBar bar = RecorderActivity.this.getActionBar();
-               if (bar != null)
-                  bar.hide();
-               RecorderActivity.this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                                                          WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            }
-            else// if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
-            {
-               hideHandler.removeCallbacks(hideRunner);
-               hideHandler.postDelayed(hideRunner, 1500);
-            }
-//               if ((displayFlags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0)
-//               {
-//                  hideHandler.removeCallbacks(hideRunner);
-//                  hideHandler.postDelayed(hideRunner, 600);
-//               }
+            if (isDrawerOpen)
+               controlsView.setVisibility(visible ? View.VISIBLE : View.GONE);
+            if (visible && SystemUiHider.AUTO_HIDE)
+               delayedHide(AUTO_HIDE_DELAY_MILLIS);
          }
-      };
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH)
-         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-      else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN)
+      });
+
+      previewSurface.setOnClickListener(new View.OnClickListener()
+      //==========================================================
       {
-         decorView = getWindow().getDecorView();
-         uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-               View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN;
-         decorView.setSystemUiVisibility(uiOptions);
-         decorView.setOnSystemUiVisibilityChangeListener(visibilityListener);
-      }
-      else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-      {
-         decorView = getWindow().getDecorView();
-         uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
-                     View.SYSTEM_UI_FLAG_LOW_PROFILE | View.SYSTEM_UI_FLAG_FULLSCREEN;
-         decorView.setSystemUiVisibility(uiOptions);
-         decorView.setOnSystemUiVisibilityChangeListener(visibilityListener);
-      }
-      else
-      {
-         decorView = getWindow().getDecorView().findViewById(android.R.id.content);
-         uiOptions = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_FULLSCREEN |
-                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-         decorView.setSystemUiVisibility(uiOptions);
-      }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH)
-         uiOptions |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+         @Override
+         public void onClick(View view)
+         //---------------------------
+         {
+            if (SystemUiHider.TOGGLE_ON_CLICK)
+               systemUiHider.toggle();
+            else
+               systemUiHider.show();
+         }
+      });
+   }
+
+   private void delayedHide(int delayMillis)
+   {
+      hideHandler.removeCallbacks(hideRunnable);
+      hideHandler.postDelayed(hideRunnable, delayMillis);
    }
 
    @Override
@@ -592,7 +600,6 @@ public class RecorderActivity extends Activity
          if (! previewSurface.isStoppingRecording())
             statusText.setText("Recording");
       }
-      setupFullScreen();
    }
    public void onGpsConnected(final boolean isOn)
    //--------------------------------------
@@ -627,7 +634,6 @@ public class RecorderActivity extends Activity
    public void onResolutionChange(final String[] resolutions)
    //-------------------------------------------------------
    {
-      this.resolutions = resolutions;
       if (resolutions.length > 0)
       {
          int i = 0;
@@ -642,6 +648,7 @@ public class RecorderActivity extends Activity
             }
             i++;
          }
+         this.resolutions = resolutions;
          if (currentResolutionIndex < 0)
             currentResolutionIndex = this.resolutions.length >> 1;
          int[] wh = ResolutionAdapter.getWidthHeight(this.resolutions[currentResolutionIndex]);
@@ -654,15 +661,15 @@ public class RecorderActivity extends Activity
    {
       if (isOpeningDrawer)
          return false;
-      if ((displayFlags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0)
-      {
-         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-         {
-            hideHandler.removeCallbacks(hideRunner);
-            hideHandler.postDelayed(hideRunner, 1500);
-         }
-         return true;
-      }
+//      if ((displayFlags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0)
+//      {
+//         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
+//         {
+//            hideHandler.removeCallbacks(hideRunner);
+//            hideHandler.postDelayed(hideRunner, 1500);
+//         }
+//         return true;
+//      }
       return false;
    }
 
@@ -750,6 +757,8 @@ public class RecorderActivity extends Activity
       static public int[] getWidthHeight(String previewResolution)
       //----------------------------------------------------------
       {
+         if (previewResolution == null)
+            return null;
          Matcher matcher = RESOLUTION_PATTERN.matcher(previewResolution);
          if (!matcher.matches())
          {

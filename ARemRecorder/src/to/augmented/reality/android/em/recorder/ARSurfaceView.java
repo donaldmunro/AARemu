@@ -124,13 +124,13 @@ public class ARSurfaceView extends GLSurfaceView
    }
 
 
-   @Override
-   public boolean onTouchEvent(MotionEvent event)
-   {
-      boolean b = super.onTouchEvent(event);
-      boolean bb = b && activity.onPreviewTouch(event);
-      return bb;
-   }
+//   @Override
+//   public boolean onTouchEvent(MotionEvent event)
+//   {
+//      boolean b = super.onTouchEvent(event);
+//      boolean bb = b && activity.onPreviewTouch(event);
+//      return bb;
+//   }
 
    public Renderer getRenderer() { return renderer; }
 
