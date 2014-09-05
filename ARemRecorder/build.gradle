@@ -9,7 +9,7 @@ android {
         targetSdkVersion 19
         renderscriptTargetApi 18
         renderscriptSupportMode true
-        versionCode 15
+        versionCode 16
         versionName '1.1.1'
     }
     sourceSets {

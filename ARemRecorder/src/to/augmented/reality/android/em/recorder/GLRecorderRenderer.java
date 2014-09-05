@@ -1168,7 +1168,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             recordingPool.shutdownNow();
             recordingPool = createSingleThreadPool("Recording");
          }
-         recordingThread = null;
       }
    }
 
