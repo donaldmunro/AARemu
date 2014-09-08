@@ -438,6 +438,9 @@ public class RecorderActivity extends Activity
       if (! previewSurface.initOrientationSensor(orientationType))
       {
          Toast.makeText(this, "ERROR: Device does not appear to have required orientation sensors", Toast.LENGTH_LONG).show();
+         Log.e(TAG, "ERROR: Device does not appear to have required orientation sensors");
+         statusText.setVisibility(View.VISIBLE);
+         statusText.setText("ERROR: Missing orientation sensors");
          return;
       }
       previewSurface.setRecordFileFormat(fileFormat);

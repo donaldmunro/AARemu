@@ -1214,8 +1214,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             orientationProviderType = ORIENTATION_PROVIDER.ROTATION_VECTOR;
          else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.FUSED_GYRO_ACCEL_MAGNETIC))
             orientationProviderType = ORIENTATION_PROVIDER.FUSED_GYRO_ACCEL_MAGNETIC;
-         else
+         else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.ACCELLO_MAGNETIC))
             orientationProviderType = ORIENTATION_PROVIDER.ACCELLO_MAGNETIC;
+         else
+            return false;
       }
       switch (orientationProviderType)
       {
