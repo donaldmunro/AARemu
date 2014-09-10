@@ -160,7 +160,8 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                   writtenCount++;
                   remainingBearings.remove(offset);
                   lastFrameTimestamp = ts;
-                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
+                  if (IS_LOGCAT_GOT)
+                     Log.i(TAG, "TraverseRecordingThread2: Got " + bearing);
                   renderer.arrowColor = GLRecorderRenderer.GREEN;
                } else if (! remainingBearings.contains(offset))
                   renderer.arrowColor = GLRecorderRenderer.BLUE;

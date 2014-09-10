@@ -38,6 +38,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    static final protected int FRAMEWRITE_QUEUE_SIZE = 3;
    static final protected int WRITE_BUFFER_ADD_RETRIES = 10;
    static final protected int WRITE_BUFFER_DRAIN_TIMEOUT = 20;
+   static final public boolean IS_LOGCAT_GOT = true;
 
    private RecorderActivity activity = null;
 

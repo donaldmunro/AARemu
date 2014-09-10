@@ -358,6 +358,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                {
                   if (addFrameToWriteBuffer(writeFrameCount))
                   {
+                     if (IS_LOGCAT_GOT)
+                        Log.i(TAG, "RetryRecordingThread: Got " + recordingCurrentBearing + " (" + bearing + ")");
                      recordingCount--;
                      writeFrameCount++;
                      recordingCurrentBearing = recordingNextBearing;
@@ -387,6 +389,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                         ( (bearing < 20) && (lastBearing >= 350) ) );
                   if ( (bearing > recordingNextBearing) && (! isWrapped) )
                   {
+                     if (IS_LOGCAT_GOT)
+                        Log.i(TAG, "RetryRecordingThread: Missed " + recordingCurrentBearing + " (" + bearing + ")");
                      renderer.arrowRotation = 180;
                      renderer.arrowColor = GLRecorderRenderer.RED;
                      lastFrameTimestamp++;
@@ -411,6 +415,9 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                      correctingBearing += 360;
                   renderer.arrowRotation = 180;
                   renderer.arrowColor = GLRecorderRenderer.RED;
+                  if (IS_LOGCAT_GOT)
+                     Log.i(TAG, "RetryRecordingThread: Missed " + recordingCurrentBearing + " (" + bearing + ")");
+
                }
                else
                {

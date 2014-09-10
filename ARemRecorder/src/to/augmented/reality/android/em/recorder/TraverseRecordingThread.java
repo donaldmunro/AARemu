@@ -317,6 +317,8 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             {
                if (addFrameToWriteBuffer(offset))
                {
+                  if (IS_LOGCAT_GOT)
+                     Log.i(TAG, "TraverseRecordingThread: Got " + bearing);
                   writtenCount++;
                   synchronized (this) { remainingBearings.remove(offset);  }
                   completed.put(offset, null);
