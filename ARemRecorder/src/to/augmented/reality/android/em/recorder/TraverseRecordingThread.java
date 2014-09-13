@@ -324,7 +324,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                   completed.put(offset, null);
                   lastFrameTimestamp = ts;
                   isComplete = remainingBearings.isEmpty();
-                  Log.i(TAG, "ProcessBearingThread: Got " + bearing);
                   continue;
                }
             }
