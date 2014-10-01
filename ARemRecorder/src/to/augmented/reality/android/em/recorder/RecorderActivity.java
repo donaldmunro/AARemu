@@ -355,9 +355,9 @@ public class RecorderActivity extends Activity
             s = (String) modeSpinner.getSelectedItem();
             String[] modes = getResources().getStringArray(R.array.recording_modes);
             if (s.equalsIgnoreCase(modes[0]))
-               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
-            else if (s.equalsIgnoreCase(modes[1]))
                mode = GLRecorderRenderer.RecordMode.TRAVERSE2;
+            else if (s.equalsIgnoreCase(modes[1]))
+               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
             else
                mode = GLRecorderRenderer.RecordMode.RETRY;
 
