@@ -9,10 +9,8 @@ public class ProgressParam
    float[] color = new float[3];
    int progress;
    String status;
-   boolean isToast = false;
+   boolean isToast = false, isBearingsOnly = true;
    int toastDuration;
-
-   public void set(float bearing, float targetBearing, float[] color) { this.set(bearing, targetBearing, color, -1); }
 
    public void set(float bearing, float targetBearing, float[] color, int progress)
    //--------------------------------------------------------------------
@@ -23,6 +21,7 @@ public class ProgressParam
          System.arraycopy(color, 0, this.color, 0, 3);
       else
          this.color[0] = Float.MIN_VALUE;
+      isBearingsOnly = true;
       this.progress = progress;
    }
 
@@ -34,5 +33,6 @@ public class ProgressParam
       this.isToast = mustToast;
       this.toastDuration = toastDuration;
       this.progress = progress;
+      isBearingsOnly = false;
    }
 }

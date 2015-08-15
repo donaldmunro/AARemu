@@ -25,6 +25,7 @@ import android.os.Process;
 import android.util.Log;
 
 import java.util.*;
+import java.util.concurrent.*;
 
 public class CameraPreviewThread extends HandlerThread implements Camera.PreviewCallback, Freezeable
 //====================================================================================================
@@ -34,7 +35,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    public static final int MSG_STOP_CAMERA = 2;
    public static final int MSG_START_PREVIEW = 3;
    public static final int MSG_START_PREVIEW2 = 4;
-   private final boolean isInitCamera;
+   private boolean isInitCamera = true;
    private int bufferSize = -1;
 
    public interface Previewable
@@ -46,6 +47,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
 //   private final int previewWidth, previewHeight;
    long timestamp =-1;
    RecorderRingBuffer ringBuffer;
+   private Semaphore startMutex = new Semaphore(1);
 
    private volatile boolean mustBuffer = false;
    protected void bufferOn() { mustBuffer = true; }
@@ -78,6 +80,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    //-------------------------------------------------------------------------------
    {
       super("CameraPreview", Process.THREAD_PRIORITY_MORE_FAVORABLE);
+      try { startMutex.acquire(); } catch (InterruptedException e) { return; }
       this.renderer = renderer;
       this.isInitCamera = isInitCamera;
 //      this.previewWidth = previewWidth;
@@ -137,9 +140,28 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
             }
          }
       };
+      startMutex.release();
    }
 
-   public void initCamera() { handler.dispatchMessage(Message.obtain(handler, MSG_START_CAMERA));}
+   public void initCamera()
+   //----------------------
+   {
+      if (handler == null)
+      {
+         try
+         {
+            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
+               startMutex.release();
+            else
+               return;
+         }
+         catch (InterruptedException e)
+         {
+            return;
+         }
+      }
+      handler.dispatchMessage(Message.obtain(handler, MSG_START_CAMERA));
+   }
 
    private void startCamera()
    //----------------------------
@@ -216,7 +238,25 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
       }
    }
 
-   public void stopCamera() { handler.dispatchMessage(Message.obtain(handler, MSG_STOP_CAMERA)); }
+   public void stopCamera()
+   //----------------------
+   {
+      if (handler == null)
+      {
+         try
+         {
+            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
+               startMutex.release();
+            else
+               return;
+         }
+         catch (InterruptedException e)
+         {
+            return;
+         }
+      }
+      handler.dispatchMessage(Message.obtain(handler, MSG_STOP_CAMERA));
+   }
 
    private void _stopCamera()
    //----------------------
@@ -251,12 +291,40 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    public void startPreview(int width, int height)
    //-----------------------------------------------------------------
    {
+      if (handler == null)
+      {
+         try
+         {
+            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
+               startMutex.release();
+            else
+               return;
+         }
+         catch (InterruptedException e)
+         {
+            return;
+         }
+      }
       handler.dispatchMessage(Message.obtain(handler, MSG_START_PREVIEW, width, height));
    }
 
    public void startFixedPreview()
    //-----------------------------------------------------------------
    {
+      if (handler == null)
+      {
+         try
+         {
+            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
+               startMutex.release();
+            else
+               return;
+         }
+         catch (InterruptedException e)
+         {
+            return;
+         }
+      }
       handler.dispatchMessage(Message.obtain(handler, MSG_START_PREVIEW2));
    }
 

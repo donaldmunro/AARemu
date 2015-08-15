@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 19
-    buildToolsVersion '19.1.0'
+    buildToolsVersion '22.0.1'
 
     defaultConfig {
         applicationId 'to.augmented.reality.android.em.displayframes'
@@ -34,7 +34,8 @@ android {
      }
         buildTypes {
             release {
-                runProguard false
+                minifyEnabled true
+                shrinkResources true
                 proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             }
         }

@@ -79,8 +79,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
    OrientationProvider orientationProvider = null;
-   BearingRingBuffer bearingBuffer = new BearingRingBuffer(15);
-   volatile float currentBearing = 0, lastBearing = -1, bearingDelta = 0;
+   BearingRingBuffer bearingBuffer = new BearingRingBuffer(300);
+   volatile float currentBearing = 0, lastBearing = -1;
    long currentBearingTimestamp =-1L, lastBearingTimestamp = -1L;
    volatile boolean isRecording = false, isStopRecording = false, mustStopNow = false;
    SurfaceTexture previewSurfaceTexture = null;
@@ -1203,7 +1203,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //-----------------------------------------------------------------------------
    {
       if ( (orientationProvider != null) && (orientationProvider.isStarted()) )
-         orientationProvider.stop();
+         orientationProvider.halt();
       this.orientationProviderType = orientationProviderType;
       SensorManager sensorManager = (SensorManager) activity.getSystemService(Activity.SENSOR_SERVICE);
       if (orientationProviderType == ORIENTATION_PROVIDER.DEFAULT)
@@ -1244,6 +1244,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          boolean isSettling = false;
          int settleCount = 0;
          ProgressParam param = new ProgressParam();
+         float lastUIBearing = -1000, lastUpdateBearing = -1000;
 
          @Override
          public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
@@ -1255,8 +1256,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             currentBearing = (float) Math.toDegrees(Math.atan2(RM[1], RM[5]));
             if (currentBearing < 0)
                currentBearing += 360;
-            bearingDelta = currentBearing - lastBearing;
-            float absDelta = Math.abs(bearingDelta);
             currentBearingTimestamp = timestamp;
             if (isSettling)
             {
@@ -1265,33 +1264,37 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                   isSettling = false;
                else
                {
-                  param.set(currentBearing, recordingThread.getNextBearing(), arrowColor);
-                  activity.onStatusUpdate(param);
+//                  param.set(currentBearing, -1, arrowColor);
+//                  activity.onBackgroundStatusUpdate(param);
+                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
                   return;
                }
             }
-            if ( (! isRecording) && (absDelta >= 0.1f) )
+            if ( (! isRecording) && (Math.abs(currentBearing - lastUIBearing) >= 0.5f) )
             {
-               param.set(currentBearing, - 1, null);
-               activity.onStatusUpdate(param);
+               lastUIBearing = currentBearing;
+               param.set(currentBearing, -1, null, -1);
+               activity.onBackgroundStatusUpdate(param);
             }
             else if (isRecording)
             {
-               if (absDelta >= MAX_BEARING_DELTA)
+               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
                {
                   isSettling = true;
                   settleCount = 3;
                   return;
                }
-               if (absDelta >= 0.01f)
+               if (Math.abs(currentBearing - lastUpdateBearing) >= 0.01f)
                {
+                  lastUpdateBearing = currentBearing;
                   bearingBuffer.push(timestamp, currentBearing);
                   recordingCondVar.open();
                }
             }
          }
       });
-      if (! orientationProvider.start())
+      orientationProvider.initiate();
+      if (! orientationProvider.isStarted())
          return false;
       this.orientationProviderType = orientationProviderType;
       return true;

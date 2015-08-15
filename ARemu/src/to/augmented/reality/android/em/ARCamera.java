@@ -85,8 +85,9 @@ import static to.augmented.reality.android.common.sensor.orientation.Orientation
 public class ARCamera
 //===================
 {
-   public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 };
-   public enum DelegationTypes { ALL, READ, NONE };
+   public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
+
+   public enum DelegationTypes { ALL, READ, NONE }
 
    final static private String TAG = ARCamera.class.getSimpleName();
    final static private Map<Integer, ARCamera> INSTANCES = new HashMap<Integer, ARCamera>();

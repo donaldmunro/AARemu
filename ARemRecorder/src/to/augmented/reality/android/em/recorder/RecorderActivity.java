@@ -105,8 +105,18 @@ public class RecorderActivity extends Activity
          RecorderActivity.this.locationText.setText(locationSpan);
       }
    };
+
    final private UpdateLocationRunner updateLocationRunner = new UpdateLocationRunner();
 
+   private class UpdateStatusRunner implements Runnable
+   //===================================================
+   {
+      volatile public ProgressParam params;
+
+      @Override public void run() { onStatusUpdate(params); }
+   }
+
+   final private UpdateStatusRunner updateStatusRunner = new UpdateStatusRunner();
    Toast lastStatusToast = null;
 
    private int displayFlags = 0;
@@ -681,6 +691,15 @@ public class RecorderActivity extends Activity
    {
       updateLocationRunner.location = location;
       runOnUiThread(updateLocationRunner);
+   }
+
+   public void onBackgroundStatusUpdate(ProgressParam params)
+   //----------------------------------------------
+   {
+      if (! isDrawerOpen)
+         return;
+      updateStatusRunner.params = params;
+      runOnUiThread(updateStatusRunner);
    }
 
    public void onStatusUpdate(ProgressParam params)

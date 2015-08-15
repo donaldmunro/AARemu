@@ -3,12 +3,12 @@ apply plugin: 'eclipse'
 
 android {
     compileSdkVersion 19
-    buildToolsVersion '19.1.0'
+    buildToolsVersion '22.0.1'
     defaultConfig {
         minSdkVersion 14
         targetSdkVersion 19
         renderscriptTargetApi 18
-        renderscriptSupportMode true
+        renderscriptSupportModeEnabled true
         versionCode 17
         versionName '1.1.2'
     }
@@ -38,7 +38,8 @@ android {
     }
     buildTypes {
         release {
-            runProguard false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

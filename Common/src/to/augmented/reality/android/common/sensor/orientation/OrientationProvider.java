@@ -11,13 +11,16 @@ import android.content.Context;
 import android.hardware.Sensor;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.Build;
+import android.os.*;
+import android.os.Process;
+import android.util.*;
 import to.augmented.reality.android.common.math.Quaternion;
 import to.augmented.reality.android.common.math.QuickFloat;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
 
 /**
  * Classes implementing this interface provide an orientation of the device either by directly accessing hardware, using
@@ -26,15 +29,37 @@ import java.util.List;
  * The orientation can be provided as rotation matrix or quaternion.
  *
  * @author Alexander Pacha
+ *
+ *
+ * Added support for:
+ *    Single listener callback
+ *    Raw sensor data
+ *    Support for checking sensor availability
+ *    Conversion to HandlerThread to receive sensor events in separate thread
+ *  Donald Munro (2014)
  */
-public abstract class OrientationProvider implements SensorEventListener
-//=======================================================================
+public abstract class OrientationProvider extends HandlerThread implements SensorEventListener
+//==============================================================================================
 {
-   public enum ORIENTATION_PROVIDER // Added
+   final static private String TAG = OrientationProvider.class.getSimpleName();
+
+   public enum ORIENTATION_PROVIDER // Added Donald Munro
    {
       DEFAULT, ROTATION_VECTOR, ACCELLO_MAGNETIC, FAST_FUSED_GYROSCOPE_ROTATION_VECTOR,
       STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR, FUSED_GYRO_ACCEL_MAGNETIC
    };
+   private static final int MSG_START_ORIENTATING = 1;
+   private static final int MSG_STOP_ORIENTATING  = 2;
+
+   private Handler handler; // Added Donald Munro
+
+   private Semaphore startMutex = new Semaphore(1); // Added Donald Munro
+
+   protected boolean isStarted = false, isStarting = false;
+   public boolean isStarted() { return isStarted; }
+
+   volatile protected boolean isSuspended = false, isExternalSuspended = false;
+   public void setSuspended(boolean isSuspended) { this.isSuspended = isSuspended; isExternalSuspended = isSuspended; }
 
    /**
     * Sync-token for syncing read/write to sensor-data from sensor manager and fusion algorithm
@@ -49,12 +74,12 @@ public abstract class OrientationProvider implements SensorEventListener
    /**
     * The matrix that holds the current rotation
     */
-   protected final float[] currentOrientationRotationMatrix;
+   protected float[] currentOrientationRotationMatrix;
 
    /**
     * The quaternion that holds the current rotation
     */
-   protected final Quaternion currentOrientationQuaternion;
+   protected Quaternion currentOrientationQuaternion;
 
    /**
     * Timestamp of event from which currentOrientation was obtained
@@ -66,6 +91,7 @@ public abstract class OrientationProvider implements SensorEventListener
     */
    protected SensorManager sensorManager;
 
+   // Added Donald Munro
    final static protected int ACCEL_VEC_SIZE = 3, GRAVITY_VEC_SIZE = 3, GYRO_VEC_SIZE = 3, MAG_VEC_SIZE = 3,
                               ROTATION_VEC_SIZE;
    static
@@ -93,6 +119,8 @@ public abstract class OrientationProvider implements SensorEventListener
    public OrientationProvider(SensorManager sensorManager)
    //-----------------------------------------------------
    {
+      super("OrientationProvider", Process.THREAD_PRIORITY_MORE_FAVORABLE);
+      try { startMutex.acquire(); } catch (InterruptedException e) { return; }
       this.sensorManager = sensorManager;
 
       // Initialise with identity
@@ -102,52 +130,139 @@ public abstract class OrientationProvider implements SensorEventListener
       currentOrientationQuaternion = new Quaternion();
    }
 
-   protected boolean isStarted = false;
-   public boolean isStarted() { return isStarted; }
-   volatile protected boolean isSuspended = false, isExternalSuspended = false;
-   public void setSuspended(boolean isSuspended) { this.isSuspended = isSuspended; isExternalSuspended = isSuspended; }
+   @Override
+   protected void onLooperPrepared()
+   //-------------------------------
+   {
+      super.onLooperPrepared();
+      handler = new Handler(getLooper())
+      {
+         @Override
+         public void handleMessage(Message msg)
+         //------------------------------------
+         {
+            try
+            {
+               switch (msg.what)
+               {
+                  case MSG_START_ORIENTATING:
+                     startOrientating();
+                     break;
+                  case MSG_STOP_ORIENTATING:
+                     stopOrientating();
+                     break;
+               }
+            }
+            catch (Throwable e)
+            {
+               Log.e(TAG, "", e);
+            }
+         }
+      };
+      startMutex.release();
+   }
 
    /**
     * Starts the sensor fusion (e.g. when resuming the activity)
     */
-   public boolean start()
-   //------------------
+   public void initiate()  // Renamed from start to initiate (clashes with Thread.start) - Donald Munro
+   //----------------------
    {
-      if (isStarted) return false;
-      isStarted = true;
+      if (isStarting) return;
+      isStarting = true;
+      start();
+      try { Thread.sleep(30); } catch (Exception _e) {}
+      boolean isMutexAcquired = false;
+      try
+      {
+         startMutex.acquire();
+         isMutexAcquired = true;
+         handler.dispatchMessage(Message.obtain(handler, MSG_START_ORIENTATING));
+      }
+      catch (InterruptedException e)
+      {
+         isStarting = false;
+         return;
+      }
+      finally
+      {
+         if (isMutexAcquired)
+            startMutex.release();
+      }
+      for (int retry=0; retry<100; retry++)
+      {
+         try { Thread.sleep(20); } catch (InterruptedException e) { return; }
+         if (isStarted)
+            break;
+      }
+      isStarting = false;
+   }
+
+   protected void startOrientating()
+   //-------------------------------
+   {
       // enable our sensor when the activity is resumed, ask for
       // 10 ms updates.
+      boolean isOK = true;
       for (Sensor sensor : sensorList)
       {
          // enable our sensors when the activity is resumed, ask for
          // 20 ms updates (Sensor_delay_game)
          if (sensor == null)
          {
-            isStarted = false;
+            isOK = false;
+            Log.e(TAG, "A sensor in sensorList was null (Sensor not supported on device ?)");
             break;
          }
-         if (! sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME))
+         if (! sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME, handler))
          {
-            isStarted = false;
+            isOK = false;
+            Log.e(TAG, sensor + " in sensorList failed to register listener");
             break;
          }
       }
+      isStarted = isOK;
       if (! isStarted)
       {
          for (Sensor sensor : sensorList)
-         if (sensor != null)
-            sensorManager.unregisterListener(this, sensor);
-         return false;
+            if (sensor != null)
+               sensorManager.unregisterListener(this, sensor);
       }
-      return true;
    }
 
    /**
     * Stops the sensor fusion (e.g. when pausing/suspending the activity)
     */
-   public void stop()
+   public void halt() // Renamed from stop to halt (clashes with Thread.halt) - Donald Munro
    //----------------
    {
+      boolean isMutexAcquired = false;
+      try
+      {
+         startMutex.acquire();
+         isMutexAcquired = true;
+         handler.dispatchMessage(Message.obtain(handler, MSG_STOP_ORIENTATING));
+      }
+      catch (InterruptedException e)
+      {
+         return;
+      }
+      finally
+      {
+         if (isMutexAcquired)
+            startMutex.release();
+      }
+      for (int retry=0; retry<20; retry++)
+      {
+         try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+         if (! isStarted)
+            return;
+      }
+   }
+
+   protected void stopOrientating()
+   //------------------------------
+{
       // make sure to turn our sensors off when the activity is paused
       for (Sensor sensor : sensorList)
       {

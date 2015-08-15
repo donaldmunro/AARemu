@@ -126,7 +126,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                bearingCondVar.close();
                if (! bearingCondVar.block(100))
                {
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
                   publishProgress(progress);
                   continue;
                }
@@ -142,7 +142,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             if (bearing < 0)
             {
                renderer.arrowColor = GLRecorderRenderer.RED;
-               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
                publishProgress(progress);
                continue;
             }

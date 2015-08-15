@@ -2,14 +2,14 @@ apply plugin: 'com.android.library'
 
 android {
     compileSdkVersion 19
-    buildToolsVersion '19.1.0'
+    buildToolsVersion '22.0.1'
 
    defaultConfig {
-      applicationId "to.augmented.reality.android.em"
+//      applicationId "to.augmented.reality.android.em"
       minSdkVersion 14
       targetSdkVersion 19
       renderscriptTargetApi 18
-      renderscriptSupportMode true
+       renderscriptSupportModeEnabled true
       versionCode 1
       versionName "1.0"
    }
@@ -37,7 +37,8 @@ android {
    }
     buildTypes {
         release {
-            runProguard false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

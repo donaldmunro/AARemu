@@ -287,7 +287,8 @@ abstract public class PlaybackThread implements Runnable
                bearingListener.onBearingChanged(bearing);
          }
       });
-      return orientationProvider.start();
+      orientationProvider.initiate();
+      return orientationProvider.isStarted();
    }
 
 //   protected boolean onSetupRotationSensor()

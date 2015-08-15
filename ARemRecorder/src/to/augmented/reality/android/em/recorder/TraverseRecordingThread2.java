@@ -97,14 +97,14 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
       boolean b;
       try
       {
-         float bearing = 0, lastBearing = -1;
+         float bearing = 0, lastBearing = -1, lastUIBearing = 1000;
          if (remainingBearings == null)
             initBearings();
          recordingCurrentBearing = -1;
          previewer.clearBuffer();
          startFrameWriter();
          long offset = -1;
-         float roundedBearing = -1, lastPublishedBearing =-1;
+         float roundedBearing = -1;
          long ts = previewer.awaitFrame(400, previewBuffer);
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
@@ -119,16 +119,24 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                   bearingCondVar.close();
                   if (! bearingCondVar.block(100))
                   {
-                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                     publishProgress(progress);
+                     if (Math.abs(lastBearing - lastUIBearing) >= 0.5)
+                     {
+                        lastUIBearing = lastBearing;
+                        progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
+                        publishProgress(progress);
+                     }
                      continue;
                   } else
                      bearingInfo = bearingBuffer.peekHead();
                }
                if (bearingInfo == null)
                {
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                  publishProgress(progress);
+                  if (Math.abs(lastBearing - lastUIBearing) >= 0.5)
+                  {
+                     lastUIBearing = lastBearing;
+                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
+                     publishProgress(progress);
+                  }
                   continue;
                }
                lastBearing = bearing;
@@ -138,7 +146,7 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                if (bearing < 0)
                {
                   renderer.arrowColor = GLRecorderRenderer.RED;
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
                   publishProgress(progress);
                   continue;
                }
@@ -164,7 +172,16 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                      Log.i(TAG, "TraverseRecordingThread2: Got " + bearing);
                   renderer.arrowColor = GLRecorderRenderer.GREEN;
                } else if (! remainingBearings.contains(offset))
+               {
                   renderer.arrowColor = GLRecorderRenderer.BLUE;
+                  if (Math.abs(bearing - lastUIBearing) >= 0.5)
+                  {
+                     lastUIBearing = bearing;
+                     progress.set(bearing, recordingNextBearing, renderer.arrowColor, -1);
+                     publishProgress(progress);
+                  }
+                  continue;
+               }
                else
                   renderer.arrowColor = GLRecorderRenderer.RED;
             }
@@ -176,8 +193,12 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                   bearingCondVar.close();
                   if (! bearingCondVar.block(100))
                   {
-                     progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
-                     publishProgress(progress);
+                     if (Math.abs(lastBearing - lastUIBearing) >= 0.5)
+                     {
+                        lastUIBearing = lastBearing;
+                        progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
+                        publishProgress(progress);
+                     }
                      continue;
                   }
                   bearingInfo = bearingBuffer.peekHead();
@@ -232,12 +253,12 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
             else
             {
                bearing = (float) Math.floor(bearingBuffer.peekLatestBearing());
-               if (bearing != lastPublishedBearing)
+               if (Math.abs(bearing - lastUIBearing) >= 0.5)
                {
+                  lastUIBearing = bearing;
                   progress.set(bearing, recordingNextBearing, renderer.arrowColor,
                                (writtenCount * 100) / totalCount);
                   publishProgress(progress);
-                  lastPublishedBearing = bearing;
                }
             }
          }

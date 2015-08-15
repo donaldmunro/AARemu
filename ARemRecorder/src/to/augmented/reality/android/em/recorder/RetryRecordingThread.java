@@ -116,7 +116,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                bearingCondVar.close();
                if (! bearingCondVar.block(100))
                {
-                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+                  progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
                   publishProgress(progress);
                   continue;
                }
@@ -132,7 +132,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             if (bearing < 0)
             {
                renderer.arrowColor = GLRecorderRenderer.RED;
-               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor);
+               progress.set(lastBearing, recordingNextBearing, renderer.arrowColor, -1);
                publishProgress(progress);
                continue;
             }
@@ -182,7 +182,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             recordingNextBearing = recordingIncrement;
             renderer.arrowRotation = 0;
             renderer.arrowColor = GLRecorderRenderer.GREEN;
-            progress.set(bearing, 0, renderer.arrowColor);
+            progress.set(bearing, 0, renderer.arrowColor, -1);
             publishProgress(progress);
             renderer.requestRender();
             return false;
@@ -199,7 +199,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
          {
             renderer.arrowColor = GLRecorderRenderer.RED;
-            progress.set(bearing, 0, renderer.arrowColor);
+            progress.set(bearing, 0, renderer.arrowColor, -1);
             publishProgress(progress);
             return false;
          }
@@ -218,7 +218,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             else
                renderer.arrowRotation = 180;
             renderer.arrowColor = GLRecorderRenderer.RED;
-            progress.set(bearing, 0, renderer.arrowColor);
+            progress.set(bearing, 0, renderer.arrowColor, -1);
             publishProgress(progress);
             rbc.isUsed = false;
             return false;
@@ -269,7 +269,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             renderer.arrowRotation = 0;
             renderer.arrowColor = GLRecorderRenderer.GREEN;
          }
-         progress.set(bearing, recordingCurrentBearing, renderer.arrowColor);
+         progress.set(bearing, recordingCurrentBearing, renderer.arrowColor, -1);
          publishProgress(progress);
       }
       renderer.requestRender();
@@ -326,14 +326,14 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
                   isCorrecting = false;
                   renderer.arrowRotation = 0;
                   renderer.arrowColor = GLRecorderRenderer.GREEN;
-                  progress.set(bearing, recordingNextBearing, renderer.arrowColor);
+                  progress.set(bearing, recordingNextBearing, renderer.arrowColor, -1);
                   publishProgress(progress);
                }
                else
                {
                   renderer.arrowRotation = 180;
                   renderer.arrowColor = GLRecorderRenderer.RED;
-                  progress.set(bearing, correctingBearing, renderer.arrowColor);
+                  progress.set(bearing, correctingBearing, renderer.arrowColor, -1);
                   publishProgress(progress);
                }
                continue;
