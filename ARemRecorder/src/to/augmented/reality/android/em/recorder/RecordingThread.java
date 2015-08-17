@@ -49,6 +49,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    protected final float dummyStartBearing = 355;
    protected boolean isStartRecording;
    protected ConditionVariable bearingCondVar = null, frameCondVar = null;
+   protected RecorderRingBuffer frameBuffer;
    protected CameraPreviewThread previewer;
    protected byte[] previewBuffer = null;
    protected BearingRingBuffer bearingBuffer = null;
@@ -62,29 +63,34 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
 
    static public RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
                                                        float increment, ConditionVariable bearingCond,
+                                                       RecorderRingBuffer frameBuffer,
                                                        ConditionVariable frameCond)
    //-----------------------------------------------------------------------------------------------------------------
    {
       switch (mode)
       {
          case RETRY:       return new RetryRecordingThread(renderer, renderer.nv21BufferSize, increment,
-                                                     renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
+                                                           renderer.previewer, bearingCond, frameCond,
+                                                           frameBuffer, renderer.bearingBuffer);
          case TRAVERSE:    return new TraverseRecordingThread(renderer, renderer.nv21BufferSize, increment,
-                                                           renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
+                                                              renderer.previewer, bearingCond, frameCond,
+                                                              frameBuffer,renderer.bearingBuffer);
          case TRAVERSE2:   return new TraverseRecordingThread2(renderer, renderer.nv21BufferSize, increment,
-                                                            renderer.previewer, bearingCond, frameCond, renderer.bearingBuffer);
+                                                               renderer.previewer, bearingCond, frameCond,
+                                                               frameBuffer, renderer.bearingBuffer);
       }
       return null;
    }
 
-   public static RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer)
-   //------------------------------------------------------------------------------------------------------------------
+   public static RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
+                                                       RecorderRingBuffer frameBuffer)
+   //-----------------------------------------------------------------------------------------------------------------
    {
       switch (mode)
       {
-         case RETRY:    return new RetryRecordingThread(renderer);
-         case TRAVERSE: return new TraverseRecordingThread(renderer);
-         case TRAVERSE2: return new TraverseRecordingThread2(renderer);
+         case RETRY:       return new RetryRecordingThread(renderer, frameBuffer);
+         case TRAVERSE:    return new TraverseRecordingThread(renderer, frameBuffer);
+         case TRAVERSE2:   return new TraverseRecordingThread2(renderer, frameBuffer);
       }
       return null;
    }
@@ -92,7 +98,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    protected RecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
                              CameraPreviewThread previewer,
                              ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
-                             BearingRingBuffer bearingBuffer)
+                             RecorderRingBuffer frameBuffer, BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
       this.renderer = renderer;
@@ -103,12 +109,13 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       this.bearingCondVar = recordingCondVar;
       this.frameCondVar = frameCondVar;
       this.bearingBuffer = bearingBuffer;
+      this.frameBuffer = frameBuffer;
       this.recordingIncrement = (float) (Math.rint(increment*10.0f)/10.0);
       this.recordingCurrentBearing = dummyStartBearing;
       this.recordingNextBearing = (float) (Math.rint((recordingCurrentBearing + recordingIncrement) * 10.0f) / 10.0);
    }
 
-   protected RecordingThread(GLRecorderRenderer renderer) { this.renderer = renderer; }
+   protected RecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer) { this.renderer = renderer; this.frameBuffer = frameBuffer; }
 
    public RecordingThread setPreviewer(CameraPreviewThread previewer) { this.previewer = previewer; return this; }
 
@@ -160,7 +167,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    public interface Stoppable
    //========================
    {
-      public void stop();
+      void stop();
    }
 
    protected void startBearingProcessor(Runnable thread)
@@ -181,7 +188,6 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          }
       });
       processBearingFuture = processBearingExecutor.submit(thread);
-      return;
    }
 
    protected void stopBearingProcessor(Stoppable thread)

@@ -24,7 +24,6 @@ import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.AttributeSet;
-import android.view.MotionEvent;
 
 import java.io.File;
 
@@ -141,11 +140,11 @@ public class ARSurfaceView extends GLSurfaceView
          renderer.startPreview(width, height);
    }
 
-   public boolean isPreviewing() { return (renderer == null) ? false : renderer.isPreviewing(); }
+   public boolean isPreviewing() { return (renderer != null) && renderer.isPreviewing(); }
 
-   public boolean isRecording() { return (renderer == null) ? false : renderer.isRecording; }
+   public boolean isRecording() { return (renderer != null) && renderer.isRecording; }
 
-   public boolean isStoppingRecording() { return (renderer == null) ? false : renderer.isStopRecording; }
+   public boolean isStoppingRecording() { return (renderer != null) && renderer.isStopRecording; }
 
    public boolean startRecording(File dir, String name, float increment, GLRecorderRenderer.RecordMode mode)
    //-------------------------------------------------------------------------------------------------------
@@ -153,7 +152,11 @@ public class ARSurfaceView extends GLSurfaceView
       return renderer.startRecording(dir, name, increment, mode);
    }
 
-   public void stopRecording(final boolean isCancelled) { renderer.stopRecording(isCancelled);}
+   public void stopRecording(final boolean isCancelled)
+   //---------------------------------------------------
+   {
+      renderer.stopRecording(isCancelled);
+   }
 
    public boolean initOrientationSensor(String orientationType)
    //-------------------------------------------------------

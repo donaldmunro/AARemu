@@ -16,7 +16,6 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.os.Build;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.SystemClock;
@@ -27,7 +26,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public class TraverseRecordingThread extends RecordingThread implements Freezeable
 //================================================================================
@@ -37,15 +37,15 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
    int totalCount = 0, writtenCount = 0;
    protected ProcessBearingThread processBearingThread = null;
 
-   protected TraverseRecordingThread(GLRecorderRenderer renderer) { super(renderer); }
+   protected TraverseRecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer) { super(renderer, frameBuffer); }
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
                                      float increment, CameraPreviewThread previewer,
                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
-                                     BearingRingBuffer bearingBuffer)
+                                     RecorderRingBuffer frameBuffer, BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
-      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, bearingBuffer);
+      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, frameBuffer, bearingBuffer);
    }
 
    @Override
@@ -111,10 +111,7 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
          float roundedBearing = -1;
          while ( (! processBearingThread.isComplete) && (renderer.isRecording) && (! isCancelled()) )
          {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-               now = SystemClock.elapsedRealtimeNanos();
-            else
-               now = System.nanoTime();
+            now = SystemClock.elapsedRealtimeNanos();
             BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.pop();
             if (bearingInfo == null)
             {
@@ -296,16 +293,13 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             if (completed.containsKey(offset))
                continue;
             final long bearingTimeStamp = bi.timestamp;
-            RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(bearingTimeStamp, epsilon,
-                                                                                            previewBuffer);
+            RecorderRingBuffer.RingBufferContent rbc = frameBuffer.findFirst(bearingTimeStamp, epsilon,
+                                                                             previewBuffer);
             long ts = (rbc == null) ? -1 : rbc.timestamp;
             if (ts < 0) // && (bearingTimestamp < lastFrameTimestamp) )
             {
                final long now;
-               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-                  now = SystemClock.elapsedRealtimeNanos();
-               else
-                  now = System.nanoTime();
+               now = SystemClock.elapsedRealtimeNanos();
                if ((now - bearingTimeStamp) <= epsilon)
                {
                   ts = previewer.awaitFrame(100, previewBuffer);
@@ -329,7 +323,8 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             }
             if (rbc != null)
                rbc.isUsed = false;
-            Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
+            if (IS_LOGCAT_GOT)
+               Log.i(TAG, "ProcessBearingThread: Missed " + bearing);
          }
       }
    }

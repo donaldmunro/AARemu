@@ -16,7 +16,7 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.app.*;
+import android.app.Activity;
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.ImageFormat;
@@ -28,27 +28,51 @@ import android.location.LocationManager;
 import android.opengl.GLES11Ext;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
-import android.os.*;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.os.ConditionVariable;
+import android.os.Debug;
 import android.os.Process;
-import android.support.v8.renderscript.*;
+import android.os.SystemClock;
+import android.support.v8.renderscript.Allocation;
+import android.support.v8.renderscript.Element;
+import android.support.v8.renderscript.RenderScript;
+import android.support.v8.renderscript.ScriptIntrinsicYuvToRGB;
+import android.support.v8.renderscript.Type;
 import android.util.Log;
 import android.widget.Toast;
-
-import to.augmented.reality.android.common.gl.*;
-import to.augmented.reality.android.common.math.*;
-import to.augmented.reality.android.common.sensor.orientation.*;
+import to.augmented.reality.android.common.gl.GLHelper;
+import to.augmented.reality.android.common.math.Quaternion;
+import to.augmented.reality.android.common.sensor.orientation.AccelerometerCompassProvider;
+import to.augmented.reality.android.common.sensor.orientation.FastFusedGyroscopeRotationVector;
+import to.augmented.reality.android.common.sensor.orientation.FusedGyroAccelMagnetic;
+import to.augmented.reality.android.common.sensor.orientation.OrientationListenable;
+import to.augmented.reality.android.common.sensor.orientation.OrientationProvider;
+import to.augmented.reality.android.common.sensor.orientation.RotationVectorProvider;
+import to.augmented.reality.android.common.sensor.orientation.StableFusedGyroscopeRotationVector;
 import to.augmented.reality.em.recorder.ScriptC_RGBAtoRGB565;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
-import java.io.*;
-import java.lang.reflect.Method;
+import java.io.BufferedReader;
+import java.io.EOFException;
+import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 import static android.opengl.GLES20.*;
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
@@ -64,10 +88,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private static final String FRAGMENT_SHADER = "fragment.glsl";
    static final int SIZEOF_FLOAT = Float.SIZE / 8;
    static final int SIZEOF_SHORT = Short.SIZE / 8;
-   static final boolean DIRECT_TO_SURFACE = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB);
-   final private static int GL_TEXTURE_EXTERNAL_OES = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
-                                                        ? GLES11Ext.GL_TEXTURE_EXTERNAL_OES
-                                                        : 0x8D65;
+   final private static int GL_TEXTURE_EXTERNAL_OES = GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
 
    RecorderActivity activity;
    private ARSurfaceView view;
@@ -155,7 +176,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private ExecutorService createSingleThreadPool(final String name)
    //---------------------------------------------------------
    {
-      ExecutorService executor = Executors.newSingleThreadExecutor(
+      return Executors.newSingleThreadExecutor(
       new ThreadFactory()
       //=================
       {
@@ -169,15 +190,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             return t;
          }
       });
-      return executor;
    }
 
    private RecordingThread recordingThread;
    static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f };
    float[] arrowColor = GREEN;
    float arrowRotation = 0.0f;
-
-   public void getLastBuffer(byte[] buffer) { previewer.getLastBuffer(buffer); }
 
    GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView, ORIENTATION_PROVIDER orientationProviderType)
    //------------------------------------------------------------------------------------------------------------
@@ -337,7 +355,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //----------------------------------------------
    {
       if (previewer != null)
-         previewer.pause(B);;
+         previewer.pause(B);
       B.putBoolean("isRecording", isRecording);
       B.putBoolean("isStopRecording", isStopRecording);
       if ( (isRecording) && (recordingMode != null) )
@@ -413,10 +431,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          rgbBufferSize = width * height * 3; // RGB buffer size
          rgb565BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8;
          // or nv21BufferSize = Width * Height + ((Width + 1) / 2) * ((Height + 1) / 2) * 2
-         if (DIRECT_TO_SURFACE)
-            nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
-         else
-            nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.YV12) / 8;
+         nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
          vIndex = width * height;
          uIndex = (int) (vIndex * 1.25);
          previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
@@ -458,23 +473,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          double altitude = B.getDouble("altitude");
          recordLocation = new Location( (isWaitingGPS) ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER);
          recordLocation.setTime(System.currentTimeMillis());
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-            recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-         else
-         {
-            // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
-            try
-            {
-               Method makeCompleteMethod = null;
-               makeCompleteMethod = Location.class.getMethod("makeComplete");
-               if (makeCompleteMethod != null)
-                  makeCompleteMethod.invoke(recordLocation);
-            }
-            catch (Exception e)
-            {
-               e.printStackTrace();
-            }
-         }
+         recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
          recordLocation.setLatitude(latitude);
          recordLocation.setLongitude(longitude);
          recordLocation.setAltitude(altitude);
@@ -496,7 +495,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          try { recordingMode = RecordMode.valueOf(B.getString("recordingMode")); } catch (Exception _e) { recordingMode = null; }
             if ( (recordingThread == null) && (recordingMode != null) )
          {
-            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
+            recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
             recordingThread.restore(B);
          }
       }
@@ -513,7 +512,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       if (isStopRecording)
       {
          if (recordingThread == null)
-            recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
+            recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
          else
          recordingThread.restore(lastInstanceState);
          isRecording = true;
@@ -533,25 +532,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
     //---------------------------------------------
    {
       previewer = new CameraPreviewThread(this, isInitCamera);
-      previewer.setPreviewListener(new CameraPreviewThread.Previewable()
-      //-------------------------------------------------------------------------
-      {
-         @Override
-         public void onCameraFrame(long timestamp, byte[] frame)
-         //-----------------------------------------------------
-         {
-            if (!DIRECT_TO_SURFACE)
-            {
-               synchronized (lockSurface)
-               {
-                  previewByteBuffer.rewind();
-                  previewByteBuffer.put(frame);
-                  isUpdateSurface = true;
-               }
-               view.requestRender();
-            }
-         }
-      });
       previewer.start();
    }
 
@@ -587,10 +567,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       final StringBuilder errbuf = new StringBuilder();
       String shaderDir = "camera/";
-      if (DIRECT_TO_SURFACE)
-         shaderDir += "direct/";
-      else
-         shaderDir += "texture/";
+      shaderDir += "direct/";
       previewShaderGlsl = loadShaders(shaderDir + "preview/", "vPosition", null, "vTexCoord", null);
       if (previewShaderGlsl == null)
          return false;
@@ -696,86 +673,31 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private boolean initTextures(GLSLAttributes previewShaderGlsl, StringBuilder errbuf)
    //------------------------------------------------
    {
-      if (DIRECT_TO_SURFACE)
+      final int texTarget = GL_TEXTURE_EXTERNAL_OES;
+      int[] texnames = new int[1];
+      texnames[0] = -1;
+      glGenTextures(1, texnames, 0);
+      previewTexture = texnames[0];
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(texTarget, previewTexture);
+      if ( (GLHelper.isGLError(errbuf)) || (! glIsTexture(previewTexture)) )
       {
-         final int texTarget = GL_TEXTURE_EXTERNAL_OES;
-         int[] texnames = new int[1];
-         texnames[0] = -1;
-         glGenTextures(1, texnames, 0);
-         previewTexture = texnames[0];
-         glActiveTexture(GL_TEXTURE0);
-         glBindTexture(texTarget, previewTexture);
-         if ( (GLHelper.isGLError(errbuf)) || (! glIsTexture(previewTexture)) )
-         {
-            Log.e(TAG, "Error binding texture");
-            return false;
-         }
-         glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-         glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-         glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-         glBindTexture(texTarget, 0);
-         if ( (previewShaderGlsl != null) && (previewShaderGlsl.shaderProgram >= 0) )
-         {
-            cameraTextureUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "previewSampler");
-            if ((GLHelper.isGLError(errbuf)) || (cameraTextureUniform == - 1))
-            {
-               Log.e(TAG, "Error getting texture uniform 'previewSampler'");
-               toast(errbuf.toString());
-               lastError = errbuf.toString();
-               return false;
-            }
-         }
+         Log.e(TAG, "Error binding texture");
+         return false;
       }
-      else if ( (! DIRECT_TO_SURFACE) &&
-                ( (yComponent < 0) || (! glIsTexture(yComponent)) ||
-                  (uComponent < 0) || (! glIsTexture(uComponent))  ||
-                  (vComponent < 0) || (! glIsTexture(vComponent)) ) )
+      glTexParameteri(texTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(texTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+      glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glBindTexture(texTarget, 0);
+      if ( (previewShaderGlsl != null) && (previewShaderGlsl.shaderProgram >= 0) )
       {
-         final int texTarget = GL_TEXTURE_2D;
-         int[] texnames = new int[3];
-         glGenTextures(3, texnames, 0);
-         yComponent = texnames[0];
-         glActiveTexture(GL_TEXTURE0);
-         glBindTexture(texTarget, yComponent);
-         glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-         uComponent = texnames[1];
-         glActiveTexture(GL_TEXTURE1);
-         glBindTexture(texTarget, uComponent);
-         glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-         vComponent = texnames[2];
-         glActiveTexture(GL_TEXTURE2);
-         glBindTexture(texTarget, vComponent);
-         glTexParameteri(texTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(texTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-         if (GLHelper.isGLError(errbuf))
+         cameraTextureUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "previewSampler");
+         if ((GLHelper.isGLError(errbuf)) || (cameraTextureUniform == - 1))
          {
-            Log.e(TAG, "Error binding texture");
-            return false;
-         }
-         glBindTexture(texTarget, 0);
-
-         yComponentUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "y_texture");
-         if ((GLHelper.isGLError(errbuf)) || (yComponentUniform == -1))
-         {
-            Log.e(TAG, "Error getting texture uniform 'y_texture'");
-            return false;
-         }
-         uComponentUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "u_texture");
-         if ((GLHelper.isGLError(errbuf)) || (uComponentUniform == -1))
-         {
-            Log.e(TAG, "Error getting texture uniform 'u_texture'");
-            return false;
-         }
-         vComponentUniform = glGetUniformLocation(previewShaderGlsl.shaderProgram, "v_texture");
-         if ((GLHelper.isGLError(errbuf)) || (vComponentUniform == -1))
-         {
-            Log.e(TAG, "Error getting texture uniform 'v_texture'");
+            Log.e(TAG, "Error getting texture uniform 'previewSampler'");
+            toast(errbuf.toString());
+            lastError = errbuf.toString();
             return false;
          }
       }
@@ -796,71 +718,34 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       glerrbuf.setLength(0);
       boolean isPreviewed = false;
-      final int texTarget = (DIRECT_TO_SURFACE) ? GL_TEXTURE_EXTERNAL_OES : GL_TEXTURE_2D;
+      final int texTarget = GL_TEXTURE_EXTERNAL_OES;
       try
       {
          glViewport(0, 0, screenWidth, screenHeight);
          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
          glUseProgram(previewShaderGlsl.shaderProgram);
-         if (DIRECT_TO_SURFACE)
+         if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
          {
-            if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
-            {
-               initTextures(previewShaderGlsl, null);
-               if (isAwaitingTextureFix)
-                  previewer.startFixedPreview();
-            }
-
-
-            glActiveTexture(GL_TEXTURE0);
-            glUniform1i(cameraTextureUniform, 0);
-            glBindTexture(texTarget, previewTexture);
-            if (isUpdateSurface)
-            {
-               isUpdateSurface = false;
-               synchronized (lockSurface)
-               {
-                  previewSurfaceTexture.updateTexImage();
-                  // Using the texture transform matrix reflects (when using landscape). Not using a texture transform
-                  // (ie identity matrix) works fine ?????
-                  // previewSurfaceTexture.getTransformMatrix(previewSTM);
-               }
-               isPreviewed = true;
-            }
+            initTextures(previewShaderGlsl, null);
+            if (isAwaitingTextureFix)
+               previewer.startFixedPreview();
          }
-         else
+
+
+         glActiveTexture(GL_TEXTURE0);
+         glUniform1i(cameraTextureUniform, 0);
+         glBindTexture(texTarget, previewTexture);
+         if (isUpdateSurface)
          {
-            if (isUpdateSurface)
+            isUpdateSurface = false;
+            synchronized (lockSurface)
             {
-               final int hw = previewWidth >> 1;
-               final int hh = previewHeight >> 1;
-               synchronized (lockSurface)
-               {  // set up texture units for shader conversion from YV12 format (http://www.fourcc.org/yuv.php#YV12)
-                  // assets/shaders/camera/texture/preview/fragment.glsl
-                  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-                  glActiveTexture(GL_TEXTURE0);
-                  glUniform1i(yComponentUniform, 0);
-                  glBindTexture(texTarget, yComponent);
-                  previewByteBuffer.rewind();
-                  glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, previewWidth, previewHeight, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE,
-                               previewByteBuffer);
-
-                  glActiveTexture(GL_TEXTURE1);
-                  glUniform1i(uComponentUniform, 1);
-                  glBindTexture(texTarget, uComponent);
-                  previewByteBuffer.rewind().position(uIndex);
-                  glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, hw, hh, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE,
-                               previewByteBuffer.slice());
-
-                  glActiveTexture(GL_TEXTURE2);
-                  glUniform1i(vComponentUniform, 2);
-                  glBindTexture(texTarget, vComponent);
-                  previewByteBuffer.rewind().position(vIndex);
-                  glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, hw, hh, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE,
-                               previewByteBuffer.slice());
-               }
-               isPreviewed = true;
+               previewSurfaceTexture.updateTexImage();
+               // Using the texture transform matrix reflects (when using landscape). Not using a texture transform
+               // (ie identity matrix) works fine ?????
+               // previewSurfaceTexture.getTransformMatrix(previewSTM);
             }
+            isPreviewed = true;
          }
          if (GLHelper.isGLError(glerrbuf))
             throw new RuntimeException(glerrbuf.toString());
@@ -1104,24 +989,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          recordFileName = name;
       recordLocation = new Location(LocationManager.GPS_PROVIDER);
       recordLocation.setTime(System.currentTimeMillis());
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-         recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-      else
-      {
-         // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
-         try
-         {
-            Method makeCompleteMethod = null;
-            makeCompleteMethod = Location.class.getMethod("makeComplete");
-            if (makeCompleteMethod != null)
-               makeCompleteMethod.invoke(recordLocation);
-         }
-         catch (Exception e)
-         {
-            e.printStackTrace();
-         }
-      }
-
+      recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
       recordLocation.setLatitude(0);
       recordLocation.setLongitude(0);
       recordLocation.setAltitude(0);
@@ -1132,9 +1000,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       recordingCondVar = new ConditionVariable(false);
       this.recordingMode = mode;
       recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar,
+                                                              previewer.getFrameBuffer(),
                                                               previewer.getFrameAvailCondVar());
       previewer.bufferOn();
       recordingThread.executeOnExecutor(recordingPool);
+      Debug.startMethodTracing("recorder");
       return true;
    }
 
@@ -1145,7 +1015,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       previewer.bufferOn();
       arrowRotation = 0;
       arrowColor = GREEN;
-      recordingThread = RecordingThread.createRecordingThread(recordingMode, this);
+      recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
       recordingThread.restore(B);
       recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
                       setFrameCondVar(previewer.getFrameAvailCondVar()).setPreviewer(previewer);
@@ -1177,6 +1047,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    public boolean stopRecording(final boolean isCancelled)
    //-----------------------------------------------------
    {
+      Debug.stopMethodTracing();
       if ( (recordingThread == null) || (isStoppingRecording) ) return false;
       isStoppingRecording = true;
       stopRecordingThread();
@@ -1542,10 +1413,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             rsYUVtoRGBA = RenderScript.create(activity);
             Type.Builder yuvType = new Type.Builder(rsYUVtoRGBA, Element.U8(rsYUVtoRGBA)).setX(previewWidth).
                   setY(previewHeight).setMipmaps(false);
-            if (DIRECT_TO_SURFACE)
-               yuvType.setYuvFormat(ImageFormat.NV21);
-            else
-               yuvType.setYuvFormat(ImageFormat.YV12);
+            yuvType.setYuvFormat(ImageFormat.NV21);
             Allocation ain = Allocation.createTyped(rsYUVtoRGBA, yuvType.create(), Allocation.USAGE_SCRIPT);
 
             Type.Builder rgbType = null;
@@ -1650,9 +1518,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                                 (int) progress, true, Toast.LENGTH_SHORT);
                publishProgress(params);
             }
-            if (mustStopNow)
-               return false;
-            return true;
+            return (! mustStopNow);
          }
          catch (Exception e)
          {

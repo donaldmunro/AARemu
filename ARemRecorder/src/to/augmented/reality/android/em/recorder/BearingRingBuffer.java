@@ -77,7 +77,7 @@ public class BearingRingBuffer
       return popped;
    }
 
-   public float popBearing()
+   public synchronized float popBearing()
    {
       float bearing = -1;
       if (length > 0)
@@ -108,20 +108,29 @@ public class BearingRingBuffer
       return null;
    }
 
-   public synchronized RingBufferContent find(final long timestampCompareNS, final long epsilonNS)
+   public RingBufferContent find(final long timestampCompareNS, final long epsilonNS)
    //-------------------------------------------------------------------------------------
    {
-      if (length == 0)
-         return null;
-      int index = indexDecrement(head);
-      final long gt = timestampCompareNS - epsilonNS;
-      for (int i=0; i<length; i++)
+      int index, len;
+      long gt, le;
+      synchronized(this)
+      {
+         if (length == 0)
+            return null;
+         index = indexDecrement(head);
+         gt = timestampCompareNS - epsilonNS;
+         le = timestampCompareNS + epsilonNS;
+         len = length;
+      }
+      for (int i=0; i<len; i++)
       {
          final long ts = bearings[index].timestamp;
          if (gt > ts)
+         {
+            //Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts) + " " + (gt > ts));
             return null;
-         //Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts) + " " + (gt > ts));
-         if ( (ts >= (timestampCompareNS - epsilonNS)) && (ts <= (timestampCompareNS + epsilonNS)) )
+         }
+         if ( (ts >= gt) && (ts <= le) )
             return bearings[index];
          index = indexDecrement(index);
       }
@@ -133,7 +142,7 @@ public class BearingRingBuffer
    {
       if (length == 0)
          return null;
-      int index = indexDecrement(head), ii = -1;;
+      int index = indexDecrement(head), ii = -1;
       long mindiff = Long.MAX_VALUE;
       for (int i=0; i<length; i++)
       {

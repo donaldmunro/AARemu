@@ -93,8 +93,8 @@ public class RecorderRingBuffer
       return ts;
    }
 
-   public long peek(byte[] buffer)
-   //----------------------------
+   public synchronized long peek(byte[] buffer)
+   //------------------------------------------
    {
       long ts = -1;
       if (length > 0)
@@ -117,7 +117,7 @@ public class RecorderRingBuffer
       return ts;
    }
 
-   public long peekHead(byte[] buffer)
+   public synchronized long peekHead(byte[] buffer)
    //------------------------
    {
       long ts = -1;

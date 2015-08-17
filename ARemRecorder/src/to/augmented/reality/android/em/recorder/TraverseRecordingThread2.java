@@ -16,18 +16,13 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.os.Build;
 import android.os.Bundle;
 import android.os.ConditionVariable;
-import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.concurrent.*;
 
 public class TraverseRecordingThread2 extends RecordingThread implements Freezeable
 //================================================================================
@@ -36,15 +31,15 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
    SortedSet<Long> remainingBearings;
    int totalCount = 0, writtenCount = 0;
 
-   protected TraverseRecordingThread2(GLRecorderRenderer renderer) { super(renderer); }
+   protected TraverseRecordingThread2(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer) { super(renderer, frameBuffer); }
 
    protected TraverseRecordingThread2(GLRecorderRenderer renderer, int nv21BufferSize,
-                                     float increment, CameraPreviewThread previewer,
-                                     ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
-                                     BearingRingBuffer bearingBuffer)
+                                      float increment, CameraPreviewThread previewer,
+                                      ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
+                                      RecorderRingBuffer frameBuffer, BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
-      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, bearingBuffer);
+      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, frameBuffer, bearingBuffer);
    }
 
    @Override
@@ -103,12 +98,13 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
          recordingCurrentBearing = -1;
          previewer.clearBuffer();
          startFrameWriter();
-         long offset = -1;
-         float roundedBearing = -1;
-         long ts = previewer.awaitFrame(400, previewBuffer);
+         long offset;
+         float roundedBearing;
+         long ts;
+         previewer.awaitFrame(400, previewBuffer);
          while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
          {
-            ts = previewer.getLastBuffer(previewBuffer);
+            ts = frameBuffer.peek(previewBuffer);
             if (ts < 0)
                ts = previewer.awaitFrame(200, previewBuffer);
             if (ts >= 0)

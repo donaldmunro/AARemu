@@ -36,19 +36,19 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
    protected long writeFrameCount = 1;  // 0  is written in super.checkStartRecording
    protected ProcessBearingThread processBearingThread = null;
 
-   protected RetryRecordingThread(GLRecorderRenderer renderer)
-   //-------------------------------------------------------------------------------
+   protected RetryRecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer)
+   //------------------------------------------------------------------------------------------
    {
-      super(renderer);
+      super(renderer, frameBuffer);
    }
 
    protected RetryRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
                                   CameraPreviewThread previewer,
                                   ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
-                                  BearingRingBuffer bearingBuffer)
+                                  RecorderRingBuffer frameBuffer, BearingRingBuffer bearingBuffer)
    //----------------------------------------------------------------------------------------------------------------
    {
-      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, bearingBuffer);
+      super(renderer, nv21BufferSize, increment, previewer, recordingCondVar, frameCondVar, frameBuffer, bearingBuffer);
    }
 
    @Override
@@ -99,10 +99,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          long now;
          while ( (renderer.isRecording) && (! isCancelled()) )
          {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-               now = SystemClock.elapsedRealtimeNanos();
-            else
-               now = System.nanoTime();
+            now = SystemClock.elapsedRealtimeNanos();
             if ( (processBearingThread != null) && (processBearingThread.isComplete) )
                break;
             BearingRingBuffer.RingBufferContent bearingInfo = bearingBuffer.pop();
@@ -190,10 +187,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          previewer.bufferOff();
          previewer.clearBuffer();
          final long now;
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-            now = SystemClock.elapsedRealtimeNanos();
-         else
-            now = System.nanoTime();
+         now = SystemClock.elapsedRealtimeNanos();
          previewer.bufferOn();
          frameCondVar.close();
          if (! frameCondVar.block(FRAME_BLOCK_TIME_MS))
@@ -205,9 +199,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
          }
          frameCondVar.close();
 //         Log.d(TAG, "Buffer: " + previewer.dumpBuffer());
-         RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(now,
-                                                                                         FRAME_BLOCK_TIME_NS + 10000000L,
-                                                                                         previewBuffer);
+         RecorderRingBuffer.RingBufferContent rbc = frameBuffer.findFirst(now, FRAME_BLOCK_TIME_NS + 10000000L,
+                                                                          previewBuffer);
          ts = (rbc == null) ? -1 : rbc.timestamp;
          if (ts < now)
          {
@@ -220,7 +213,8 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             renderer.arrowColor = GLRecorderRenderer.RED;
             progress.set(bearing, 0, renderer.arrowColor, -1);
             publishProgress(progress);
-            rbc.isUsed = false;
+            if (rbc != null)
+               rbc.isUsed = false;
             return false;
          }
 
@@ -296,7 +290,7 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
       public void run()
       //-------------------------
       {
-         BearingRingBuffer.RingBufferContent bearingInfo = null;
+         BearingRingBuffer.RingBufferContent bearingInfo;
          final long epsilon = 65000000L;
          float bearing = -1, lastBearing;
          Map<Long, Void> completed = new HashMap<Long, Void>();
@@ -341,16 +335,12 @@ public class RetryRecordingThread extends RecordingThread implements Freezeable
             if ((bearing >= recordingCurrentBearing) && (bearing < recordingNextBearing))
             {
                long targetTimeStamp = bearingInfo.timestamp;
-               RecorderRingBuffer.RingBufferContent rbc = previewer.findFirstBufferAtTimestamp(targetTimeStamp, epsilon,
-                                                                                               previewBuffer);
-               long ts = (rbc == null) ? -1 : rbc.timestamp;
+               RecorderRingBuffer.RingBufferContent rbc = frameBuffer.findFirst(targetTimeStamp, epsilon, previewBuffer);
+               long ts = (rbc == null) ? - 1 : rbc.timestamp;
                if (ts < 0)
                {
                   final long now;
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-                     now = SystemClock.elapsedRealtimeNanos();
-                  else
-                     now = System.nanoTime();
+                  now = SystemClock.elapsedRealtimeNanos();
                   if ((now - targetTimeStamp) <= epsilon)
                      ts = previewer.awaitFrame(90, previewBuffer);
                }
