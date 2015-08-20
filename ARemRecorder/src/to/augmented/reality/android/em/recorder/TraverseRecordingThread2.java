@@ -21,15 +21,15 @@ import android.os.ConditionVariable;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.util.SortedSet;
-import java.util.TreeSet;
+import java.util.HashSet;
+import java.util.Set;
 
 public class TraverseRecordingThread2 extends RecordingThread implements Freezeable
 //================================================================================
 {
    static final private String TAG = TraverseRecordingThread.class.getSimpleName();
-   SortedSet<Long> remainingBearings;
-   int totalCount = 0, writtenCount = 0;
+   Set<Long> completedBearings;
+   int totalCount = 0;
 
    protected TraverseRecordingThread2(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer) { super(renderer, frameBuffer); }
 
@@ -48,16 +48,16 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
    {
       super.pause(B);
       if (B == null) return;
-      if ( (remainingBearings != null) && (! remainingBearings.isEmpty()) )
+      if ( (completedBearings != null) && (! completedBearings.isEmpty()) )
       {
-         long[] bearings = new long[remainingBearings.size()];
+         long[] bearings = new long[completedBearings.size()];
          int i = 0;
-         for (long bearing : remainingBearings)
+         for (long bearing : completedBearings)
             bearings[i++] = bearing;
-         B.putLongArray("TraverseRecordingThread.remainingBearings", bearings);
+         B.putLongArray("TraverseRecordingThread.completedBearings", bearings);
       }
-      else if (remainingBearings == null)
-         B.putLongArray("TraverseRecordingThread.remainingBearings", null);
+      else if (completedBearings == null)
+         B.putLongArray("TraverseRecordingThread.completedBearings", null);
    }
 
    @Override
@@ -67,13 +67,13 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
       super.restore(B);
       if (B != null)
       {
-         long[] bearings = B.getLongArray("TraverseRecordingThread.remainingBearings");
+         long[] bearings = B.getLongArray("TraverseRecordingThread.completedBearings");
          if (bearings != null)
          {
-            if (remainingBearings == null)
-               remainingBearings = new TreeSet<Long>();
+            if (completedBearings == null)
+               completedBearings = new HashSet<Long>();
             for (long bearing : bearings)
-               remainingBearings.add(bearing);
+               completedBearings.add(bearing);
          }
       }
    }
@@ -93,16 +93,17 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
       try
       {
          float bearing = 0, lastBearing = -1, lastUIBearing = 1000;
-         if (remainingBearings == null)
-            initBearings();
+         if (completedBearings == null)
+            completedBearings = new HashSet<Long>();
          recordingCurrentBearing = -1;
          previewer.clearBuffer();
          startFrameWriter();
          long offset;
          float roundedBearing;
+         int no = (int) (Math.floor(360.0 / recordingIncrement)), count = 0;
          long ts;
          previewer.awaitFrame(400, previewBuffer);
-         while ( (! remainingBearings.isEmpty()) && (renderer.isRecording) && (! isCancelled()) )
+         while ( (count < no) && (renderer.isRecording) && (! isCancelled()) )
          {
             ts = frameBuffer.peek(previewBuffer);
             if (ts < 0)
@@ -159,15 +160,21 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
 //                  }
 //               }
                offset = (long) (Math.floor(bearing / recordingIncrement));
-               if ((remainingBearings.contains(offset)) && (addFrameToWriteBuffer(offset)))
+               if (! completedBearings.contains(offset))
                {
-                  writtenCount++;
-                  remainingBearings.remove(offset);
-                  lastFrameTimestamp = ts;
-                  if (IS_LOGCAT_GOT)
-                     Log.i(TAG, "TraverseRecordingThread2: Got " + bearing);
-                  renderer.arrowColor = GLRecorderRenderer.GREEN;
-               } else if (! remainingBearings.contains(offset))
+                  if (addFrameToWriteBuffer(offset))
+                  {
+                     count++;
+                     completedBearings.add(offset);
+                     lastFrameTimestamp = ts;
+                     if (IS_LOGCAT_GOT)
+                        Log.i(TAG, "TraverseRecordingThread2: Got " + bearing);
+                     renderer.arrowColor = GLRecorderRenderer.GREEN;
+                  }
+                  else
+                     renderer.arrowColor = GLRecorderRenderer.RED;
+               }
+               else
                {
                   renderer.arrowColor = GLRecorderRenderer.BLUE;
                   if (Math.abs(bearing - lastUIBearing) >= 0.5)
@@ -178,8 +185,6 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                   }
                   continue;
                }
-               else
-                  renderer.arrowColor = GLRecorderRenderer.RED;
             }
             else
             {
@@ -204,31 +209,43 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                offset = (long) (Math.floor(bearing / recordingIncrement));
             }
 
-            if (remainingBearings.isEmpty())
+            if (count >= no)
                break;
-            roundedBearing = (float) (offset + 1) * recordingIncrement;
+            roundedBearing = ((++offset) * recordingIncrement) % 360;
             if (roundedBearing != recordingNextBearing)
             {
-               if (roundedBearing >= 360)
-                  roundedBearing -= 360;
-               offset = (long) (Math.floor(roundedBearing / recordingIncrement));
-               SortedSet<Long> subset = remainingBearings.tailSet(offset);
-               if (subset.isEmpty())
+               offset = -1;
+               for (float bb=roundedBearing; bb<360.0f; bb+=recordingIncrement)
                {
-                  if (roundedBearing > 300)
-                     subset = remainingBearings.tailSet(0L);
-                  if (subset.isEmpty())
-                     offset = - 1;
-                  else
-                     try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+                  long off = (long) Math.floor(bb / recordingIncrement);
+                  if (! completedBearings.contains(off))
+                  {
+                     offset = off;
+                     break;
+                  }
                }
-               else
-                  try { offset = subset.first(); } catch (Exception _e) { offset = - 1; }
+               if (offset < 0)
+               {
+                  for (float bb=0.0f; bb<roundedBearing; bb+=recordingIncrement)
+                  {
+                     long off = (long) Math.floor(bb / recordingIncrement);
+                     if (! completedBearings.contains(off))
+                     {
+                        offset = off;
+                        break;
+                     }
+                  }
+                  if (offset < 0)
+                  {
+                     count = no;
+                     break;
+                  }
+               }
                if (offset >= 0)
                {
                   recordingNextBearing = offset * recordingIncrement;
                   progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                               (writtenCount * 100) / totalCount);
+                               (count * 100) / totalCount);
                   publishProgress(progress);
                }
                if ((bearing > 354) && ((recordingNextBearing >= 0) && (recordingNextBearing <= 5)))
@@ -253,14 +270,15 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
                {
                   lastUIBearing = bearing;
                   progress.set(bearing, recordingNextBearing, renderer.arrowColor,
-                               (writtenCount * 100) / totalCount);
+                               (count * 100) / totalCount);
                   publishProgress(progress);
                }
             }
          }
          stopFrameWriter();
          renderer.lastSaveBearing = 0;
-         remainingBearings = null;
+         completedBearings.clear();
+         completedBearings = null;
          pause(renderer.lastInstanceState);
          return true;
       }
@@ -278,18 +296,18 @@ public class TraverseRecordingThread2 extends RecordingThread implements Freezea
       return null;
    }
 
-   private void initBearings()
-   //-------------------------
-   {
-      remainingBearings = new TreeSet<Long>();
-      float bearing = 0;
-      long offset;
-      while (bearing < 360)
-      {
-         offset = (long) (Math.floor(bearing / recordingIncrement));
-         remainingBearings.add(offset);
-         bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
-      }
-      pause(renderer.lastInstanceState);
-   }
+//   private void initBearings()
+//   //-------------------------
+//   {
+//      remainingBearings = new TreeSet<Long>();
+//      float bearing = 0;
+//      long offset;
+//      while (bearing < 360)
+//      {
+//         offset = (long) (Math.floor(bearing / recordingIncrement));
+//         remainingBearings.add(offset);
+//         bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
+//      }
+//      pause(renderer.lastInstanceState);
+//   }
 }

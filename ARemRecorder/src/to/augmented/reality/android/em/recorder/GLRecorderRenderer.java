@@ -89,6 +89,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    static final int SIZEOF_FLOAT = Float.SIZE / 8;
    static final int SIZEOF_SHORT = Short.SIZE / 8;
    final private static int GL_TEXTURE_EXTERNAL_OES = GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
+   final static boolean DEBUG_TRACE = false;
 
    RecorderActivity activity;
    private ARSurfaceView view;
@@ -337,7 +338,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       {
 //         sensorManager.unregisterListener(rotationListener);
          if (orientationProvider.isStarted())
-            orientationProvider.stop();
+            orientationProvider.halt();
       }
       LocationManager locationManager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
       if (locationManager != null)
@@ -1004,7 +1005,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                                                               previewer.getFrameAvailCondVar());
       previewer.bufferOn();
       recordingThread.executeOnExecutor(recordingPool);
-      Debug.startMethodTracing("recorder");
+      if (DEBUG_TRACE) Debug.startMethodTracing("recorder");
       return true;
    }
 
@@ -1047,7 +1048,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    public boolean stopRecording(final boolean isCancelled)
    //-----------------------------------------------------
    {
-      Debug.stopMethodTracing();
+      if (DEBUG_TRACE) Debug.stopMethodTracing();
       if ( (recordingThread == null) || (isStoppingRecording) ) return false;
       isStoppingRecording = true;
       stopRecordingThread();

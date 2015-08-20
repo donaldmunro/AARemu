@@ -1,26 +1,19 @@
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 19
-    buildToolsVersion '22.0.1'
+   compileSdkVersion 22
+   buildToolsVersion "22.0.1"
 
    defaultConfig {
-//      applicationId "to.augmented.reality.android.em"
       minSdkVersion 14
-      targetSdkVersion 19
+      targetSdkVersion 22
       renderscriptTargetApi 18
        renderscriptSupportModeEnabled true
       versionCode 1
       versionName "1.0"
    }
-   sourceSets {
-      main.java.srcDirs = ['src']
-      main.resources.srcDirs = ['res']
-      debug.setRoot('build-types/debug')
-      release.setRoot('build-types/release')
-   }
 
-   android {
+android {
       sourceSets {
          main {
             manifest.srcFile 'AndroidManifest.xml'
@@ -35,18 +28,21 @@ android {
          //androidTest.setRoot('test')
       }
    }
-    buildTypes {
-        release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
+   buildTypes {
+      release {
+         minifyEnabled false
+         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+      }
+   }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
     }
 }
 
 dependencies {
    compile fileTree(dir: 'libs', include: ['*.jar'])
-   compile 'com.android.support:support-v4:19.+'
+   compile 'com.android.support:appcompat-v7:22.2.1'
    compile project(':OpenCV')
    compile project(':ARemu')
 }

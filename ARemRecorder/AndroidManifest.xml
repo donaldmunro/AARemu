@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="to.augmented.reality.android.em.recorder"
-    android:versionCode="17"
-    android:versionName="1.1.2"
-    >
-    <uses-sdk android:minSdkVersion="14"/>
+    package="to.augmented.reality.android.em.recorder" >
+
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" />
 
@@ -24,8 +21,8 @@
             android:name=".RecorderActivity"
             android:configChanges="orientation|keyboardHidden"
             android:label="@string/title_activity_recorder"
-            android:screenOrientation="landscape"
-            android:theme="@style/FullscreenTheme" >
+           android:screenOrientation="landscape"
+           android:theme="@style/FullscreenTheme" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

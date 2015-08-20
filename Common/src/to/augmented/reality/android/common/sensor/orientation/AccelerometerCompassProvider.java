@@ -6,8 +6,11 @@
 
 package to.augmented.reality.android.common.sensor.orientation;
 
-import android.hardware.*;
-import android.os.*;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorManager;
+import android.os.Build;
+import android.os.SystemClock;
 
 /**
  * The orientation provider that delivers the current orientation from the {@link Sensor#TYPE_ACCELEROMETER

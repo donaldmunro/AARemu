@@ -1,24 +1,20 @@
-apply plugin: 'android'
-apply plugin: 'eclipse'
+apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 19
-    buildToolsVersion '22.0.1'
-    defaultConfig {
-        minSdkVersion 14
-        targetSdkVersion 19
-        renderscriptTargetApi 18
+   compileSdkVersion 22
+   buildToolsVersion "22.0.1"
+
+   defaultConfig {
+      applicationId "to.augmented.reality.android.em.recorder"
+      minSdkVersion 19
+      targetSdkVersion 22
+      renderscriptTargetApi 18
         renderscriptSupportModeEnabled true
-        versionCode 17
+      versionCode 17
         versionName '1.1.2'
-    }
-    sourceSets {
-        main.java.srcDirs = ['src']
-        main.resources.srcDirs = ['res']
-        debug.setRoot('build-types/debug')
-        release.setRoot('build-types/release')
-    }
-    android {
+   }
+
+   android {
         sourceSets {
             main {
                 manifest.srcFile 'AndroidManifest.xml'
@@ -36,19 +32,25 @@ android {
             //androidTest.setRoot('test')
         }
     }
-    buildTypes {
-        release {
+
+   buildTypes {
+      release {
             minifyEnabled true
             shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-        }
+         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+      }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
     }
     productFlavors {
-    }
+   }
 }
 
 dependencies {
    compile fileTree(dir: 'libs', include: ['*.jar'])
-   compile 'com.android.support:support-v4:19.+'
+   compile 'com.android.support:appcompat-v7:22.2.1'
    compile project(':Common')
+    //compile(name:'Common-debug', ext:'aar') //Requires ARem/build.gradle have flatDir { dirs 'aars'  } in allprojects.dependencies
 }
