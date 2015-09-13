@@ -28,6 +28,8 @@ public class BearingRingBuffer
       float bearing;
 
       RingBufferContent() { bearing = -1; timestamp = -1; }
+
+      public RingBufferContent(RingBufferContent other) { timestamp = other.timestamp; bearing = other.bearing; }
    }
 
    RingBufferContent[] bearings;
@@ -70,14 +72,32 @@ public class BearingRingBuffer
       RingBufferContent popped = null;
       if (length > 0)
       {
-         popped =  bearings[tail];
+         popped = new RingBufferContent(bearings[tail]);
          tail = indexIncrement(tail);
          length--;
       }
       return popped;
    }
 
+   public synchronized RingBufferContent[] popAll()
+   //----------------------------------------------
+   {
+      RingBufferContent[] contents = new RingBufferContent[length];
+      if (length > 0)
+      {
+         int i = 0;
+         while (length > 0)
+         {
+            contents[i++] = new RingBufferContent(bearings[tail]);
+            tail = indexIncrement(tail);
+            length--;
+         }
+      }
+      return contents;
+   }
+
    public synchronized float popBearing()
+   //------------------------------------
    {
       float bearing = -1;
       if (length > 0)
@@ -93,7 +113,7 @@ public class BearingRingBuffer
    //-------------------------------------------
    {
       if (length > 0)
-         return bearings[tail];
+         return new RingBufferContent(bearings[tail]);
       return null;
    }
 
@@ -103,7 +123,7 @@ public class BearingRingBuffer
       if (length > 0)
       {
          final int index = indexDecrement(head);
-         return bearings[index];
+         return new RingBufferContent(bearings[index]);
       }
       return null;
    }
@@ -127,11 +147,12 @@ public class BearingRingBuffer
          final long ts = bearings[index].timestamp;
          if (gt > ts)
          {
-            //Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts) + " " + (gt > ts));
+//            Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts));
             return null;
          }
+//         Log.i("BearingRingBuffer", " ts = " + (float) ts/1000000 + " gt = " + (float) gt/1000000 + " " + (gt > ts));
          if ( (ts >= gt) && (ts <= le) )
-            return bearings[index];
+            return new RingBufferContent(bearings[index]);
          index = indexDecrement(index);
       }
       return null;
@@ -159,7 +180,7 @@ public class BearingRingBuffer
          index = indexDecrement(index);
       }
       if (ii >= 0)
-         return bearings[ii];
+         return new RingBufferContent(bearings[ii]);
       return null;
    }
 

@@ -81,7 +81,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //========================================================================================================
 {
    public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
-   public enum RecordMode { RETRY, TRAVERSE, TRAVERSE2 }
+   public enum RecordMode { TRAVERSE, MERGE }
 
    private static final String TAG = GLRecorderRenderer.class.getSimpleName();
    private static final String VERTEX_SHADER = "vertex.glsl";
@@ -106,7 +106,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    long currentBearingTimestamp =-1L, lastBearingTimestamp = -1L;
    volatile boolean isRecording = false, isStopRecording = false, mustStopNow = false;
    SurfaceTexture previewSurfaceTexture = null;
-   ByteBuffer previewByteBuffer = null;
+   //ByteBuffer previewByteBuffer = null; TODO: Delete me
    final Object lockSurface = new Object();
    volatile boolean isUpdateSurface = false, isUpdateTexture = false;
 
@@ -129,8 +129,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                vComponentUniform; //, previewSTMLocation = -1
    private float[] previewMVP = new float[16]; //, previewSTM = new float[16];
 
-   private int arrowMVPLocation = -1, arrowColorUniform = -1;
-   private float[] arrowMVP = new float[16];
+   private int recordMVPLocation = -1, recordColorUniform = -1;
+   private float[] recordMVP = new float[16];
 
    int screenWidth = -1;
    public int getScreenWidth() { return screenWidth; }
@@ -140,6 +140,44 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       return screenHeight;
    }
+
+   final static private float ARROW_WIDTH = 5;
+   final static private float ARROW_HEIGHT = 1;
+
+   static final float[] arrowVertices =
+         {
+               4, 0.2f, -10.0f, // bottom-right
+               0, 0.2f, -10.0f, // bottom-left
+               4, 0.8f, -10.0f, // top-right
+               0, 0.8f, -10.0f, // top-left
+
+               // Arrow head
+               4, 0,    -10,   //   4
+               5, 0.5f, -10,   //   5
+               4, 1,    -10    //   6
+         };
+
+   static final short[] arrowFaces = {2, 3, 1, 0, 2, 1,
+                                      5, 6, 4};
+
+   final static private float PAUSE_WIDTH = 3;
+   final static private float PAUSE_HEIGHT = 1;
+
+   static final float[] pauseVertices =
+         {
+               0.2f, 4.0f, -10.0f,  // 0
+               0.2f, 0.0f, -10.0f,  // 1
+               0.8f, 4.0f, -10.0f,  // 2
+               0.8f, 0.0f, -10.0f,  // 3
+
+               1.2f, 4.0f, -10.0f,  // 4
+               1.2f, 0.0f, -10.0f,  // 5
+               1.8f, 4.0f, -10.0f,  // 6
+               1.8f, 0.0f, -10.0f,  // 7
+         };
+
+   static final short[] pauseFaces = { 2, 3, 1, 0, 2, 1,
+                                       6, 7, 5, 4, 6, 5 };
 
    final private ByteBuffer previewPlaneVertices =
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 12).order(ByteOrder.nativeOrder());
@@ -151,13 +189,17 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 21).order(ByteOrder.nativeOrder());
    final private ByteBuffer arrowFacesBuffer =
          ByteBuffer.allocateDirect(SIZEOF_SHORT * 9).order(ByteOrder.nativeOrder());
+   final private ByteBuffer pauseVerticesBuffer =
+         ByteBuffer.allocateDirect(SIZEOF_FLOAT * 24).order(ByteOrder.nativeOrder());
+   final private ByteBuffer pauseFacesBuffer =
+         ByteBuffer.allocateDirect(SIZEOF_SHORT * 12).order(ByteOrder.nativeOrder());
 
    float[] projectionM = new float[16], viewM = new float[16];
 
    public int previewWidth;
    public int previewHeight;
 
-   GLSLAttributes previewShaderGlsl, arrowShaderGlsl;
+   GLSLAttributes previewShaderGlsl, recordShaderGlsl;
 
    CameraPreviewThread previewer;
 
@@ -194,11 +236,14 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    }
 
    private RecordingThread recordingThread;
-   static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f };
-   float[] arrowColor = GREEN;
+   static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f }, PURPLE = { 0.855f, 0.439f, 0.839f };
+   float[] recordColor = GREEN;
    float arrowRotation = 0.0f;
+   boolean isPause = false;
 
-   GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView, ORIENTATION_PROVIDER orientationProviderType)
+   public GLRecorderRenderer() {}
+
+   public GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView, ORIENTATION_PROVIDER orientationProviderType)
    //------------------------------------------------------------------------------------------------------------
    {
       this.activity = activity;
@@ -239,6 +284,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       yScaleArrow = screenHeight / (ARROW_HEIGHT * 4);  // height of arrow = 1 : y = screenHeight/4
       xTranslateArrow = screenWidth / 2.0f - (xScaleArrow * ARROW_WIDTH) / 2.0f;
       yTranslateArrow = screenHeight / 2.0f - (yScaleArrow * ARROW_HEIGHT) / 2.0f;
+
+      xScalePause = screenWidth / (PAUSE_WIDTH * 4);
+      yScalePause = screenHeight / (PAUSE_HEIGHT * 4);
+      xTranslatePause = screenWidth / 2.0f - (xScalePause * PAUSE_WIDTH) / 2.0f;
+      yTranslatePause = screenHeight / 2.0f - (yScalePause * PAUSE_HEIGHT) / 2.0f;
 
       try
       {
@@ -435,9 +485,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
          vIndex = width * height;
          uIndex = (int) (vIndex * 1.25);
-         previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize);
+         //previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize); TODO: Delete me
          cameraBuffer = new byte[nv21BufferSize];
          previewer.startPreview(width, height);
+         this.previewWidth = width;
+         this.previewHeight  = height;
       }
    }
 
@@ -641,32 +693,25 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       Matrix.setLookAtM(viewM, 0, 0, 0, 0, 0, 0, -1, 0, 1, 0);
       Matrix.multiplyMM(previewMVP, 0, projectionM, 0, viewM, 0);
 
-      arrowShaderGlsl = loadShaders("render/", "vPosition", null, null, null);
-      if (arrowShaderGlsl == null)
+      recordShaderGlsl = loadShaders("render/", "vPosition", null, null, null);
+      if (recordShaderGlsl == null)
          throw new RuntimeException("Error loading arrow display shader");
-      arrowMVPLocation = glGetUniformLocation(arrowShaderGlsl.shaderProgram, "MVP");
-      arrowColorUniform = glGetUniformLocation(arrowShaderGlsl.shaderProgram, "uvColor");
-
-      float[] arrowVertices =
-            {
-                  4, 0.2f, -10.0f, // bottom-right
-                  0, 0.2f, -10.0f, // bottom-left
-                  4, 0.8f, -10.0f, // top-right
-                  0, 0.8f, -10.0f, // top-left
-
-                  // Arrow head
-                  4, 0,    -10,   //   4
-                  5, 0.5f, -10,   //   5
-                  4, 1,    -10    //   6
-            };
+      recordMVPLocation = glGetUniformLocation(recordShaderGlsl.shaderProgram, "MVP");
+      recordColorUniform = glGetUniformLocation(recordShaderGlsl.shaderProgram, "uvColor");
 
       arrowVerticesBuffer.clear();
       fb = arrowVerticesBuffer.asFloatBuffer();
       fb.put(arrowVertices);
-      short[] arrowFaces = {2, 3, 1, 0, 2, 1, 5, 6, 4};
       arrowFacesBuffer.clear();
       sb = arrowFacesBuffer.asShortBuffer();
       sb.put(arrowFaces);
+
+      pauseVerticesBuffer.clear();
+      fb = pauseVerticesBuffer.asFloatBuffer();
+      fb.put(pauseVertices);
+      pauseFacesBuffer.clear();
+      sb = pauseFacesBuffer.asShortBuffer();
+      sb.put(pauseFaces);
 
       return true;
    }
@@ -705,11 +750,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       return true;
    }
 
-   final static private float ARROW_WIDTH = 5;
-   final static private float ARROW_HEIGHT = 1;
-   private float xScaleArrow = 1, yScaleArrow = 1, xTranslateArrow = 0, yTranslateArrow = 0;
+   private float xScaleArrow = 1, yScaleArrow = 1, xTranslateArrow = 0, yTranslateArrow = 0,
+                 xScalePause = 1, yScalePause = 1, xTranslatePause = 0, yTranslatePause = 0;
 
-   private float[] arrowModelView = new float[16], scaleM = new float[16], translateM = new float[16],
+   private float[] recordModelView = new float[16], scaleM = new float[16], translateM = new float[16],
          rotateM = new float[16], modelM = new float[16];
    StringBuilder glerrbuf = new StringBuilder();
 
@@ -772,29 +816,44 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
          if (isRecording)
          {
-            Matrix.setIdentityM(scaleM, 0);
-            Matrix.scaleM(scaleM, 0, xScaleArrow, yScaleArrow, 1);
-            Matrix.setIdentityM(translateM, 0);
-            Matrix.translateM(translateM, 0, xTranslateArrow, yTranslateArrow, 0);
-            Matrix.setRotateM(rotateM, 0, arrowRotation, 0, 0, 1);
-            //         Matrix.multiplyMM(arrowModelView, 0, lookM, 0, scaleM, 0);
-            Matrix.multiplyMM(arrowModelView, 0, translateM, 0, scaleM, 0);
-            Matrix.multiplyMM(modelM, 0, arrowModelView, 0, rotateM, 0);
-            Matrix.multiplyMM(arrowModelView, 0, viewM, 0, modelM, 0);
-
-            //         Matrix.multiplyMM(arrowModelView, 0, modelM, 0, rotateM, 0);
-            Matrix.multiplyMM(arrowMVP, 0, projectionM, 0, arrowModelView, 0);
-            glUseProgram(arrowShaderGlsl.shaderProgram);
-            glUniformMatrix4fv(arrowMVPLocation, 1, false, arrowMVP, 0);
-            glUniform3f(arrowColorUniform, arrowColor[0], arrowColor[1], arrowColor[2]);
-            arrowVerticesBuffer.rewind();
-            glVertexAttribPointer(arrowShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, arrowVerticesBuffer);
-            glEnableVertexAttribArray(arrowShaderGlsl.vertexAttr);
-
-            //         previewPlaneFaces.rewind();
-            //         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, previewPlaneFaces.asShortBuffer());
-            arrowFacesBuffer.rewind();
-            glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_SHORT, arrowFacesBuffer.asShortBuffer());
+            if (isPause)
+            {
+               Matrix.setIdentityM(scaleM, 0);
+               Matrix.scaleM(scaleM, 0, yScalePause, xScalePause,  1);
+               Matrix.setIdentityM(translateM, 0);
+               Matrix.translateM(translateM, 0, xTranslatePause, yTranslatePause, 0);
+               Matrix.multiplyMM(modelM, 0, translateM, 0, scaleM, 0);
+               Matrix.multiplyMM(recordModelView, 0, viewM, 0, modelM, 0);
+               Matrix.multiplyMM(recordMVP, 0, projectionM, 0, recordModelView, 0);
+               glUseProgram(recordShaderGlsl.shaderProgram);
+               glUniformMatrix4fv(recordMVPLocation, 1, false, recordMVP, 0);
+               glUniform3f(recordColorUniform, recordColor[0], recordColor[1], recordColor[2]);
+               pauseVerticesBuffer.rewind();
+               glVertexAttribPointer(recordShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, pauseVerticesBuffer);
+               glEnableVertexAttribArray(recordShaderGlsl.vertexAttr);
+               pauseFacesBuffer.rewind();
+               glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, pauseFacesBuffer.asShortBuffer());
+            }
+            else
+            {
+               Matrix.setIdentityM(scaleM, 0);
+               Matrix.scaleM(scaleM, 0, xScaleArrow, yScaleArrow, 1);
+               Matrix.setIdentityM(translateM, 0);
+               Matrix.translateM(translateM, 0, xTranslateArrow, yTranslateArrow, 0);
+               Matrix.setRotateM(rotateM, 0, arrowRotation, 0, 0, 1);
+               Matrix.multiplyMM(recordModelView, 0, translateM, 0, scaleM, 0);
+               Matrix.multiplyMM(modelM, 0, recordModelView, 0, rotateM, 0);
+               Matrix.multiplyMM(recordModelView, 0, viewM, 0, modelM, 0);
+               Matrix.multiplyMM(recordMVP, 0, projectionM, 0, recordModelView, 0);
+               glUseProgram(recordShaderGlsl.shaderProgram);
+               glUniformMatrix4fv(recordMVPLocation, 1, false, recordMVP, 0);
+               glUniform3f(recordColorUniform, recordColor[0], recordColor[1], recordColor[2]);
+               arrowVerticesBuffer.rewind();
+               glVertexAttribPointer(recordShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, arrowVerticesBuffer);
+               glEnableVertexAttribArray(recordShaderGlsl.vertexAttr);
+               arrowFacesBuffer.rewind();
+               glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_SHORT, arrowFacesBuffer.asShortBuffer());
+            }
          }
          if (GLHelper.isGLError(glerrbuf))
             throw new RuntimeException(glerrbuf.toString());
@@ -1015,7 +1074,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       recordingCondVar = new ConditionVariable(false);
       previewer.bufferOn();
       arrowRotation = 0;
-      arrowColor = GREEN;
+      recordColor = GREEN;
       recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
       recordingThread.restore(B);
       recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
@@ -1076,7 +1135,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       if ( (orientationProvider != null) && (orientationProvider.isStarted()) )
          orientationProvider.halt();
-      this.orientationProviderType = orientationProviderType;
+      if (orientationProviderType == null)
+         orientationProviderType = this.orientationProviderType;
+      else
+         this.orientationProviderType = orientationProviderType;
       SensorManager sensorManager = (SensorManager) activity.getSystemService(Activity.SENSOR_SERVICE);
       if (orientationProviderType == ORIENTATION_PROVIDER.DEFAULT)
       {
@@ -1113,8 +1175,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       //--------------------------------------------------------------------
       {
          final float[] RM = new float[16];
-         boolean isSettling = false;
-         int settleCount = 0;
+//         boolean isSettling = false;
+//         int settleCount = 0;
          ProgressParam param = new ProgressParam();
          float lastUIBearing = -1000, lastUpdateBearing = -1000;
 
@@ -1129,19 +1191,19 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             if (currentBearing < 0)
                currentBearing += 360;
             currentBearingTimestamp = timestamp;
-            if (isSettling)
-            {
-               settleCount--;
-               if (settleCount <= 0)
-                  isSettling = false;
-               else
-               {
-//                  param.set(currentBearing, -1, arrowColor);
-//                  activity.onBackgroundStatusUpdate(param);
-                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
-                  return;
-               }
-            }
+//            if (isSettling)
+//            {
+//               settleCount--;
+//               if (settleCount <= 0)
+//                  isSettling = false;
+//               else
+//               {
+////                  param.set(currentBearing, -1, recordColor);
+////                  activity.onBackgroundStatusUpdate(param);
+//                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
+//                  return;
+//               }
+//            }
             if ( (! isRecording) && (Math.abs(currentBearing - lastUIBearing) >= 0.5f) )
             {
                lastUIBearing = currentBearing;
@@ -1150,17 +1212,18 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             }
             else if (isRecording)
             {
-               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
-               {
-                  isSettling = true;
-                  settleCount = 3;
-                  return;
-               }
-               if (Math.abs(currentBearing - lastUpdateBearing) >= 0.01f)
+//               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
+//               {
+//                  isSettling = true;
+//                  settleCount = 3;
+//                  return;
+//               }
+               if (Math.abs(currentBearing - lastUpdateBearing) >= 0.001f)
                {
                   lastUpdateBearing = currentBearing;
                   bearingBuffer.push(timestamp, currentBearing);
-                  recordingCondVar.open();
+                  if (recordingCondVar != null)
+                     recordingCondVar.open();
                }
             }
          }
@@ -1367,7 +1430,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
          finally
          {
-            arrowColor = GREEN;
+            recordColor = GREEN;
             arrowRotation = 0;
             recordFramesFile = null;
             recordFileName = null;

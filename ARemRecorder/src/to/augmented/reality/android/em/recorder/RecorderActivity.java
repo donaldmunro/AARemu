@@ -33,6 +33,9 @@ import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 import com.doubleTwist.drawerlib.ADrawerLayout;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
 import to.augmented.reality.android.em.recorder.fullscreen.*;
 
 import java.io.File;
@@ -86,6 +89,7 @@ public class RecorderActivity extends Activity
    Handler hideHandler;
    Runnable hideRunnable;
    View.OnTouchListener delayHideTouchListener;
+
 // end if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
 
    private class UpdateLocationRunner implements Runnable
@@ -171,13 +175,30 @@ public class RecorderActivity extends Activity
       drawerLayout.setListener(new ADrawerLayout.DrawerLayoutListener()
       {
          // @formatter:off
-         @Override public void onBeginScroll(ADrawerLayout dl, ADrawerLayout.DrawerState state) { }
-         @Override public void onOffsetChanged(ADrawerLayout dl, ADrawerLayout.DrawerState state, float offsetXNorm, float offsetYNorm, int offsetX, int offsetY) { }
-         @Override public void onPreClose(ADrawerLayout dl, ADrawerLayout.DrawerState state) { }
+         @Override
+         public void onBeginScroll(ADrawerLayout dl, ADrawerLayout.DrawerState state)
+         {
+         }
 
-         @Override public void onPreOpen(ADrawerLayout dl, ADrawerLayout.DrawerState state) { isOpeningDrawer = true; }
+         @Override
+         public void onOffsetChanged(ADrawerLayout dl, ADrawerLayout.DrawerState state, float offsetXNorm,
+                                     float offsetYNorm, int offsetX, int offsetY)
+         {
+         }
 
-         @Override public void onClose(ADrawerLayout dl, ADrawerLayout.DrawerState state, int closedDrawerId)
+         @Override
+         public void onPreClose(ADrawerLayout dl, ADrawerLayout.DrawerState state)
+         {
+         }
+
+         @Override
+         public void onPreOpen(ADrawerLayout dl, ADrawerLayout.DrawerState state)
+         {
+            isOpeningDrawer = true;
+         }
+
+         @Override
+         public void onClose(ADrawerLayout dl, ADrawerLayout.DrawerState state, int closedDrawerId)
          //--------------------------------------------------------------------------------------------------
          {
             isDrawerOpen = isOpeningDrawer = false;
@@ -240,16 +261,24 @@ public class RecorderActivity extends Activity
                startRecording();
             else
             {
-               final AlertDialog partialSaveDialog = new AlertDialog.Builder(RecorderActivity.this).setTitle("Partial Save").
-                                                     setMessage("Save incomplete recording").create();
+               final AlertDialog partialSaveDialog =
+                     new AlertDialog.Builder(RecorderActivity.this).setTitle("Partial Save").
+                           setMessage("Save incomplete recording").create();
                partialSaveDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Yes", new DialogInterface.OnClickListener()
                {
-                  @Override public void onClick(DialogInterface dialog, int which) { previewSurface.stopRecording(false); }
+                  @Override
+                  public void onClick(DialogInterface dialog, int which)
+                  {
+                     previewSurface.stopRecording(false);
+                  }
                });
                partialSaveDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "No", new DialogInterface.OnClickListener()
                {
                   @Override
-                  public void onClick(DialogInterface dialog, int which) { previewSurface.stopRecording(true); }
+                  public void onClick(DialogInterface dialog, int which)
+                  {
+                     previewSurface.stopRecording(true);
+                  }
                });
                partialSaveDialog.show();
             }
@@ -326,7 +355,7 @@ public class RecorderActivity extends Activity
       resolutionsSpinner.setSelection(currentResolutionIndex);
       final Spinner modeSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_mode);
       final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
-      incrementSpinner.setSelection(2);
+      incrementSpinner.setSelection(1);
       final Spinner orientationSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_sensors);
       ORIENTATION_PROVIDER[] orientationProviders = ORIENTATION_PROVIDER.values();
       String[] orientationProviderNames = new String[orientationProviders.length];
@@ -365,11 +394,11 @@ public class RecorderActivity extends Activity
             s = (String) modeSpinner.getSelectedItem();
             String[] modes = getResources().getStringArray(R.array.recording_modes);
             if (s.equalsIgnoreCase(modes[0]))
-               mode = GLRecorderRenderer.RecordMode.TRAVERSE2;
-            else if (s.equalsIgnoreCase(modes[1]))
                mode = GLRecorderRenderer.RecordMode.TRAVERSE;
+            else if (s.equalsIgnoreCase(modes[1]))
+               mode = GLRecorderRenderer.RecordMode.MERGE;
             else
-               mode = GLRecorderRenderer.RecordMode.RETRY;
+               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
 
             if (headerFile.exists())
             {
@@ -401,6 +430,12 @@ public class RecorderActivity extends Activity
                      }
                      overwriteDialog.dismiss();
                      int[] wh = resolutionSpinnerAdapter.getWidthHeight(currentResolutionIndex);
+                     if ( (wh == null) || (wh.length < 2) )
+                     {
+                        Toast.makeText(RecorderActivity.this, "Could not ascertain available resolutions",
+                                       Toast.LENGTH_LONG).show();
+                        return;
+                     }
                      previewSurface.startPreview(wh[0], wh[1]);
                      startRecording(name, increment, orientationSensorType, fileFormat, mode);
                   }
@@ -418,6 +453,12 @@ public class RecorderActivity extends Activity
             {
                recordDialog.dismiss();
                int[] wh = resolutionSpinnerAdapter.getWidthHeight(currentResolutionIndex);
+               if ( (wh == null) || (wh.length < 2) )
+               {
+                  Toast.makeText(RecorderActivity.this, "Could not ascertain available resolutions",
+                                 Toast.LENGTH_LONG).show();
+                  return;
+               }
                previewSurface.startPreview(wh[0], wh[1]);
                startRecording(name, increment, orientationSensorType, fileFormat, mode);
             }
@@ -516,6 +557,28 @@ public class RecorderActivity extends Activity
 //      }
    }
 
+   public void userRecalibrate(final ConditionVariable cond, final String message)
+   //-----------------------------------------------------------------------------
+   {
+      runOnUiThread(new Runnable()
+      {
+         @Override
+         public void run()
+         //--------------
+         {
+            final AlertDialog calibrateDialog = new AlertDialog.Builder(RecorderActivity.this).setTitle("Calibrate").
+                  setMessage(message).create();
+            calibrateDialog.setButton(AlertDialog.BUTTON_POSITIVE, "OK", new DialogInterface.OnClickListener()
+            {
+               @Override
+               public void onClick(DialogInterface dialog, int which) { cond.open(); }
+            });
+            calibrateDialog.show();
+         }
+      });
+
+   }
+
    private void setupFullScreen(final View controlsView)
    //---------------------------------------------------
    {
@@ -593,11 +656,30 @@ public class RecorderActivity extends Activity
       previewSurface.onRestoreInstanceState(savedInstanceState);
    }
 
+   private BaseLoaderCallback loaderCallback = new BaseLoaderCallback(this)
+   //======================================================================
+   {
+      @Override
+      public void onManagerConnected(int status)
+      {
+         switch (status)
+         {
+            case LoaderCallbackInterface.SUCCESS:
+               Log.i(TAG, "OpenCV loaded successfully");
+               break;
+            default:
+               super.onManagerConnected(status);
+               break;
+         }
+      }
+   };
+
    @Override
    protected void onResume()
    //-----------------------
    {
       super.onResume();
+      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_9, this, loaderCallback);
       previewSurface.onResume();
       if ( (previewSurface.isRecording()) || (previewSurface.isStoppingRecording()) )
       {
@@ -774,7 +856,13 @@ public class RecorderActivity extends Activity
          super(context, resource, (resolutions != null) ? resolutions : new String[0]);
       }
 
-      public int[] getWidthHeight(int position) { return getWidthHeight(getItem(position)); }
+      public int[] getWidthHeight(int position)
+      //---------------------------------------
+      {
+         if (position < 0)
+            return null;
+         return getWidthHeight(getItem(position));
+      }
 
       static public int[] getWidthHeight(String previewResolution)
       //----------------------------------------------------------

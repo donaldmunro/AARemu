@@ -71,6 +71,14 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    float fovx = 0;
    float fovy = 0;
 
+   public interface FrameListenable
+   {
+      void onFrameAvailable(byte[] data, long timestamp);
+   }
+
+   volatile private FrameListenable frameListener = null;
+   public void setFrameListener(FrameListenable listener) { frameListener = listener; }
+
    public CameraPreviewThread(GLRecorderRenderer renderer, boolean isInitCamera)
    //-------------------------------------------------------------------------------
    {
@@ -355,6 +363,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
          if (totalsize <= availSize)
             break;
       }
+      n = 3;
       frameBuffer = new RecorderRingBuffer(n, renderer.nv21BufferSize);
       Log.i(TAG, "Buffer size " + n + " x " + renderer.nv21BufferSize + " = " + n * renderer.nv21BufferSize);
       this.bufferSize = renderer.nv21BufferSize;
@@ -424,7 +433,8 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
 //         yuvToRgb.forEach(aOut);
 //         synchronized (this) { aOut.copyTo(previewBuffer); }
 //         Log.i(TAG, "NV21 to RGBA Time = " + (SystemClock.elapsedRealtimeNanos() - timestamp) + " NS");
-
+         if (frameListener != null)
+            frameListener.onFrameAvailable(data, timestamp);
          if (mustBuffer)
             frameBuffer.push(timestamp, data);
          frameAvailCondVar.open();
@@ -433,8 +443,6 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
       {
          Log.e(TAG, "", e);
       }
-//      Log.i(TAG, "onPreviewFrame: Processing time " + (SystemClock.elapsedRealtimeNanos() - timestamp));
-
    }
 
    public long awaitFrame(long frameBlockTimeMs, byte[] previewBuffer)

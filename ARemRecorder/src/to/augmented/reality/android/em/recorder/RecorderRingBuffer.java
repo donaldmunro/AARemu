@@ -30,7 +30,7 @@ public class RecorderRingBuffer
    }
 
    RingBufferContent[] buffers;
-   int head, tail, length, count, size;
+   volatile int head, tail, length, count, size;
    public synchronized int length() { return length; }
 
    public RecorderRingBuffer(int count, int size)
@@ -128,6 +128,40 @@ public class RecorderRingBuffer
          System.arraycopy(buffers[index].buffer, 0, buffer, 0, size);
       }
       return ts;
+   }
+
+   public RingBufferContent findHead(final long timestampCompareNS, final long epsilonNS, byte[] buffer)
+   //------------------------------------------------------------------
+   {
+      if (length == 0)
+         return null;
+      int index, len;
+      final long gt, le;
+      synchronized(this)
+      {
+         index = indexDecrement(head);
+         gt = timestampCompareNS - epsilonNS;
+         le = timestampCompareNS + epsilonNS;
+         len = length;
+      }
+      for (int i=0; i<len; i++)
+      {
+         final RingBufferContent rbc = buffers[index];
+         if (! rbc.isUsed)
+         {
+            final long ts = rbc.timestamp;
+            if (gt > ts)
+               return null;
+            if ( (ts >= gt) && (ts <= le) )
+            {
+               System.arraycopy(rbc.buffer, 0, buffer, 0, size);
+//               rbc.isUsed = true;
+               return rbc;
+            }
+         }
+         index = indexDecrement(index);
+      }
+      return null;
    }
 
    public synchronized long findBest(long timestampCompareNS, long epsilonNS, byte[] buffer)
