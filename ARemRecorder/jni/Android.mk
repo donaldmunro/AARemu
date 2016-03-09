@@ -24,7 +24,6 @@ LOCAL_C_INCLUDES = $(HOME)/opencv/native/jni/include/
 LOCAL_LDLIBS := -lstdc++
 LOCAL_LDLIBS += -llog
 LOCAL_LDLIBS += -lz
-
 #LOCAL_STATIC_LIBRARIES += opencv_core
 #LOCAL_STATIC_LIBRARIES += opencv_imgproc
 #ifneq ($(TARGET_ARCH_ABI), arm64-v8a)

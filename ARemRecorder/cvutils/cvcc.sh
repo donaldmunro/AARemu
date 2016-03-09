@@ -7,4 +7,4 @@ then
    extension="cc"
 fi
 
-g++ -Wall -std=c++11 $filename.$extension -o $filename $LIBS
+g++ -Wall -std=c++11 -I/usr/include $filename.$extension -o $filename $LIBS

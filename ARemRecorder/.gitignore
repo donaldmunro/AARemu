@@ -1,1 +1,4 @@
-/build
+build/
+obj/
+archive/
+jni/opencv/native

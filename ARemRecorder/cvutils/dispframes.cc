@@ -13,7 +13,7 @@ int main(int argc, char **argv)
    const int height = 480, width = 640;
    int x = 0, y = 0, bufsize = 640*480*4;
    float increment = 1.0;
-   int pause = 500;
+   int pause = 300;
    std::string outputname("");
    if (argc < 2)
    {   
@@ -70,7 +70,7 @@ int main(int argc, char **argv)
    long no = (long) (360.0 / increment);
    std::cout << no << std::endl;
    std::stringstream ss;
-   for (long offset=0; offset<no*bufsize; offset += bufsize)
+   for (long offset=0; offset<no*bufsize;)
    {      
       framesfile.seekp(offset, std::ios_base::beg);            
       framesfile.read((char *) buf1, bufsize);
@@ -88,10 +88,25 @@ int main(int argc, char **argv)
       ss << std::fixed << std::setprecision(1) << bearing;
       cv::putText(rgba1, ss.str(), cvPoint(30,30), CV_FONT_HERSHEY_COMPLEX_SMALL, 0.8, cvScalar(0, 0, 255), 1, CV_AA);
       cv::imshow("frame", rgba1);            
-      int c = cvWaitKey(pause);
-      if (c == 44) // <
-         offset -= (bufsize << 1);
-      else if (c == 46) // >
-         offset += bufsize;
+      int c = cv::waitKey(pause);
+      std::cout << "key " << c << std::endl;
+      switch (c)
+      {
+         case 1048688:
+            while (cv::waitKey(20) != 1048688);
+            break;
+         case 1113937:
+            offset -= bufsize;
+            if (offset < 0)
+               offset = bufsize*359;
+            continue;
+         case 1113939: // >
+            offset += bufsize;
+            break;
+         case 1048603:
+            offset = no*bufsize;
+            break;            
+      }
+      offset += bufsize;
    }
 }

@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
    compileSdkVersion 22
-   buildToolsVersion "22.0.1"
+   buildToolsVersion '23.0.2'
 
    defaultConfig {
       applicationId "to.augmented.reality.android.em.recorder"
@@ -10,8 +10,8 @@ android {
       targetSdkVersion 22
       renderscriptTargetApi 18
         renderscriptSupportModeEnabled true
-      versionCode 17
-        versionName '1.1.2'
+      versionCode 18
+        versionName '1.1.3'
    }
 
    android {
