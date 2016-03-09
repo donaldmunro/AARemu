@@ -35,8 +35,21 @@ public class DirtyPlaybackThread extends PlaybackThread
 {
    final static private String TAG = DirtyPlaybackThread.class.getSimpleName();
 
-   public DirtyPlaybackThread(Context context, ARCamera camera, File framesFile, int bufferSize,
+   public DirtyPlaybackThread(Context context, ARCameraCommon camera, File framesFile, int bufferSize,
                               float recordingIncrement, Camera.PreviewCallback callback,
+                              boolean isOneShot, BearingListener bearingListener,
+                              ArrayBlockingQueue<byte[]> bufferQueue,
+                              OrientationProvider.ORIENTATION_PROVIDER providerType,
+                              ARCamera.RecordFileFormat fileFormat)
+   //-------------------------------------------------------------------------------------------
+   {
+      super(context, camera, framesFile, bufferSize, recordingIncrement, callback, isOneShot, bearingListener,
+            bufferQueue, providerType, fileFormat);
+      bearingAvailCondVar = new ConditionVariable(false);
+   }
+
+   public DirtyPlaybackThread(Context context, ARCameraCommon camera, File framesFile, int bufferSize,
+                              float recordingIncrement, ARCameraDevice.ARCaptureCallback callback,
                               boolean isOneShot, BearingListener bearingListener,
                               ArrayBlockingQueue<byte[]> bufferQueue,
                               OrientationProvider.ORIENTATION_PROVIDER providerType,
@@ -102,7 +115,10 @@ public class DirtyPlaybackThread extends PlaybackThread
                }
                startBearing = offset;
                endBearing = startBearing + recordingIncrement;
-               callback.onPreviewFrame(frameBuffer, null);
+               if (previewCallback != null)
+                  previewCallback.onPreviewFrame(frameBuffer, null);
+               else
+                  captureCallback.onPreviewFrame(frameBuffer);
                if (! isUseBuffer)
                   bufferQueue.add(frameBuffer);
             }

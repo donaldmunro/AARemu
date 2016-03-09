@@ -78,6 +78,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
 
    volatile private FrameListenable frameListener = null;
    public void setFrameListener(FrameListenable listener) { frameListener = listener; }
+   public FrameListenable getFrameListener() { return frameListener; }
 
    public CameraPreviewThread(GLRecorderRenderer renderer, boolean isInitCamera)
    //-------------------------------------------------------------------------------
@@ -450,13 +451,17 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    {
       frameAvailCondVar.close();
       if (frameAvailCondVar.block(frameBlockTimeMs))
-      {
-         synchronized (this)
-         {
-            return frameBuffer.peek(previewBuffer);
-         }
-//         return findFirstBufferAtTimestamp(targetTimeStamp, epsilon, previewBuffer);
-      }
+         return frameBuffer.peek(previewBuffer);
+//         return findFirstBufferAtTimestamp(targetTimeStamp, EPSILON, previewBuffer);
+      return -1;
+   }
+
+   public long awaitFrameTime(long frameBlockTimeMs)
+   //-----------------------------------------------
+   {
+      frameAvailCondVar.close();
+      if (frameAvailCondVar.block(frameBlockTimeMs))
+         return frameBuffer.peekTime();
       return -1;
    }
 

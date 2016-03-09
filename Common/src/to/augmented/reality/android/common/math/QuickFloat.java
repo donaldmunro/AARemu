@@ -114,29 +114,16 @@ public class QuickFloat
 
    public static float abs(float x) { return (float) Math.abs(x); }
 
-   public static boolean equals(float a, float b, float epsilon)
-   //----------------------------------------------------------
-   {
-      final float absA = Math.abs(a);
-      final float absB = Math.abs(b);
-      final float diff = Math.abs(a - b);
-
-      if (a == b)
-         return true;
-      else if (a == 0 || b == 0 || diff < Float.MIN_NORMAL)
-         return diff < (epsilon * Float.MIN_NORMAL);
-      else
-         return diff / (absA + absB) < epsilon;
-   }
+   public static boolean equals(float A, float B, float epsilon) { return (Math.abs(A - B) <= epsilon); }
 
    public static int compare(float x, float y, float epsilon)
    //--------------------------------------------------------
    {
-      final float delta = x - y;
-      if (equals(x, y, epsilon))
+      float diff = x - y;
+      if (Math.abs(diff) <= epsilon)
          return 0;
       else
-         return (int) Math.signum(delta);
+         return (int) Math.signum(diff);
    }
 
    public static float asin(float v) { return (float) Math.asin(v); }

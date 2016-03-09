@@ -16,21 +16,35 @@
 
 package to.augmented.reality.android.em.opencv.sample;
 
-import android.app.*;
-import android.hardware.*;
-import android.location.*;
-import android.os.*;
-import android.util.*;
-import android.view.*;
-import android.widget.*;
-import com.doubleTwist.drawerlib.*;
-import org.opencv.android.*;
-import org.opencv.core.*;
-import to.augmented.reality.android.aremu.opencv.*;
-import to.augmented.reality.android.em.*;
+import android.app.ActionBar;
+import android.app.Activity;
+import android.app.FragmentTransaction;
+import android.hardware.Camera;
+import android.location.Location;
+import android.location.LocationListener;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.util.Log;
+import android.view.SurfaceView;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.TextView;
+import android.widget.Toast;
+import com.doubleTwist.drawerlib.ADrawerLayout;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.Mat;
+import to.augmented.reality.android.aremu.opencv.EmulatorCameraView;
+import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.BearingListener;
 
-import java.io.*;
-import java.util.*;
+import java.io.File;
+import java.util.Locale;
 
 public class MainActivity extends Activity implements OpenDialog.DialogCloseable
 //==============================================================================
@@ -395,7 +409,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    //-----------------------
    {
       super.onResume();
-      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_9, this, loaderCallback);
+      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_11, this, loaderCallback);
       if ( (headerFile != null) && (framesFile != null) )
          cameraView.setRecordingFiles(headerFile, framesFile);
    }

@@ -23,7 +23,9 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
+import android.os.Build;
 import android.util.Log;
+import android.util.Pair;
 import android.widget.Toast;
 import to.augmented.reality.android.common.gl.*;
 import to.augmented.reality.android.em.ARCamera;
@@ -57,7 +59,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
    private int cameraId = -1;
    private Camera.PreviewCallback previewCallback;
 
-   private boolean isUseOwnBuffers;
+   private boolean isUseOwnBuffers = true;
 
    private int previewWidth = -1, previewHeight =-1;
    private SurfaceTexture previewSurfaceTexture = null;
@@ -72,7 +74,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
    final Object lockSurface = new Object();
    volatile boolean isUpdateSurface = false;
 
-   private int previewTexture = -1;
+   private GLTexture previewTexture;
    private int bufferSize = 0, nv21BufferSize = 0;
    private int previewMVPLocation =-1, cameraTextureUniform =-1;
    private float[] previewMVP = new float[16];
@@ -107,6 +109,8 @@ public class GLRenderer implements GLSurfaceView.Renderer
       Matrix.setIdentityM(previewMVP, 0);
    }
 
+   GLTexture.TextureFormat textureFormat = null;
+
    public void setPreviewFiles(File headerFile, File framesFile)
    //----------------------------------------------------------
    {
@@ -135,57 +139,96 @@ public class GLRenderer implements GLSurfaceView.Renderer
       this.screenHeight = height;
       displayWidth = width - 1;
       displayHeight = height - 1;
-
-      if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
-      {
-         int[] texnames = new int[1];
-         glGenTextures(1, texnames, 0);
-         previewTexture = texnames[0];
-
-         glActiveTexture(GL_TEXTURE0);
-         glBindTexture(GL_TEXTURE_2D, previewTexture);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-         glBindTexture(GL_TEXTURE_2D, 0);
-         isUpdateTexture = true;
-      }
       initRender();
    }
-   
+
    public boolean startPreview()
    //---------------------------
    {
       if (camera == null) return false;
-      isUseOwnBuffers = true;
-      stopPreview();
-      setupPreview();
-      if (previewTexture < 0)
-         throw new RuntimeException("Preview texture has not been initialised by OpenGL glGenTextures");
-      else
+      if (isPreviewing)
       {
-         previewSurfaceTexture = new SurfaceTexture(10);
          try
          {
-            previewCallback = new CameraPreviewCallback();
-            if (isUseOwnBuffers)
-            {
-               camera.setPreviewCallbackWithBuffer(previewCallback);
-               camera.addCallbackBuffer(cameraBuffer);
-            }
-            else
-               camera.setPreviewCallback(previewCallback);
-            camera.setPreviewTexture(previewSurfaceTexture);
-            camera.startPreview();
-            isPreviewing = true;
+            camera.setPreviewCallbackWithBuffer(null);
+            camera.stopPreview();
+            isPreviewing = false;
+            previewCallback = null;
          }
-         catch (final Exception e)
+         catch (Exception e)
          {
-            Log.e(TAG, "Initialising camera preview", e);
-            toast("Error initialising camera preview: " + e.getMessage());
-            return false;
+            Log.e(TAG, "", e);
          }
+      }
+      Camera.Size cameraSize = camera.getParameters().getPreviewSize();
+      previewWidth = cameraSize.width;
+      previewHeight = cameraSize.height;
+
+      if ( (previewWidth < 0) || (previewHeight < 0) )
+         throw new RuntimeException("Invalid resolution " + previewWidth + "x" + previewHeight);
+
+      bufferSize = camera.getHeaderInt("BufferSize", -1);
+      if (bufferSize <= 0)
+      {
+         switch (camera.getFileFormat())
+         {
+            case RGB:      bufferSize = previewWidth * previewHeight * 3;
+               bufferSize += bufferSize % 4;
+               break;
+            case RGBA:     bufferSize = previewWidth * previewHeight * 4; break;
+            case RGB565:   bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8; break;
+            case NV21:     bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;    break;
+            default: throw new RuntimeException("Cannot determine buffer size. (BufferSize and FileFormat are missing from the header file");
+         }
+      }
+      switch (camera.getFileFormat())// == ARCamera.RecordFileFormat.NV21)
+      {
+         case NV21:
+            nv21BufferSize = bufferSize;
+            bufferSize = previewWidth * previewHeight * 4;
+            if (isUseOwnBuffers)
+               cameraBuffer  = new byte[nv21BufferSize];
+            break;
+         case RGB:
+            bufferSize += bufferSize % 4;
+         case RGBA:
+         case RGB565:
+            if (isUseOwnBuffers)
+               cameraBuffer  = new byte[bufferSize];
+      }
+      previewBuffer = null;
+      if (previewByteBuffer != null)
+         previewByteBuffer.clear();
+      previewByteBuffer = null;
+      previewBuffer = new byte[bufferSize];
+
+      previewByteBuffer = ByteBuffer.allocateDirect(bufferSize);
+      previewByteBuffer.put(previewBuffer);
+      previewByteBuffer.rewind();
+      previewSurfaceTexture = new SurfaceTexture(10);
+      try
+      {
+         Camera.Parameters cameraParameters = camera.getParameters();
+         cameraParameters.setPreviewSize(previewWidth, previewHeight);
+         cameraParameters.setPreviewFormat(ImageFormat.NV21);
+         camera.setParameters(cameraParameters);
+         previewCallback = new CameraPreviewCallback();
+         if (isUseOwnBuffers)
+         {
+            camera.setPreviewCallbackWithBuffer(previewCallback);
+            camera.addCallbackBuffer(cameraBuffer);
+         }
+         else
+            camera.setPreviewCallback(previewCallback);
+         camera.setPreviewTexture(previewSurfaceTexture);
+         camera.startPreview();
+         isPreviewing = true;
+      }
+      catch (final Exception e)
+      {
+         Log.e(TAG, "Initialising camera preview", e);
+         toast("Error initialising camera preview: " + e.getMessage());
+         return false;
       }
       return true;
    }
@@ -199,7 +242,19 @@ public class GLRenderer implements GLSurfaceView.Renderer
          throw new RuntimeException("Invalid resolution " + previewWidth + "x" + previewHeight);
 
       final int bytes = 4;
-      bufferSize = previewWidth * previewHeight * bytes + 4096;
+      if (bufferSize <= 0)
+      {
+         switch (camera.getFileFormat())
+         {
+            case RGB:      bufferSize = previewWidth * previewHeight * 3;
+                           bufferSize += bufferSize % 4;
+                           break;
+            case RGBA:     bufferSize = previewWidth * previewHeight * 4; break;
+            case RGB565:   bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8; break;
+            case NV21:     bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;    break;
+            default: throw new RuntimeException("Cannot determine buffer size. (BufferSize and FileFormat are missing from the header file");
+         }
+      }
       previewBuffer = null;
       if (previewByteBuffer != null)
          previewByteBuffer.clear();
@@ -309,8 +364,40 @@ public class GLRenderer implements GLSurfaceView.Renderer
          if (camera == null)
             return false;
          camera.setFiles(headerFile, framesFile);
-//         setDisplayOrientation();
+         camera.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+//         setDisplayOrientation();         
          camera.setDisplayOrientation(180);
+         Camera.Parameters cameraParameters = camera.getParameters();
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+            if (cameraParameters.isVideoStabilizationSupported())
+               cameraParameters.setVideoStabilization(true);
+         List<Camera.Size> L = cameraParameters.getSupportedPreviewSizes();
+         Camera.Size sz = cameraParameters.getPreviewSize();
+         List<String> focusModes = cameraParameters.getSupportedFocusModes();
+//         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
+//            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+//         else
+         if  (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
+            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
+         if (cameraParameters.isZoomSupported())
+            cameraParameters.setZoom(0);
+         cameraParameters.setPreviewFrameRate(30000);
+         camera.setParameters(cameraParameters);
+         ARCamera.RecordFileFormat fileFormat = camera.getFileFormat();
+         switch (fileFormat)
+         {
+            case NV21:
+            case RGBA:
+               textureFormat = GLTexture.TextureFormat.RGBA;
+               break;
+            case RGB:  // Not always a safe option, see http://www.opengl.org/wiki/Common_Mistakes#Texture_upload_and_pixel_reads
+               textureFormat = GLTexture.TextureFormat.RGB;
+               break;
+            case RGB565:
+               textureFormat = GLTexture.TextureFormat.RGB565;
+               break;
+            default: throw new RuntimeException(fileFormat.name() + ": Unknown recording file format");
+         }
          return true;
       }
       catch (Exception e)
@@ -400,7 +487,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
 
    private float[] arrowModelView = new float[16], scaleM = new float[16], translateM = new float[16],
                    rotateM = new float[16], modelM = new float[16];
-   boolean isUpdateTexture = true;
+   boolean isUpdateTexture = true, isReloadTexture = true;
 
    @Override
    public void onDrawFrame(GL10 gl)
@@ -408,36 +495,33 @@ public class GLRenderer implements GLSurfaceView.Renderer
    {
       StringBuilder errbuf = new StringBuilder();
       boolean isPreviewed = false;
+      if ( (textureFormat != null) && ( (previewTexture == null) || (! previewTexture.isValid()) ) )
+      {
+         previewTexture = GLTexture.create(GL_TEXTURE0, GL_TEXTURE_2D, textureFormat, cameraTextureUniform);
+         if (! previewTexture.setIntParameters(Pair.create(GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE),
+                                               Pair.create(GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE),
+                                               Pair.create(GL_TEXTURE_MIN_FILTER, GL_LINEAR),
+                                               Pair.create(GL_TEXTURE_MAG_FILTER, GL_LINEAR)))
+         {
+            Log.w(TAG, "Preview texture parameter set error. " + previewTexture.lastError() + ": " +
+                  previewTexture.lastErrorMessage());
+         }
+         isReloadTexture = true;
+      }
       try
       {
          glViewport(0, 0, screenWidth, screenHeight);
          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
          glUseProgram(previewShaderGlsl.shaderProgram);
-         glActiveTexture(GL_TEXTURE0);
-         glUniform1i(cameraTextureUniform, 0);
-         glBindTexture(GL_TEXTURE_2D, previewTexture);
          synchronized (lockSurface)
          {
-            if (isUpdateSurface)
+            if ( (isUpdateSurface) && (previewTexture != null) )
             {
                isPreviewed = true;
                isUpdateSurface = false;
-               glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-               previewByteBuffer.rewind();
-               if (isUpdateTexture)
-               {
-                  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, previewWidth, previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                               previewByteBuffer);
-                  isUpdateTexture = false;
-               }
-               else
-               {
-                  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, previewWidth, previewHeight, GL_RGBA, GL_UNSIGNED_BYTE,
-                                  previewByteBuffer);
-                  if (glGetError() == 502)
-                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, previewWidth, previewHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                                  previewByteBuffer);
-               }
+               if (! previewTexture.load(previewByteBuffer, previewWidth, previewHeight, (!isReloadTexture)))
+                  throw new RuntimeException("Texture error: " + previewTexture.lastError() + ": " +
+                                             previewTexture.lastErrorMessage());
             }
          }
 
@@ -679,8 +763,10 @@ public void pause() { stopCamera(); }
    protected void resume()
    //-----------------------
    {
-//      initCamera();
-//      initRender();
+      if ( (headerFile != null) && (headerFile.exists()) && (framesFile != null) && (framesFile.exists()) )
+         try { initCamera(); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); throw new RuntimeException("Camera initialization", e); }
+      if (isPreviewing)
+         startPreview();
    }
    public void stopReview() { camera.stopReview(); }
 

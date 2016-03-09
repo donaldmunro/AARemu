@@ -21,6 +21,7 @@ import android.hardware.Camera;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.ConditionVariable;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import to.augmented.reality.android.common.math.*;
 import to.augmented.reality.android.common.sensor.orientation.*;
@@ -45,9 +46,10 @@ abstract public class PlaybackThread implements Runnable
    final Context context;
    final protected int bufferSize;
    final protected float recordingIncrement;
-   protected final Camera.PreviewCallback callback;
+   protected final Camera.PreviewCallback previewCallback;
+   protected final ARCameraDevice.ARCaptureCallback captureCallback;
    protected final boolean isOneShot;
-   protected final ARCamera camera;
+   protected final ARCameraCommon camera;
    protected ConditionVariable bearingAvailCondVar = null;
    protected final BearingListener bearingListener;
    protected ArrayBlockingQueue<byte[]> bufferQueue;
@@ -82,21 +84,55 @@ abstract public class PlaybackThread implements Runnable
    private Future<?> reviewFuture;
    private int reviewPause = 0;
 
-   public PlaybackThread(Context context, ARCamera camera, File framesFile, int bufferSize, float recordingIncrement,
+   public PlaybackThread(@NonNull Context context, @NonNull ARCameraCommon camera, @NonNull File framesFile,
+                         int bufferSize, float recordingIncrement,
                          Camera.PreviewCallback callback, boolean isOneShot,
-                         BearingListener bearingListener, ArrayBlockingQueue<byte[]> bufferQueue,
+                         @NonNull BearingListener bearingListener, @NonNull ArrayBlockingQueue<byte[]> bufferQueue,
                          ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat)
    //----------------------------------------------------------------------------------------------
    {
+      if (context == null)
+         throw new RuntimeException("Context cannot be null");
       this.context = context;
       this.camera = camera;
       this.fileLen = framesFile.length();
+      if ( (framesFile == null) || (! framesFile.canRead()) )
+         throw new RuntimeException("Frames file " + framesFile + " null or not readable");
       this.framesFile = framesFile;
       this.bufferSize = bufferSize;
       this.recordingIncrement = (float) (Math.rint(recordingIncrement*10.0f)/10.0);
-      this.callback = callback;
+      this.previewCallback = callback;
+      this.captureCallback = null;
       if (callback == null)
-         throw new RuntimeException("callback cannot be null");
+         throw new RuntimeException("previewCallback cannot be null");
+      this.isOneShot = isOneShot;
+      this.bearingListener = bearingListener;
+      this.bufferQueue = bufferQueue;
+      this.providerType = providerType;
+      this.fileFormat = fileFormat;
+   }
+
+   public PlaybackThread(@NonNull Context context, @NonNull ARCameraCommon camera, @NonNull File framesFile,
+                         int bufferSize, float recordingIncrement,
+                         @NonNull ARCameraDevice.ARCaptureCallback callback, boolean isOneShot,
+                         @NonNull BearingListener bearingListener, @NonNull ArrayBlockingQueue<byte[]> bufferQueue,
+                         ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat)
+   //----------------------------------------------------------------------------------------------
+   {
+      if (context == null)
+         throw new RuntimeException("Context cannot be null");
+      this.context = context;
+      this.camera = camera;
+      this.fileLen = framesFile.length();
+      if ( (framesFile == null) || (! framesFile.canRead()) )
+         throw new RuntimeException("Frames file " + framesFile + " null or not readable");
+      this.framesFile = framesFile;
+      this.bufferSize = bufferSize;
+      this.recordingIncrement = (float) (Math.rint(recordingIncrement*10.0f)/10.0);
+      this.previewCallback = null;
+      this.captureCallback = callback;
+      if (callback == null)
+         throw new RuntimeException("previewCallback cannot be null");
       this.isOneShot = isOneShot;
       this.bearingListener = bearingListener;
       this.bufferQueue = bufferQueue;

@@ -33,7 +33,8 @@ public class BearingRingBuffer
    }
 
    RingBufferContent[] bearings;
-   int head, tail, length, count;
+   volatile int head, tail, length;
+   final int count;
 
    public BearingRingBuffer(int count)
    //---------------------------------
@@ -117,6 +118,14 @@ public class BearingRingBuffer
       return null;
    }
 
+   public synchronized long peekTime()
+   //---------------------------------
+   {
+      if (length > 0)
+         return bearings[tail].timestamp;
+      return -1;
+   }
+
    public synchronized RingBufferContent peekHead()
    //----------------------------------------------
    {
@@ -128,47 +137,56 @@ public class BearingRingBuffer
       return null;
    }
 
-   public RingBufferContent find(final long timestampCompareNS, final long epsilonNS)
-   //-------------------------------------------------------------------------------------
+   public RingBufferContent find(final long timestampCompareNS, final long epsilonBeforeNS,
+                                              final long epsilonAfterNS)
+   //-------------------------------------------------------------------------------------------------------------
    {
-      int index, len;
-      long gt, le;
-      synchronized(this)
-      {
-         if (length == 0)
-            return null;
-         index = indexDecrement(head);
-         gt = timestampCompareNS - epsilonNS;
-         le = timestampCompareNS + epsilonNS;
-         len = length;
-      }
+      if (length == 0) return null;
+      final long gt = timestampCompareNS - epsilonBeforeNS;
+      final long lt = timestampCompareNS + epsilonAfterNS;
+      int index;
+      final int len;
+      synchronized (this) { len = length; index = indexDecrement(head); }
       for (int i=0; i<len; i++)
       {
          final long ts = bearings[index].timestamp;
          if (gt > ts)
          {
-//            Log.i("BearingRingBuffer", "find terminate " + gt + " " + timestampCompareNS + " " + ts + " " + (timestampCompareNS - ts));
+//            Log.i("BearingRingBuffer", "find terminate " + gt + " " + ts + " " + lt + " item " + i);
             return null;
          }
-//         Log.i("BearingRingBuffer", " ts = " + (float) ts/1000000 + " gt = " + (float) gt/1000000 + " " + (gt > ts));
-         if ( (ts >= gt) && (ts <= le) )
+         if ( (ts >= gt) && (ts <= lt) )
             return new RingBufferContent(bearings[index]);
          index = indexDecrement(index);
       }
       return null;
    }
 
-   public synchronized RingBufferContent findClosest(long timestampCompareNS, long epsilonNS)
-   //-------------------------------------------------------------------------------------
+   public RingBufferContent findClosest(final long timestampCompareNS, final long epsilonBeforeNS,
+                                                     final long epsilonAfterNS)
+   //-------------------------------------------------------------------------------------------------------------
    {
       if (length == 0)
          return null;
-      int index = indexDecrement(head), ii = -1;
+      final long gt = timestampCompareNS - epsilonBeforeNS;
+      final long lt = timestampCompareNS + epsilonAfterNS;
+      int index;
+      final int len;
+      int ii = -1;
       long mindiff = Long.MAX_VALUE;
-      for (int i=0; i<length; i++)
+      synchronized (this) { len = length; index = indexDecrement(head); }
+      for (int i=0; i<len; i++)
       {
          final long ts = bearings[index].timestamp;
-         if ( (ts >= (timestampCompareNS - epsilonNS)) && (ts <= (timestampCompareNS + epsilonNS)) )
+//         Log.i("BearingRingBuffer", "findClosest " + gt/1000000 + " " + ts/1000000 + " " + lt/1000000 + " item " + i+ " "
+//               + ( (ts >= gt) && (ts <= lt) ));
+         if (gt > ts)
+         {
+//            Log.i("BearingRingBuffer", "findClosest terminate " + gt/1000000 + " " + ts/1000000 + " " + lt/1000000 +
+//                  " item " + i + " " + ( (ts >= gt) && (ts <= lt) ));
+            break;
+         }
+         if ( (ts >= gt) && (ts <= lt) )
          {
             final long diff = Math.abs(ts - timestampCompareNS);
             if (diff < mindiff)

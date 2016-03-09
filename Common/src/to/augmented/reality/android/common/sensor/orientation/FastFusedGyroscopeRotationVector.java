@@ -32,7 +32,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
    /**
     * The quaternion that stores the difference that is obtained by the gyroscope.
     * Basically it contains a rotational difference encoded into a quaternion.
-    * <p/>
+     * 
     * To obtain the absolute orientation one must add this into an initial position by
     * multiplying it with another quaternion
     */
@@ -100,7 +100,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
     * (gyroscope orientation and rotationVector orientation) falls below this threshold (ideally it should be 1,
     * if they are exactly the same) the system falls back to the gyroscope values only and just ignores the
     * rotation vector.
-    * <p/>
+     * 
     * This value should be quite high (> 0.7) to filter even the slightest discrepancies that causes jumps when
     * tiling the device. Possible values are between 0 and 1, where a value close to 1 means that even a very small
     * difference between the two sensors will be treated as outlier, whereas a value close to zero means that the
@@ -114,7 +114,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
     * (gyroscope orientation and rotationVector orientation) falls below this threshold (ideally it should be 1, if
     * they are exactly the same), the system will start increasing the panic counter (that probably indicates a
     * gyroscope failure).
-    * <p/>
+     * 
     * This value should be lower than OUTLIER_THRESHOLD (0.5 - 0.7) to only start increasing the panic counter,
     * when there is a
     * huge discrepancy between the two fused sensors.
@@ -124,7 +124,7 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
    /**
     * The threshold that indicates that a chaos state has been established rather than just a temporary peak in the
     * rotation vector (caused by exploding angled during fast tilting).
-    * <p/>
+     * 
     * If the chaosCounter is bigger than this threshold, the current position will be reset to whatever the
     * rotation vector indicates.
     */

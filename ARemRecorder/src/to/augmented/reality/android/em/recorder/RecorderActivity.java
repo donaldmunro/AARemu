@@ -21,25 +21,49 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationManager;
-import android.os.*;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.ConditionVariable;
+import android.os.Environment;
+import android.os.Handler;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.util.Log;
-import android.view.*;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.*;
+import android.webkit.WebView;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ProgressBar;
+import android.widget.Spinner;
+import android.widget.SpinnerAdapter;
+import android.widget.TextView;
+import android.widget.Toast;
 import com.doubleTwist.drawerlib.ADrawerLayout;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
-import to.augmented.reality.android.em.recorder.fullscreen.*;
+import to.augmented.reality.android.em.recorder.fullscreen.SystemUiHider;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +92,16 @@ public class RecorderActivity extends Activity
          }
          try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
       }
+
+// If using OpenCL compiled version (see jni/opencv/README)
+//      try
+//      {
+//         System.loadLibrary("opencv_java3");
+//      }
+//      catch (Exception e)
+//      {
+//         Log.e(TAG, "Error loading native library libopencv_java3.so for " + System.getProperty("os.arch"), e);
+//      }
    }
    private static final int AUTO_HIDE_DELAY_MILLIS = 2000;
 
@@ -78,7 +112,7 @@ public class RecorderActivity extends Activity
 
    private String currentResolution = "";
    int currentResolutionIndex = -1;
-   private TextView locationText, bearingText, bearingDestLabel, bearingDestText, statusText, locationLabel;
+   private TextView locationText, statusText, locationLabel; //,bearingText, bearingDestLabel, bearingDestText
    private ProgressBar statusProgress;
    private boolean isResolutionSelected = false;
    View decorView = null;
@@ -236,13 +270,13 @@ public class RecorderActivity extends Activity
       previewSurface = (ARSurfaceView) findViewById(R.id.camera_preview_surface);
       locationLabel = (TextView) findViewById(R.id.location_label);
       locationText = (TextView) findViewById(R.id.location_text);
-      bearingText = (TextView) findViewById(R.id.bearing_text);
-      bearingDestLabel = (TextView) findViewById(R.id.dest_bearing_label);
-      bearingDestText = (TextView) findViewById(R.id.dest_bearing_text);
+//      bearingText = (TextView) findViewById(R.id.bearing_text);
+//      bearingDestLabel = (TextView) findViewById(R.id.dest_bearing_label);
+//      bearingDestText = (TextView) findViewById(R.id.dest_bearing_text);
       statusText = (TextView) findViewById(R.id.status_text);
       statusProgress = (ProgressBar) findViewById(R.id.status_progress);
-      bearingDestLabel.setVisibility(View.INVISIBLE);
-      bearingDestText.setVisibility(View.INVISIBLE);
+//      bearingDestLabel.setVisibility(View.INVISIBLE);
+//      bearingDestText.setVisibility(View.INVISIBLE);
       statusProgress.setVisibility(View.INVISIBLE);
       statusText.setVisibility(View.INVISIBLE);
       locationLabel.setVisibility(View.INVISIBLE);
@@ -257,7 +291,7 @@ public class RecorderActivity extends Activity
          public void onClick(View v)
          //------------------------
          {
-            if (! isRecording)
+            if (!isRecording)
                startRecording();
             else
             {
@@ -310,7 +344,7 @@ public class RecorderActivity extends Activity
             return;
       }
       isStartRecording = true;
-      LayoutInflater inflater = LayoutInflater.from(this);
+      final LayoutInflater inflater = LayoutInflater.from(this);
       final ViewGroup dialogLayout = (ViewGroup) inflater.inflate(R.layout.start_recording, null);
       final InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
       final EditText nameText = (EditText) dialogLayout.findViewById(R.id.text_recording_name);
@@ -353,10 +387,47 @@ public class RecorderActivity extends Activity
          @Override public void onNothingSelected(AdapterView<?> parent) { }
       });
       resolutionsSpinner.setSelection(currentResolutionIndex);
-      final Spinner modeSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_mode);
+      //final Spinner modeSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_mode);
       final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
       incrementSpinner.setSelection(1);
       final Spinner orientationSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_sensors);
+      final CheckBox postProcessChkBox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_postprocess);
+      final Button postProcessHelpButton = (Button) dialogLayout.findViewById(R.id.button_postprocess_help);
+      postProcessHelpButton.setOnClickListener(new View.OnClickListener()
+      {
+         @Override
+         public void onClick(View v)
+         //------------------------
+         {
+            final String assetFileName = "docs/postprocess.html";
+            String src = readAssetTextFile(assetFileName, null);
+            if (src == null)
+            {
+               Toast.makeText(RecorderActivity.this, "Error reading asset file " + assetFileName, Toast.LENGTH_LONG).show();
+               return;
+            }
+            else
+            {
+               final ViewGroup helpLayout = (ViewGroup) inflater.inflate(R.layout.help_dialog, null);
+               WebView webView = (WebView) helpLayout.findViewById(R.id.help_webview);
+               webView.loadData(src, "text/html", null);
+               final AlertDialog helpDialog = new AlertDialog.Builder(RecorderActivity.this).create();
+               helpDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+               helpDialog.setView(helpLayout);
+               helpDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Ok", new DialogInterface.OnClickListener()
+               //===========================================================================================
+               {
+                  public void onClick(DialogInterface dialog, int whichButton) { helpDialog.dismiss(); }
+               });
+               helpDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener()
+               //===========================================================================================
+               {
+                  public void onClick(DialogInterface dialog, int whichButton) { helpDialog.dismiss(); }
+               });
+               helpDialog.show();
+            }
+         }
+      });
       ORIENTATION_PROVIDER[] orientationProviders = ORIENTATION_PROVIDER.values();
       String[] orientationProviderNames = new String[orientationProviders.length];
       for (int i=0; i<orientationProviders.length; i++)
@@ -388,19 +459,29 @@ public class RecorderActivity extends Activity
             final float increment = Float.parseFloat(s.trim());
             final String orientationSensorType = inhuman((String) orientationSpinner.getSelectedItem());
             final String fileFormat = (String) formatSpinner.getSelectedItem();
-            final File headerFile = new File(DIR, name + ".head");
-            final File framesFile = new File(DIR, name + ".frames");
-            final GLRecorderRenderer.RecordMode mode;
-            s = (String) modeSpinner.getSelectedItem();
-            String[] modes = getResources().getStringArray(R.array.recording_modes);
-            if (s.equalsIgnoreCase(modes[0]))
-               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
-            else if (s.equalsIgnoreCase(modes[1]))
-               mode = GLRecorderRenderer.RecordMode.MERGE;
+            final File headerFile, framesFile, dir = new File(DIR, name);
+            if (dir.isDirectory())
+            {
+               headerFile = new File(dir, name + ".head");
+               framesFile = new File(dir, name + ".frames");
+            }
             else
-               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
+            {
+               headerFile = new File(DIR, name + ".head");
+               framesFile = new File(DIR, name + ".frames");
+            }
+            final GLRecorderRenderer.RecordMode mode = GLRecorderRenderer.RecordMode.TRAVERSE;
+            final boolean isPostProcess = postProcessChkBox.isChecked();
+//            s = (String) modeSpinner.getSelectedItem();
+//            String[] modes = getResources().getStringArray(R.array.recording_modes);
+//            if (s.equalsIgnoreCase(modes[0]))
+//               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
+//            else if (s.equalsIgnoreCase(modes[1]))
+//               mode = GLRecorderRenderer.RecordMode.MOSAIC;
+//            else
+//               mode = GLRecorderRenderer.RecordMode.TRAVERSE;
 
-            if (headerFile.exists())
+            if ( (headerFile.exists()) || (dir.isDirectory()) )
             {
                final AlertDialog overwriteDialog = new AlertDialog.Builder(RecorderActivity.this).
                      setTitle("Confirm Overwrite").setMessage(
@@ -412,21 +493,35 @@ public class RecorderActivity extends Activity
                   public void onClick(DialogInterface dialog, int which)
                   //----------------------------------------------------
                   {
-                     headerFile.delete();
-                     framesFile.delete();
-                     if (headerFile.exists())
+                     if (dir.exists())
                      {
-                        Toast.makeText(RecorderActivity.this,
-                                       String.format("Error deleting %s", headerFile.getAbsolutePath()),
-                                       Toast.LENGTH_LONG).show();
-                        return;
+                        RecordingThread.delDirContents(dir);
+                        if (dir.exists())
+                        {
+                           Toast.makeText(RecorderActivity.this,
+                                          String.format("Error deleting directory %s", dir.getAbsolutePath()),
+                                          Toast.LENGTH_LONG).show();
+                           return;
+                        }
                      }
-                     if (framesFile.exists())
+                     else
                      {
-                        Toast.makeText(RecorderActivity.this,
-                                       String.format("Error deleting %s", framesFile.getAbsolutePath()),
-                                       Toast.LENGTH_LONG).show();
-                        return;
+                        headerFile.delete();
+                        framesFile.delete();
+                        if (headerFile.exists())
+                        {
+                           Toast.makeText(RecorderActivity.this,
+                                          String.format("Error deleting %s", headerFile.getAbsolutePath()),
+                                          Toast.LENGTH_LONG).show();
+                           return;
+                        }
+                        if (framesFile.exists())
+                        {
+                           Toast.makeText(RecorderActivity.this,
+                                          String.format("Error deleting %s", framesFile.getAbsolutePath()),
+                                          Toast.LENGTH_LONG).show();
+                           return;
+                        }
                      }
                      overwriteDialog.dismiss();
                      int[] wh = resolutionSpinnerAdapter.getWidthHeight(currentResolutionIndex);
@@ -437,7 +532,7 @@ public class RecorderActivity extends Activity
                         return;
                      }
                      previewSurface.startPreview(wh[0], wh[1]);
-                     startRecording(name, increment, orientationSensorType, fileFormat, mode);
+                     startRecording(name, increment, orientationSensorType, fileFormat, mode, isPostProcess);
                   }
                });
                overwriteDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener()
@@ -460,7 +555,7 @@ public class RecorderActivity extends Activity
                   return;
                }
                previewSurface.startPreview(wh[0], wh[1]);
-               startRecording(name, increment, orientationSensorType, fileFormat, mode);
+               startRecording(name, increment, orientationSensorType, fileFormat, mode, isPostProcess);
             }
          }
       });
@@ -476,12 +571,13 @@ public class RecorderActivity extends Activity
       recordDialog.show();
    }
 
-   private String human(String name) { return (Character.toUpperCase(name.charAt(0)) + name.substring(1)).replace("_", " "); }
+   private String human(String name) { return (Character.toUpperCase(name.charAt(0)) + name.substring(1)).replace("_",
+                                                                                                                  " "); }
 
    private String inhuman(String s) { return s.toUpperCase().replace(" ", "_"); }
 
    private void startRecording(String name, float increment, String orientationType, String fileFormat,
-                               GLRecorderRenderer.RecordMode mode)
+                               GLRecorderRenderer.RecordMode mode, boolean isPostProcess)
    //--------------------------------------------------------------------------------------------------
    {
       recordDialog = null;
@@ -495,13 +591,13 @@ public class RecorderActivity extends Activity
          return;
       }
       previewSurface.setRecordFileFormat(fileFormat);
-      bearingDestLabel.setVisibility(View.VISIBLE);
-      bearingDestText.setVisibility(View.VISIBLE);
+//      bearingDestLabel.setVisibility(View.VISIBLE);
+//      bearingDestText.setVisibility(View.VISIBLE);
       statusProgress.setVisibility(View.VISIBLE);
       statusText.setVisibility(View.VISIBLE);
       locationLabel.setVisibility(View.VISIBLE);
       locationText.setVisibility(View.VISIBLE);
-      isRecording = previewSurface.startRecording(DIR, name, increment, mode);
+      isRecording = previewSurface.startRecording(DIR, name, increment, mode, isPostProcess);
       isStartRecording = false;
       if (isRecording)
       {
@@ -530,8 +626,8 @@ public class RecorderActivity extends Activity
             recordButton.setImageResource(R.drawable.record_green);
             statusProgress.setProgress(0);
 
-             bearingDestLabel.setVisibility(View.INVISIBLE);
-             bearingDestText.setVisibility(View.INVISIBLE);
+//             bearingDestLabel.setVisibility(View.INVISIBLE);
+//             bearingDestText.setVisibility(View.INVISIBLE);
              statusProgress.setVisibility(View.INVISIBLE);
              statusText.setVisibility(View.INVISIBLE);
              locationLabel.setVisibility(View.INVISIBLE);
@@ -588,7 +684,7 @@ public class RecorderActivity extends Activity
       systemUiHider = SystemUiHider.getInstance(this, previewSurface, SystemUiHider.HIDER_FLAGS);
       systemUiHider.setup();
       systemUiHider.setOnVisibilityChangeListener(new SystemUiHider.OnVisibilityChangeListener()
-      //========================================================================================
+            //========================================================================================
       {
          @Override
          public void onVisibilityChange(boolean visible)
@@ -602,7 +698,7 @@ public class RecorderActivity extends Activity
       });
 
       previewSurface.setOnClickListener(new View.OnClickListener()
-      //==========================================================
+            //==========================================================
       {
          @Override
          public void onClick(View view)
@@ -661,11 +757,15 @@ public class RecorderActivity extends Activity
    {
       @Override
       public void onManagerConnected(int status)
+      //-----------------------------------------
       {
          switch (status)
          {
             case LoaderCallbackInterface.SUCCESS:
                Log.i(TAG, "OpenCV loaded successfully");
+//               StringBuilder gpuStatus = new StringBuilder();
+//               boolean isGPU = CV.GPUSTATUS(gpuStatus);
+//               Log.i(TAG, "OpenCV GPU status:\n" + gpuStatus);
                break;
             default:
                super.onManagerConnected(status);
@@ -679,12 +779,12 @@ public class RecorderActivity extends Activity
    //-----------------------
    {
       super.onResume();
-      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_9, this, loaderCallback);
+      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loaderCallback);
       previewSurface.onResume();
       if ( (previewSurface.isRecording()) || (previewSurface.isStoppingRecording()) )
       {
-         bearingDestLabel.setVisibility(View.VISIBLE);
-         bearingDestText.setVisibility(View.VISIBLE);
+//         bearingDestLabel.setVisibility(View.VISIBLE);
+//         bearingDestText.setVisibility(View.VISIBLE);
          statusProgress.setVisibility(View.VISIBLE);
          statusText.setVisibility(View.VISIBLE);
          locationLabel.setVisibility(View.VISIBLE);
@@ -788,36 +888,36 @@ public class RecorderActivity extends Activity
    //----------------------------------------------------------------
    {
       if (! isDrawerOpen)
-         return;
-      if (params.bearing >= 0)
       {
-         bearingText.setText(String.format("%.4f", params.bearing));
-         if (params.targetBearing >= 0)
-         {
-            Spannable destSpan = new SpannableString(String.format("%.4f", params.targetBearing));
-            final ForegroundColorSpan spanColor;
-            if ((params.color != null) && (params.color[0] != Float.MIN_VALUE))
-               spanColor = new ForegroundColorSpan(
-                     Color.argb(255, (int) (params.color[0] * 255.0), (int) (params.color[1] * 255.0),
-                                (int) (params.color[2] * 255.0)));
-            else
-               spanColor = new ForegroundColorSpan(Color.GREEN);
-            destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            bearingDestText.setText(destSpan);
-         } else
-            bearingDestText.setText("");
-      }
-      if (params.status != null)
-      {
-         statusText.setText(params.status);
-         if (params.isToast)
+         if ( (params.status != null) && (params.isToast) )
          {
             if (lastStatusToast != null)
                lastStatusToast.cancel();
             lastStatusToast = Toast.makeText(RecorderActivity.this, params.status, params.toastDuration);
             lastStatusToast.show();
          }
+         return;
       }
+//      if (params.bearing >= 0)
+//      {
+//         bearingText.setText(String.format("%.4f", params.bearing));
+//         if (params.targetBearing >= 0)
+//         {
+//            Spannable destSpan = new SpannableString(String.format("%.4f", params.targetBearing));
+//            final ForegroundColorSpan spanColor;
+//            if ((params.color != null) && (params.color[0] != Float.MIN_VALUE))
+//               spanColor = new ForegroundColorSpan(
+//                     Color.argb(255, (int) (params.color[0] * 255.0), (int) (params.color[1] * 255.0),
+//                                (int) (params.color[2] * 255.0)));
+//            else
+//               spanColor = new ForegroundColorSpan(Color.GREEN);
+//            destSpan.setSpan(spanColor, 0, destSpan.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+//            bearingDestText.setText(destSpan);
+//         } else
+//            bearingDestText.setText("");
+//      }
+      if (params.status != null)
+         statusText.setText(params.status);
       if (params.progress >= 0)
          statusProgress.setProgress(params.progress);
       params.status = null;
@@ -881,6 +981,36 @@ public class RecorderActivity extends Activity
          if (matcher.groupCount() > 1)
             height = Integer.parseInt(matcher.group(2));
          return new int[] { width, height };
+      }
+   }
+
+   public String readAssetTextFile(String name, String def)
+   //---------------------------------------------------
+   {
+      AssetManager am = getAssets();
+      InputStream is = null;
+      BufferedReader br = null;
+      try
+      {
+         is = am.open(name);
+         br = new BufferedReader(new InputStreamReader(is));
+         String line = null;
+         StringBuilder sb = new StringBuilder();
+         while ((line = br.readLine()) != null)
+            sb.append(line).append("\n");
+         return sb.toString();
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "Reading asset file " + name, e);
+         return def;
+      }
+      finally
+      {
+         if (br != null)
+            try { br.close(); } catch (Exception _e) { }
+         if (is != null)
+            try { is.close(); } catch (Exception _e) { }
       }
    }
 

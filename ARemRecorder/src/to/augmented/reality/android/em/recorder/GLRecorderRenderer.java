@@ -18,7 +18,6 @@ package to.augmented.reality.android.em.recorder;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.SensorManager;
@@ -32,6 +31,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.Debug;
+import android.os.PowerManager;
 import android.os.Process;
 import android.os.SystemClock;
 import android.support.v8.renderscript.Allocation;
@@ -54,11 +54,9 @@ import to.augmented.reality.em.recorder.ScriptC_RGBAtoRGB565;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
-import java.io.BufferedReader;
 import java.io.EOFException;
 import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.FileInputStream;
 import java.io.PrintWriter;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
@@ -81,7 +79,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //========================================================================================================
 {
    public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
-   public enum RecordMode { TRAVERSE, MERGE }
+   public enum RecordMode { TRAVERSE, MOSAIC, MERGE }
 
    private static final String TAG = GLRecorderRenderer.class.getSimpleName();
    private static final String VERTEX_SHADER = "vertex.glsl";
@@ -119,7 +117,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private int vComponent =-1;
    public int getPreviewTexture() { return previewTexture; }
 
-   private int rgbaBufferSize = 0;
+   protected int rgbaBufferSize = 0;
    private int rgbBufferSize = 0;
    int nv21BufferSize = 0;
    private int rgb565BufferSize = 0;
@@ -877,7 +875,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    {
       assetDir = assetDir.trim();
       String shaderFile = "shaders/" + assetDir + ((assetDir.endsWith("/")) ? "" : "/") + VERTEX_SHADER;
-      String src = readAssetFile(shaderFile, null);
+      String src = activity.readAssetTextFile(shaderFile, null);
       if (src == null)
       {
          Log.e(TAG, "Vertex shader not found in assets/" + shaderFile);
@@ -895,7 +893,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
 
       shaderFile = "shaders/" + assetDir + ((assetDir.endsWith("/")) ? "" : "/") + FRAGMENT_SHADER;
-      src = readAssetFile(shaderFile, null);
+      src = activity.readAssetTextFile(shaderFile, null);
       if (src == null)
       {
          Log.e(TAG, "Fragment shader not found in assets/" + shaderFile);
@@ -990,43 +988,14 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       return shaderAttr;
    }
 
-   private String readAssetFile(String name, String def)
-   //---------------------------------------------------
-   {
-      AssetManager am = activity.getAssets();
-      InputStream is = null;
-      BufferedReader br = null;
-      try
-      {
-         is = am.open(name);
-         br = new BufferedReader(new InputStreamReader(is));
-         String line = null;
-         StringBuilder sb = new StringBuilder();
-         while ((line = br.readLine()) != null)
-            sb.append(line).append("\n");
-         return sb.toString();
-      }
-      catch (Exception e)
-      {
-         return def;
-      }
-      finally
-      {  // @formatter:off
-         if (br != null)
-            try { br.close(); } catch (Exception _e) { }
-         if (is != null)
-            try { is.close(); } catch (Exception _e) { }
-      } // @formatter:on
-   }
-
    public void requestRender() { view.requestRender(); }
 
    File recordDir, recordFramesFile;
    String recordFileName;
    final Map<String, Object> recordHeader = new HashMap<String, Object>();
 
-   public boolean startRecording(File dir, String name, float increment, RecordMode mode)
-   //-------------------------------------------------------------------------------------
+   public boolean startRecording(File dir, String name, float increment, RecordMode mode, boolean isPostProcess)
+   //------------------------------------------------------------------------------------------------------------
    {
       if (isRecording) return false;
       if (previewer == null)
@@ -1038,15 +1007,27 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       if ((! dir.isDirectory()) || (! dir.canWrite()))
       {
          Log.e(TAG, dir.getAbsolutePath() + " not a writable directory");
+         toast("Error: Could not create directory " + dir.getAbsolutePath());
          return false;
       }
       stopRecordingThread();
 
-      recordDir = dir;
       if ((name == null) || (name.trim().isEmpty()))
-         recordFileName = null;
+         recordFileName = "Unknown";
       else
          recordFileName = name;
+      dir = new File(dir, recordFileName);
+      if (dir.exists())
+         RecordingThread.delDirContents(dir);
+      if (! dir.mkdirs())
+      {
+         toast("Error: Could not create directory " + dir.getAbsolutePath());
+         return false;
+      }
+      isPause = true;
+      recordColor = GLRecorderRenderer.GREEN;
+      recordDir = dir;
+
       recordLocation = new Location(LocationManager.GPS_PROVIDER);
       recordLocation.setTime(System.currentTimeMillis());
       recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
@@ -1062,6 +1043,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar,
                                                               previewer.getFrameBuffer(),
                                                               previewer.getFrameAvailCondVar());
+      recordingThread.setPostProcess(isPostProcess);
       previewer.bufferOn();
       recordingThread.executeOnExecutor(recordingPool);
       if (DEBUG_TRACE) Debug.startMethodTracing("recorder");
@@ -1130,6 +1112,72 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    final static int REMAP_X = SensorManager.AXIS_X,  REMAP_Y = SensorManager.AXIS_Z;
    final static float MAX_BEARING_DELTA = 3;
 
+
+   public interface BearingListenable { void onBearing(float bearing, long timestamp); }
+
+   public class OrientationListener implements OrientationListenable
+   //=========================================================
+   {
+      final float[] RM = new float[16];
+      //         boolean isSettling = false;
+//         int settleCount = 0;
+      ProgressParam param = new ProgressParam();
+      float lastUIBearing = -1000, lastUpdateBearing = -1000;
+      BearingListenable bearingListener = null;
+      public void setBearingListener(BearingListenable bearingListener) { this.bearingListener = bearingListener; }
+      public BearingListenable getBearingListener() { return bearingListener; }
+
+      @Override
+      public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
+      //-----------------------------------------------------------------------------
+      {
+         lastBearing = currentBearing;
+         lastBearingTimestamp = currentBearingTimestamp;
+         SensorManager.remapCoordinateSystem(R, REMAP_X, REMAP_Y, RM);
+         currentBearing = (float) Math.toDegrees(Math.atan2(RM[1], RM[5]));
+         if (currentBearing < 0)
+            currentBearing += 360;
+         currentBearingTimestamp = timestamp;
+//            if (isSettling)
+//            {
+//               settleCount--;
+//               if (settleCount <= 0)
+//                  isSettling = false;
+//               else
+//               {
+////                  param.set(currentBearing, -1, recordColor);
+////                  activity.onBackgroundStatusUpdate(param);
+//                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
+//                  return;
+//               }
+//            }
+         if ( (! isRecording) && (Math.abs(currentBearing - lastUIBearing) >= 0.5f) )
+         {
+            lastUIBearing = currentBearing;
+            param.set(currentBearing, -1, null, -1);
+            activity.onBackgroundStatusUpdate(param);
+         }
+         else if (isRecording)
+         {
+//               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
+//               {
+//                  isSettling = true;
+//                  settleCount = 3;
+//                  return;
+//               }
+            lastUpdateBearing = currentBearing;
+            bearingBuffer.push(timestamp, currentBearing);
+            if (recordingCondVar != null)
+               recordingCondVar.open();
+            if (bearingListener != null)
+               bearingListener.onBearing(currentBearing, timestamp);
+
+         }
+      }
+   }
+
+   OrientationListener orientationListener;
+
    public boolean initOrientationSensor(ORIENTATION_PROVIDER orientationProviderType)
    //-----------------------------------------------------------------------------
    {
@@ -1142,10 +1190,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       SensorManager sensorManager = (SensorManager) activity.getSystemService(Activity.SENSOR_SERVICE);
       if (orientationProviderType == ORIENTATION_PROVIDER.DEFAULT)
       {
-         if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR))
-            orientationProviderType = ORIENTATION_PROVIDER.STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR;
-         else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.ROTATION_VECTOR))
+         if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.ROTATION_VECTOR))
             orientationProviderType = ORIENTATION_PROVIDER.ROTATION_VECTOR;
+         else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR))
+            orientationProviderType = ORIENTATION_PROVIDER.STABLE_FUSED_GYROSCOPE_ROTATION_VECTOR;
          else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.FUSED_GYRO_ACCEL_MAGNETIC))
             orientationProviderType = ORIENTATION_PROVIDER.FUSED_GYRO_ACCEL_MAGNETIC;
          else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.ACCELLO_MAGNETIC))
@@ -1171,63 +1219,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             orientationProvider = new AccelerometerCompassProvider(sensorManager);
             break;
       }
-      orientationProvider.setOrientationListener(new OrientationListenable()
-      //--------------------------------------------------------------------
-      {
-         final float[] RM = new float[16];
-//         boolean isSettling = false;
-//         int settleCount = 0;
-         ProgressParam param = new ProgressParam();
-         float lastUIBearing = -1000, lastUpdateBearing = -1000;
-
-         @Override
-         public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
-         //-----------------------------------------------------------------------------
-         {
-            lastBearing = currentBearing;
-            lastBearingTimestamp = currentBearingTimestamp;
-            SensorManager.remapCoordinateSystem(R, REMAP_X, REMAP_Y, RM);
-            currentBearing = (float) Math.toDegrees(Math.atan2(RM[1], RM[5]));
-            if (currentBearing < 0)
-               currentBearing += 360;
-            currentBearingTimestamp = timestamp;
-//            if (isSettling)
-//            {
-//               settleCount--;
-//               if (settleCount <= 0)
-//                  isSettling = false;
-//               else
-//               {
-////                  param.set(currentBearing, -1, recordColor);
-////                  activity.onBackgroundStatusUpdate(param);
-//                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
-//                  return;
-//               }
-//            }
-            if ( (! isRecording) && (Math.abs(currentBearing - lastUIBearing) >= 0.5f) )
-            {
-               lastUIBearing = currentBearing;
-               param.set(currentBearing, -1, null, -1);
-               activity.onBackgroundStatusUpdate(param);
-            }
-            else if (isRecording)
-            {
-//               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
-//               {
-//                  isSettling = true;
-//                  settleCount = 3;
-//                  return;
-//               }
-               if (Math.abs(currentBearing - lastUpdateBearing) >= 0.001f)
-               {
-                  lastUpdateBearing = currentBearing;
-                  bearingBuffer.push(timestamp, currentBearing);
-                  if (recordingCondVar != null)
-                     recordingCondVar.open();
-               }
-            }
-         }
-      });
+      orientationListener = new OrientationListener();
+      orientationProvider.setOrientationListener(orientationListener);
       orientationProvider.initiate();
       if (! orientationProvider.isStarted())
          return false;
@@ -1318,6 +1311,9 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       protected Boolean doInBackground(Void... params)
       //----------------------------------------------
       {
+         PowerManager powerManager = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
+         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
+         wakeLock.acquire();
          Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
          final float increment = recordingThread.recordingIncrement;
          isRecording = false;
@@ -1390,6 +1386,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             recordHeader.put("Increment", String.format("%6.2f", increment));
             recordHeader.put("PreviewWidth", Integer.toString(previewWidth));
             recordHeader.put("PreviewHeight", Integer.toString(previewHeight));
+            if ( (recordingThread != null) && (recordingThread.startBearing <= 360) )
+               recordHeader.put("StartBearing", Float.toString(recordingThread.startBearing));
             recordHeader.put("FocalLength", Float.toString(previewer.focalLen));
             recordHeader.put("fovx", Float.toString(previewer.fovx));
             recordHeader.put("fovy", Float.toString(previewer.fovy));
@@ -1400,6 +1398,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             recordHeader.put("FramesFile", recordFramesFile.getName());
 
             recordHeaderFile = new File(recordDir, recordFileName + ".head");
+            if (recordHeaderFile.exists())
+               recordHeaderFile.delete();
             PrintWriter headerWriter = null;
             try
             {
@@ -1430,6 +1430,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
          finally
          {
+            wakeLock.release();
             recordColor = GREEN;
             arrowRotation = 0;
             recordFramesFile = null;
@@ -1532,22 +1533,46 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             while ( (bearing < 360) && (! mustStopNow) )
             {
                lastSaveBearing = bearing;
-               float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
-               int fileOffset = (int) (Math.floor(offset / recordingIncrement) * nv21BufferSize);
-               try
+               File kludgeFile = new File(recordDir, String.format("%.1f.rgba", bearing));
+               if (kludgeFile.exists())
                {
-                  NV21toRGBInputRAF.seek(fileOffset);
-                  NV21toRGBInputRAF.readFully(frameBuffer);
+                  FileInputStream fis = null;
+                  try
+                  {
+                     fis = new FileInputStream(kludgeFile);
+                     fis.read(rgbaBuffer);
+                  }
+                  catch (Exception _e)
+                  {
+                     Log.e(TAG, "Error reading kludge file " + kludgeFile, _e);
+                     Arrays.fill(rgbaBuffer, (byte) 0);
+                  }
+                  finally
+                  {
+                     if (fis != null)
+                        try { fis.close(); } catch (Exception _e) {}
+                  }
                }
-               catch (EOFException _e)
+               else
                {
-                  Arrays.fill(frameBuffer, (byte) 0);
-                  Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + bearing, _e);
+                  float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
+                  int fileOffset = (int) (Math.floor(offset / recordingIncrement) * nv21BufferSize);
+                  try
+                  {
+                     NV21toRGBInputRAF.seek(fileOffset);
+                     NV21toRGBInputRAF.readFully(frameBuffer);
+                  }
+                  catch (EOFException _e)
+                  {
+                     Arrays.fill(frameBuffer, (byte) 0);
+                     Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + bearing, _e);
+                  }
+
+                  ain.copyFrom(frameBuffer);
+                  YUVToRGB.setInput(ain);
+                  YUVToRGB.forEach(aOut);
+                  aOut.copyTo(rgbaBuffer);
                }
-               ain.copyFrom(frameBuffer);
-               YUVToRGB.setInput(ain);
-               YUVToRGB.forEach(aOut);
-               aOut.copyTo(rgbaBuffer);
                if (mustStopNow)
                   return false;
                switch (recordFileFormat)

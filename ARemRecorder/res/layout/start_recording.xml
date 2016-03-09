@@ -66,49 +66,49 @@
             />
    </RelativeLayout>
 
-   <RelativeLayout
-         android:id="@+id/layout_mode"
-         android:layout_height="38sp"
-         android:layout_width="match_parent"
-         android:layout_below="@+id/layout_format"
-         >
-      <TextView
-            android:id="@+id/label_mode"
-            android:layout_width="70sp"
-            android:layout_height="16sp"
-            android:text="Recording"
-            android:textColor="@android:color/white"
-            android:textAppearance="@android:style/TextAppearance.Small"
-            />
-      <TextView
-            android:id="@+id/label_mode2"
-            android:layout_width="70sp"
-            android:layout_height="16sp"
-            android:layout_below="@+id/label_mode"
-            android:text="Mode"
-            android:textColor="@android:color/white"
-            android:textAppearance="@android:style/TextAppearance.Small"
-            />
-      <Spinner
-            android:id="@+id/spinner_mode"
-            android:layout_height="36sp"
-            android:layout_width="match_parent"
-            android:layout_toRightOf="@+id/label_mode"
-            android:prompt="@string/recording_mode"
-            android:contentDescription="@string/recording_mode"
-            android:spinnerStyle="@android:style/Widget.Spinner.DropDown"
-            android:drawSelectorOnTop="true"
-            android:textAppearance="@android:style/TextAppearance.Medium"
-            android:background="@android:color/holo_blue_dark"
-            android:entries="@array/recording_modes"
-            />
-   </RelativeLayout>
+   <!--<RelativeLayout-->
+         <!--android:id="@+id/layout_mode"-->
+         <!--android:layout_height="38sp"-->
+         <!--android:layout_width="match_parent"-->
+         <!--android:layout_below="@+id/layout_format"-->
+         <!-->-->
+      <!--<TextView-->
+            <!--android:id="@+id/label_mode"-->
+            <!--android:layout_width="70sp"-->
+            <!--android:layout_height="16sp"-->
+            <!--android:text="Recording"-->
+            <!--android:textColor="@android:color/white"-->
+            <!--android:textAppearance="@android:style/TextAppearance.Small"-->
+            <!--/>-->
+      <!--<TextView-->
+            <!--android:id="@+id/label_mode2"-->
+            <!--android:layout_width="70sp"-->
+            <!--android:layout_height="16sp"-->
+            <!--android:layout_below="@+id/label_mode"-->
+            <!--android:text="Mode"-->
+            <!--android:textColor="@android:color/white"-->
+            <!--android:textAppearance="@android:style/TextAppearance.Small"-->
+            <!--/>-->
+      <!--<Spinner-->
+            <!--android:id="@+id/spinner_mode"-->
+            <!--android:layout_height="36sp"-->
+            <!--android:layout_width="match_parent"-->
+            <!--android:layout_toRightOf="@+id/label_mode"-->
+            <!--android:prompt="@string/recording_mode"-->
+            <!--android:contentDescription="@string/recording_mode"-->
+            <!--android:spinnerStyle="@android:style/Widget.Spinner.DropDown"-->
+            <!--android:drawSelectorOnTop="true"-->
+            <!--android:textAppearance="@android:style/TextAppearance.Medium"-->
+            <!--android:background="@android:color/holo_blue_dark"-->
+            <!--android:entries="@array/recording_modes"-->
+            <!--/>-->
+   <!--</RelativeLayout>-->
 
    <RelativeLayout
          android:id="@+id/layout_resolutions"
          android:layout_height="38sp"
          android:layout_width="match_parent"
-         android:layout_below="@+id/layout_mode"
+         android:layout_below="@+id/layout_format"
 
     >
       <TextView
@@ -200,5 +200,52 @@
             android:entries="@array/empty_values"
             />
    </RelativeLayout>
+
+      <RelativeLayout
+            android:id="@+id/layout_postprocess"
+            android:layout_height="38sp"
+            android:layout_width="match_parent"
+            android:layout_below="@+id/layout_sensor"
+            >
+            <TextView
+                  android:id="@+id/label_postprocess"
+                  android:layout_width="80sp"
+                  android:layout_height="16sp"
+                  android:text="@string/postprocess1"
+                  android:textColor="@android:color/white"
+                  android:textAppearance="@android:style/TextAppearance.Small"
+                  />
+            <TextView
+                  android:id="@+id/label_postprocess2"
+                  android:layout_width="70sp"
+                  android:layout_height="16sp"
+                  android:layout_below="@+id/label_postprocess"
+                  android:text="@string/postprocess2"
+                  android:textColor="@android:color/white"
+                  android:textAppearance="@android:style/TextAppearance.Small"
+                  />
+            <CheckBox
+                  android:id="@+id/checkbox_postprocess"
+                  android:layout_height="36sp"
+                  android:layout_width="80sp"
+                  android:layout_toRightOf="@+id/label_postprocess"
+                  android:layout_marginLeft="5dip"
+                  android:prompt="@string/postprocess"
+                  android:contentDescription="@string/postprocess"
+                  android:textAppearance="@android:style/TextAppearance.Medium"
+                  android:checked="true"
+            />
+            <Button
+                  android:id="@+id/button_postprocess_help"
+                  android:layout_width="80sp"
+                  android:layout_height="36sp"
+                  android:text="\?"
+                  android:layout_marginLeft="15dip"
+                  android:layout_toRightOf="@+id/checkbox_postprocess"
+                  android:textAppearance="@android:style/TextAppearance.Medium"
+                  android:background="@android:color/holo_blue_dark"
+
+                  />
+      </RelativeLayout>
 
 </RelativeLayout>

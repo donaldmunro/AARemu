@@ -48,12 +48,12 @@ public class LocationThread extends HandlerThread
 
    public Handler getHandler() { return handler; }
 
-   private ARCamera camera = null;
+   private ARCameraCommon camera = null;
 
    volatile Location lastLocation = null;
    public Location getLastLocation() { return lastLocation;  }
 
-   public LocationThread(int priority, ARCamera camera, Context context, LocationListener locationListener)
+   public LocationThread(int priority, ARCameraCommon camera, Context context, LocationListener locationListener)
    //----------------------------------------------------------------------------------------------------
    {
       super("SensorHandler", priority);

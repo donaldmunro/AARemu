@@ -11,6 +11,7 @@
          android:layout_weight="15"
          android:textIsSelectable="true"
          android:inputType="textMultiLine|textFilter"
+         android:focusable="true"
    />
 
    <ListView android:id="@+id/openList"

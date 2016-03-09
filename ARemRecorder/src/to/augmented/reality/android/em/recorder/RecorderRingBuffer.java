@@ -105,6 +105,15 @@ public class RecorderRingBuffer
       return ts;
    }
 
+   public synchronized long peekTime()
+   //---------------------------------
+   {
+      if (length > 0)
+         return buffers[tail].timestamp;
+      else
+         return -1L;
+   }
+
    public long peekHeadTime()
    //------------------------
    {
@@ -164,19 +173,26 @@ public class RecorderRingBuffer
       return null;
    }
 
-   public synchronized long findBest(long timestampCompareNS, long epsilonNS, byte[] buffer)
-   //----------------------------------------------------------------------------
+   public synchronized long findBest(final long timestampCompareNS, final long epsilonNS, final boolean isForwardOnly,
+                                     final byte[] buffer)
+   //-----------------------------------------------------------------------------------------------------------------
    {
       if (length == 0)
          return Long.MIN_VALUE;
-      long mindiff = Long.MAX_VALUE, tss = Long.MIN_VALUE;
+      long mindiff = Long.MAX_VALUE, tss = -1;
       int index = tail, ii = -1;
+      final long gt, lt = timestampCompareNS + epsilonNS;
+      if (isForwardOnly)
+         gt = timestampCompareNS;
+      else
+         gt = timestampCompareNS - epsilonNS;
       for (int i=0; i<length; i++)
       {
-         if (! buffers[index].isUsed)
+         final RingBufferContent rbc = buffers[index];
+         if (! rbc.isUsed)
          {
-            final long ts = buffers[index].timestamp;
-            if ((ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)))
+            final long ts = rbc.timestamp;
+            if ( (ts >= gt) && (ts <= lt) )
             {
                final long diff = Math.abs(ts - timestampCompareNS);
                if (diff < mindiff)
@@ -191,26 +207,33 @@ public class RecorderRingBuffer
       }
       if (ii >= 0)
       {
-         System.arraycopy(buffers[ii].buffer, 0, buffer, 0, size);
-         buffers[ii].isUsed = true;
+         final RingBufferContent rbc = buffers[ii];
+         System.arraycopy(rbc.buffer, 0, buffer, 0, size);
+         rbc.isUsed = true;
          return tss;
       }
-      return Long.MIN_VALUE;
+      return -1;
    }
 
-   public synchronized RingBufferContent findFirst(final long timestampCompareNS, final long epsilonNS, final byte[] buffer)
-   //----------------------------------------------------------------------------
+   public synchronized RingBufferContent findFirst(final long timestampCompareNS, final long epsilonNS,
+                                                   final boolean isForwardOnly, final byte[] buffer)
+   //---------------------------------------------------------------------------------------------
    {
       if (length == 0)
          return null;
       int index = tail;
+      final long gt, lt = timestampCompareNS + epsilonNS;
+      if (isForwardOnly)
+         gt = timestampCompareNS;
+      else
+         gt = timestampCompareNS - epsilonNS;
       for (int i=0; i<length; i++)
       {
          final RingBufferContent rbc = buffers[index];
          if (! rbc.isUsed)
          {
             final long ts = rbc.timestamp;
-            if ((ts >= timestampCompareNS - epsilonNS) && (ts <= (timestampCompareNS + epsilonNS)))
+            if ( (ts >= gt) && (ts <= lt) )
             {
                System.arraycopy(rbc.buffer, 0, buffer, 0, size);
                rbc.isUsed = true;

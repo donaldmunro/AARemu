@@ -17,10 +17,12 @@
 package to.augmented.reality.android.em.sample;
 
 import android.app.*;
+import android.content.Context;
 import android.os.*;
 import android.text.*;
 import android.util.*;
 import android.view.*;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 
 import java.io.*;
@@ -31,7 +33,7 @@ public class OpenDialog extends DialogFragment
 {
    static final String LOGTAG = OpenDialog.class.getSimpleName();
 
-   File dir = null;
+   File dir = null, rootDir = null;
    String[] files = null;
    String fileName = null;
 
@@ -81,19 +83,21 @@ public class OpenDialog extends DialogFragment
          Log.e(LOGTAG, "OpenDialog directory not specified");
          return null;
       }
+      else
+         rootDir = dir;
       fileName = bundle.getString("file");
-      files = readDir(dir);
-      if (files == null)
-         return null;
 
       textFileName = (EditText) v.findViewById(R.id.openName);
       listViewFiles = (ListView) v.findViewById(R.id.openList);
       final Button buttonOK = (Button) v.findViewById(R.id.openOK);
       final Button buttonCancel = (Button) v.findViewById(R.id.openCancel);
-      listAdapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_dropdown_item_1line, files);
+      files = readDir(dir);
+      if (files == null)
+         return null;
+      listAdapter = new FilesAdapter(getActivity(), android.R.layout.simple_dropdown_item_1line, files);
       listViewFiles.setAdapter(listAdapter);
       textFileName.addTextChangedListener(new TextWatcher()
-      //==========================================
+            //==========================================
       {
          @Override
          public void beforeTextChanged(CharSequence s, int start, int count, int after)
@@ -114,8 +118,7 @@ public class OpenDialog extends DialogFragment
             {
                fileName = null;
                listAdapter.getFilter().filter(null);
-            }
-            else
+            } else
             {
                listAdapter.getFilter().filter(s);
                if (! s.endsWith(".head"))
@@ -126,31 +129,32 @@ public class OpenDialog extends DialogFragment
             }
          }
       });
+//      textFileName.setOnFocusChangeListener(new View.OnFocusChangeListener()
+//      {
+//         @Override public void onFocusChange(View v, boolean hasFocus)
+//         {
+//            final InputMethodManager imm = (InputMethodManager) getActivity().getSystemService(
+//                  Context.INPUT_METHOD_SERVICE);
+//            imm.showSoftInput(textFileName, InputMethodManager.SHOW_IMPLICIT);
+//         }
+//      });
       InputFilter filter = new RestrictedCharFilter();
       textFileName.setFilters(new InputFilter[]{filter});
       listViewFiles.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener()
       //====================================================================
       {
          @Override
-         public void onItemSelected(AdapterView<?> parent, View view, int position, long id)
-         //----------------------------------------------------------------------------------
-         {
-            fileName = listAdapter.getItem(position);
-            textFileName.setText(fileName);
-         }
+         public void onItemSelected(AdapterView<?> parent, View view, int position, long id) { handleFileSelect(position); }
 
-         @Override public void onNothingSelected(AdapterView<?> parent) {  }
+         @Override
+         public void onNothingSelected(AdapterView<?> parent) { }
       });
       listViewFiles.setOnItemClickListener(new AdapterView.OnItemClickListener()
       {
          @Override
-         public void onItemClick(AdapterView<?> parent, View view, int position, long id)
-         //------------------------------------------------------------------------------
-         {
-            fileName = listAdapter.getItem(position);
-            textFileName.setText(fileName);
-         }
+         public void onItemClick(AdapterView<?> parent, View view, int position, long id) { handleFileSelect(position); }
       });
+
       final DialogCloseable activity = (DialogCloseable) getActivity();
       buttonOK.setOnClickListener(new View.OnClickListener()
       //====================================================
@@ -163,6 +167,28 @@ public class OpenDialog extends DialogFragment
          @Override public void onClick(View v) {  activity.onDialogClosed(dir, fileName, true); dismiss(); }
       });
       return v;
+   }
+
+   private void handleFileSelect(int position)
+   //-----------------------------------------
+   {
+      fileName = listAdapter.getItem(position);
+      File f = new File(dir, fileName);
+      if (f.isDirectory())
+      {
+         try { dir = f.getCanonicalFile(); } catch (IOException e) { dir = f.getAbsoluteFile(); }
+         listAdapter.clear();
+         files = readDir(dir);
+         if (! dir.equals(rootDir))
+            listAdapter.add("..");
+         else
+            if (files.length == 0)
+               listAdapter.add("<No Files>");
+         listAdapter.addAll(files);
+         listAdapter.notifyDataSetChanged();
+      }
+      else
+         textFileName.setText(fileName);
    }
 
    @Override
@@ -220,6 +246,9 @@ public class OpenDialog extends DialogFragment
          public boolean accept(File dir, String name)
          //------------------------------------------
          {
+            File f = new File(dir, name);
+            if (f.isDirectory())
+               return true;
             int p = name.lastIndexOf(".");
             if (p > 0)
             {
@@ -263,6 +292,45 @@ public class OpenDialog extends DialogFragment
          }
          return null;
       }
+   }
+
+   static private class FilesAdapter extends ArrayAdapter<String>
+   //===========================================================
+   {
+      final List<String> contents;
+
+      public FilesAdapter(Context context, int resource, String[] objects)
+      //-------------------------------------------------------------------
+      {
+         super(context, resource);
+         if (objects.length == 0)
+         {
+            objects = new String[1];
+            objects[0] = "<No Files>";
+         }
+         contents = new ArrayList<>(objects.length);
+         for (String s : objects)
+            contents.add(s);
+         Collections.sort(contents);
+      }
+
+      @Override public void add(String object) { contents.add(object); }
+
+      @Override
+      public void addAll(String... items)
+      //---------------------------------
+      {
+         for (String item: items)
+            contents.add(item);
+      }
+
+      @Override public void clear() { contents.clear(); }
+
+      @Override public int getCount() { return contents.size(); }
+
+      @Override public String getItem(int position) { return contents.get(position); }
+
+      @Override public int getPosition(String item) { return contents.indexOf(item); }
    }
 
 }

@@ -21,6 +21,10 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
    public File getDir() { return dir; }
    public void setDir(File dir) { this.dir = dir; }
 
+   long size = 0;
+
+   int count = 0;
+
    GLRecorderRenderer renderer;
    CameraPreviewThread previewer;
 
@@ -38,17 +42,22 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
       //---------------------------------------------------
       {
          this.timestamp = timestamp;
-         this.buffer = ByteBuffer.allocateDirect(previewBuffer.length);
-         this.buffer.put(previewBuffer);
+         if (previewBuffer != null)
+         {
+            this.buffer = ByteBuffer.allocateDirect(previewBuffer.length);
+            this.buffer.put(previewBuffer);
+         }
       }
    }
 
    protected final ArrayBlockingQueue<FrameFile> frameQueue = new ArrayBlockingQueue<>(FRAMEWRITE_QUEUE_SIZE);
 
+   public FrameWriterThread() {}
+
    public FrameWriterThread(GLRecorderRenderer renderer, CameraPreviewThread previewer)
    //----------------------------------------------------------------------------------
    {
-      this(renderer, previewer, Process.THREAD_PRIORITY_DEFAULT, null);
+      this(renderer, previewer, Process.THREAD_PRIORITY_MORE_FAVORABLE, null);
    }
 
    public FrameWriterThread(GLRecorderRenderer renderer, CameraPreviewThread previewer, int priority, File dir)
@@ -57,10 +66,9 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
       this.renderer = renderer;
       this.previewer = previewer;
       this.priority = priority;
-      String filename = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
       if (dir == null)
       {
-         dir = new File(renderer.recordDir, filename + ".frames");
+         dir = new File(renderer.recordDir, "frames");
          if (dir.isDirectory())
             clear();
          else if (dir.isFile())
@@ -78,11 +86,15 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
       File[] files = dir.listFiles();
       for (File f : files)
          f.delete();
+      count = 0;
+      size = 0;
    }
 
    public void on() { previewer.setFrameListener(this); }
 
    public void off() { previewer.setFrameListener(null); }
+
+   public boolean isOn() { return (previewer.getFrameListener() == this); }
 
    @Override
    public void run()
@@ -92,10 +104,8 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
       FrameFile frameBuffer;
       FileOutputStream fos;
       FileChannel channel;
-      long size = 0, timestamp, lastTimestamp = 0;
-      ByteBuffer buffer, previousBuffer = null;
-      final int width = renderer.previewWidth, height = renderer.previewHeight;
-      double psnr;
+      long timestamp, lastTimestamp = 0;
+      ByteBuffer buffer;
       try
       {
          while (true)
@@ -111,29 +121,19 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
             try
             {
                timestamp = frameBuffer.timestamp;
-               if ((timestamp - lastTimestamp) < 5000000)
+               if ((timestamp - lastTimestamp) < 3000000)
                   continue;
                String filename = Long.toString(timestamp);
                File f = new File(dir, filename);
                if (f.exists())
                   continue;
                buffer = frameBuffer.buffer;
-               if (previousBuffer == null)
-                  previousBuffer = ByteBuffer.allocateDirect(buffer.capacity());
-               else
-               {
-                  psnr = FrameDiff.PSNR(width, height, buffer, previousBuffer);
-                  if ( (psnr == 0) || (psnr > 30) )
-                     continue;
-               }
                fos = new FileOutputStream(f);
                channel = fos.getChannel();
                buffer.rewind();
                channel.write(buffer);
                size += buffer.capacity();
-               previousBuffer.rewind();
-               buffer.rewind();
-               previousBuffer.put(buffer);
+               count++;
                lastTimestamp = timestamp;
             }
             catch (Exception e)
@@ -161,7 +161,16 @@ class FrameWriterThread implements Runnable, CameraPreviewThread.FrameListenable
 
    @Override
    public void onFrameAvailable(byte[] data, long timestamp)
+   //-------------------------------------------------------
    {
-      try { frameQueue.put(new FrameFile(timestamp, data)); } catch (Exception e) { Log.e(TAG, "", e); }
+      try
+      {
+         if (! frameQueue.offer(new FrameFile(timestamp, data)))
+            Log.e(TAG, "FrameWriterThread frame buffer full - frame skipped: " + timestamp);
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "", e);
+      }
    }
 }

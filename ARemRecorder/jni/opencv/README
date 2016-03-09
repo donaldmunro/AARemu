@@ -1,0 +1,47 @@
+
+By default these files are assumed to be the vanilla ones downloaded as for 
+example in OpenCV-3.0.0-android-sdk-1.zip. In this case copy from
+OpenCV-3.0.0-android-sdk-1.zip:/ssd/Android/OpenCV-android-sdk/sdk/native/ to
+jni/opencv/native.
+
+Alternately it is possible to compile a version containing OpenCL support
+(as at release date OpenCV for Android defaults to being compiled without OpenCL support). 
+However benchmarking on a Nexus 7 2013 and a LG G2 revealed no performance
+improvement, and on the LG was slower so the default in use uses the 
+vanilla libs (possibly the number of GPU cores are low so when OpenGL is in
+use and using shaders the number of cores left are to low to improve
+performance. 
+
+jni/cv/cv.cc will also needed to be edited with the UMat GPU version of
+Java_to_augmented_reality_android_em_recorder_CV_SHIFT uncommented out
+when testing a OpenCL version.
+
+To compile the OpenCV libs the following steps may be followed::
+
+Assumes OpenCV 3 source downloaded to /ssd/opencv-3.0.0/ (its a bit faster on
+a SSD).
+
+Uses ninja (https://martine.github.io/ninja/) for a faster build.
+
+cd /ssd/opencv-3.0.0/platforms/
+mkdir android-build
+cd android-build
+cmake -GNinja -DCMAKE_TOOLCHAIN_FILE=/ssd/opencv-3.0.0/platforms/android/android.toolchain.cmake -DANDROID_ABI="armeabi-v7a with NEON" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DWITH_OPENCL=YES -DWITH_CUDA=NO -DWITH_EIGEN=NO -DWITH_IPP=NO /ssd/opencv-3.0.0/
+ninja install/strip
+(If using Windows you may need a -DCMAKE_MAKE_PROGRAM="\whatever\ninja.exe")
+
+ninja install/strip
+
+rsync -avz /ssd/opencv-3.0.0/platforms/android-build/install/sdk/native/ /path/to/checkedout/ARem/ARemRecorder/jni/opencv/native/
+
+rm -rf *
+
+Repeat above cmake with -DANDROID_ABI="x86" (it does not seem to support
+multiple ABI's in one build).
+
+and again for any other ABI eg arm64-v8a, x86-64 etc.
+
+After building copy opencv/native/libs/{ABI}/libopencv_java3.so to
+../libs/{ABI}.  libopencv_java3.must be explicitly loaded using 
+System.loadLibrary in RecorderActivity (currently commented out)..
+ 

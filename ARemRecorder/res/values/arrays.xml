@@ -25,8 +25,9 @@
    <string-array name="empty_values">
       <item></item>
    </string-array>
-   <string-array name="recording_modes">
-      <item>Frame-based Multiple Traversals</item>
-      <item>Merge with Outlier Removal</item>
-   </string-array>
+
+   <!--<string-array name="recording_modes">-->
+      <!--<item>Frame-based Multiple Traversals</item>-->
+      <!--<item>Merge</item>-->
+   <!--</string-array>-->
 </resources>

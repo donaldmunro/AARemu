@@ -16,30 +16,30 @@
 
 package to.augmented.reality.android.em;
 
-import android.annotation.*;
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
-import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
-import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
 import android.opengl.GLSurfaceView;
-import android.os.*;
+import android.os.Build;
 import android.os.Process;
-import android.renderscript.*;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RSIllegalArgumentException;
+import android.renderscript.RenderScript;
 import android.renderscript.Type;
 import android.util.Log;
-import android.view.Surface;
 import android.view.SurfaceHolder;
-import to.augmented.reality.android.common.math.*;
+import to.augmented.reality.android.common.math.QuickFloat;
 
-import java.io.*;
-import java.lang.reflect.*;
-import java.util.*;
-import java.util.concurrent.*;
-
-import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  AARemu is a software tool enabling simulation of Augmented Reality by allowing an AR developer to record
@@ -82,17 +82,9 @@ import static to.augmented.reality.android.common.sensor.orientation.Orientation
  ARCamera camera = (ARCamera) ARCamera.open(cameraId);
  </code>
  */
-public class ARCamera
-//===================
+public class ARCamera extends ARCameraCommon
+//===========================================
 {
-   public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
-
-   public enum DelegationTypes { ALL, READ, NONE }
-
-   final static private String TAG = ARCamera.class.getSimpleName();
-   final static private Map<Integer, ARCamera> INSTANCES = new HashMap<Integer, ARCamera>();
-   static private int ARCAMERA_COUNT = 0;
-
    private static final String KEY_PREVIEW_SIZE = "preview-size";
    private static final String KEY_PREVIEW_FORMAT = "preview-format";
    private static final String KEY_PREVIEW_FRAME_RATE = "preview-frame-rate";
@@ -104,9 +96,6 @@ public class ARCamera
 
    private static final String SUPPORTED_VALUES_SUFFIX = "-values";
 
-   private static final String TRUE = "true";
-   private static final String FALSE = "false";
-
    // Formats for setPreviewFormat and setPictureFormat.
    private static final String PIXEL_FORMAT_YUV422SP = "yuv422sp";
    private static final String PIXEL_FORMAT_YUV420SP = "yuv420sp";
@@ -115,65 +104,14 @@ public class ARCamera
    private static final String PIXEL_FORMAT_RGB565 = "rgb565";
    private static final String PIXEL_FORMAT_JPEG = "jpeg";
 
-   private File headerFile, framesFile;
-   private Context context = null;
-   private boolean isOpen = false;
-   private Surface surface = null;
-   // Scaled by 1000 as per Camera.Parameters.setPreviewFpsRange. 15 or 15000 is the default set by Android Camera.Parameters
-   // Camera.Parameters.setPreviewFrameRate is not scaled by 1000, Camera.Parameters.setPreviewFpsRange is.
-   private int previewFrameRate = 15000, previewFrameRateMin = 15000;
-   private int previewWidth =-1, previewHeight =-1;
-   private float focalLength = -1, fovx = -1, fovy = -1;
+   final static protected Map<Integer, ARCamera> INSTANCES = new HashMap<Integer, ARCamera>();
+   static protected int ARCAMERA_COUNT = 0;
 
-   private SurfaceTexture surfaceTexture = null;
-   private boolean isPreviewing = false, isOneShot = false, hasBuffer = false;
-   protected boolean isUseBuffer = false;
-   private int renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY;
-   private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
-   private RecordFileFormat fileFormat = RecordFileFormat.RGBA;
-   public RecordFileFormat getFileFormat() { return fileFormat; }
+   protected Camera.PreviewCallback callback = null;
 
-   public boolean isUseBuffer() { return isUseBuffer; }
-   private Camera.PreviewCallback callback = null;
-   private int orientation = 0;
-   private Camera.ErrorCallback errorCallback;
+   public static int getNumberOfCameras() { return ARCAMERA_COUNT + Camera.getNumberOfCameras(); }
 
-   private Map<String, String> headers;
-   private BearingListener bearingListener = null;
-
-   public String getHeader(String k) { return headers.get(k); }
-   public String getHeader(String k, String def) { return (headers.containsKey(k)) ? headers.get(k) : def; }
-   public int getHeaderInt(String k, int def) { return getMapInt(headers, k, def); }
-   public float getHeaderFloat(String k, float def) { return getMapFloat(headers, k, def); }
-
-   private int bufferSize;
    private Camera camera = null;
-
-   /**
-    * If ALL and a delegate Camera instance was specified in the constructor then all non-implemented methods including
-    * those that perform hardware operations such as zooming etc will be delegated.
-    * If READ then only methods that read values from hardware cameras will be delegated.
-    * If NONE then no delegation takes place, The delegate instance will only be used to obtain private classes such
-    * as Camera.Size and Camera.Parameters.
-    */
-   public DelegationTypes delegationType = DelegationTypes.READ;
-
-   private int id = -1;
-   public int getId() {  return id;  }
-
-   final private ExecutorService playbackExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
-   {
-      @Override
-      public Thread newThread(Runnable r)
-      {
-         Thread t = new Thread(r);
-         t.setDaemon(true);
-         t.setName("Playback");
-         return t;
-      }
-   });
-   private Future<?> playbackFuture;
-   private PlaybackThread playbackThread = null;
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
@@ -192,8 +130,9 @@ public class ARCamera
    public ARCamera(Context context, int cameraId, Camera camera)
    //-----------------------------------------------------------
    {
-      init(context, cameraId, camera);
+      super(context);
       this.camera = camera;
+      init(cameraId, camera);
    }
 
    /**
@@ -216,8 +155,9 @@ public class ARCamera
          throws IOException
    //------------------------------------------------------------------------------------------
    {
+      super(context);
       this.camera = camera;
-      init(context, cameraId, camera);
+      init(cameraId, camera);
       if ( (headerFile != null) && (framesFile != null) )
          setFiles(headerFile, framesFile);
    }
@@ -232,7 +172,7 @@ public class ARCamera
     *                 replaces the hadrware camera when opened using ARCamera.open(id).
     * @throws Exception
     */
-   public ARCamera(Context context, int cameraId) { init(context, cameraId, null); }
+   public ARCamera(Context context, int cameraId) { super(context); init(cameraId, null); }
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
@@ -249,16 +189,16 @@ public class ARCamera
    public ARCamera(Context context, int cameraId, File headerFile, File framesFile) throws IOException
    //--------------------------------------------------------------------------------------------------
    {
-      init(context, cameraId, null);
+      super(context);
+      init(cameraId, null);
       if ( (headerFile != null) && (framesFile != null) )
          setFiles(headerFile, framesFile);
    }
 
 
-   final private void init(Context context, int cameraId, Camera camera)
+   final private void init(int cameraId, Camera camera)
    //------------------------------------------------------------------------------------------
    {
-      this.context = context;
       if (cameraId < 0)
          cameraId = Camera.getNumberOfCameras() + ARCAMERA_COUNT++;
       else
@@ -269,7 +209,7 @@ public class ARCamera
       for (int i = 0; i < Camera.getNumberOfCameras(); i++)
       {
          if (i != cameraId)
-            INSTANCES.put(cameraId, null);
+            INSTANCES.put(i, null);
       }
       INSTANCES.put(cameraId, this);
       this.id = cameraId;
@@ -281,16 +221,14 @@ public class ARCamera
       }
    }
 
-   public static int getNumberOfCameras() { return ARCAMERA_COUNT + Camera.getNumberOfCameras(); }
-
    /**
     * @return An ARCamera instance.
     */
    public static ARCamera open()
    //---------------------------
    {
-      ARCamera instance = INSTANCES.get(0);
-      if (instance == null)
+      ARCameraCommon instance = INSTANCES.get(0);
+      if ( (instance == null) || (! (instance instanceof ARCamera)) )
       {
          Collection<ARCamera> allCameras = INSTANCES.values();
          for (ARCamera camera : allCameras)
@@ -302,7 +240,7 @@ public class ARCamera
       if (instance == null)
          throw new RuntimeException("First create an ARCamera instance using a ARCamera constructor");
       instance.isOpen = true;
-      return instance;
+      return (ARCamera) instance;
    }
 
    /**
@@ -315,7 +253,7 @@ public class ARCamera
    {
       if (id == -1)
          return ARCamera.open();
-      ARCamera instance = INSTANCES.get(id);
+      ARCameraCommon instance = INSTANCES.get(id);
       if (instance == null)
       {
          Camera C = Camera.open(id);
@@ -324,64 +262,20 @@ public class ARCamera
          else
             throw new RuntimeException("First create an ARCamera instance using a ARCamera constructor");
       }
-      else
+      else if (instance instanceof ARCamera)
       {
          instance.isOpen = true;
          return instance;
       }
-   }
-
-   /**
-    * Set the 360 degree recording header and frames files to use for playback.
-    * Setting either file to null will call release and stop previewing.
-    * @param headerFile The recording header file of the 360 degree recording.
-    * @param framesFile The recording frames file of the 360 degree recording.
-    * @throws FileNotFoundException
-    */
-   public void setFiles(File headerFile, File framesFile) throws IOException
-   //------------------------------------------------------------------------
-   {
-      if ( (headerFile == null) || (framesFile == null) )
-      {
-         Log.d(TAG, "Setting recording files to null");
-         release();
-         this.headerFile = this.framesFile = null;
-         return;
-      }
-      if ( (this.headerFile != null) && (this.headerFile.equals(headerFile)) &&
-           (this.framesFile != null) && (this.framesFile.equals(framesFile)) )
-         return;
-      if ( (! headerFile.exists()) || (! headerFile.canRead()) )
-         throw new FileNotFoundException("Header file " + headerFile.getAbsolutePath() + " not found or not readable");
-      if ( (! framesFile.exists()) || (! framesFile.canRead()) )
-         throw new FileNotFoundException("Frames file " + framesFile.getAbsolutePath() + " not found or not readable");
-      headers = parseHeader(headerFile);
-      bufferSize = getMapInt(headers, "BufferSize", -1);
-      String s = headers.get("OrientationProvider");
-      if (s != null)
-         orientationProviderType = ORIENTATION_PROVIDER.valueOf(s);  // throws IllegalArgumentException
       else
-         orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
-      s = headers.get("FileFormat");
-      if (s != null)
-         fileFormat = RecordFileFormat.valueOf(s); // throws IllegalArgumentException
-      previewWidth = getMapInt(headers, "PreviewWidth", - 1);
-      previewHeight = getMapInt(headers, "PreviewHeight", - 1);
-      if ( (previewWidth < 0) || (previewHeight < 0) )
-         throw new RuntimeException("Header file " + headerFile.getAbsolutePath() +
-                                    " does not contain valid preview width and/or height");
-      focalLength = getMapFloat(headers, "FocalLength", - 1);
-      fovx = getMapFloat(headers, "fovx", -1);
-      fovy = getMapFloat(headers, "fovy", -1);
-      this.headerFile = headerFile;
-      this.framesFile = framesFile;
+         throw new RuntimeException(id + " is an ARCameraDevice not an ARCamera instance.");
    }
 
    public static void getCameraInfo(int cameraId, Camera.CameraInfo cameraInfo)
    //-------------------------------------------------------------------------
    {
-      ARCamera arcamera  = INSTANCES.get(cameraId);
-      if (arcamera != null)
+      ARCameraCommon arcamera  = INSTANCES.get(cameraId);
+      if ( (arcamera != null) && (arcamera instanceof ARCamera) )
       {
          cameraInfo.facing = Camera.CameraInfo.CAMERA_FACING_BACK;
          cameraInfo.canDisableShutterSound = true;
@@ -390,77 +284,24 @@ public class ARCamera
       else Camera.getCameraInfo(cameraId, cameraInfo);
    }
 
-   private static Map<String, String> parseHeader(File headerFile) throws IOException
-   //--------------------------------------------------------------------------------
+   public void reconnect()
+   //---------------------
    {
-      BufferedReader br = null;
-      Map<String, String> header = new HashMap<String, String>();
-      try
+      if (camera != null)
       {
-         br = new BufferedReader(new FileReader(headerFile));
-         String line = null;
-         while ( (line = br.readLine()) != null )
+         try
          {
-            line = line.trim();
-            if ( (line.isEmpty()) || (line.startsWith("#")) )
-               continue;
-            int p = line.indexOf('=');
-            if (p < 0)
-            {
-               String error = "Invalid line " + line + " in header file " + headerFile.getAbsolutePath() + ". = not found";
-               Log.e(TAG, error);
-               throw new RuntimeException(error);
-            }
-            String k = line.substring(0, p);
-            String v = line.substring(p+1);
-            header.put(k, v);
+            camera.reconnect();
+            isOpen = true;
+         }
+         catch (Exception e)
+         {
+            Log.e(TAG, "", e);
          }
       }
-      finally
-      {
-         if (br != null)
-            try { br.close(); } catch (Exception _e) {}
-      }
-      return header;
+      else
+         isOpen = true;
    }
-
-   /**
-    * Set the Orientation Provider type. @see to.augmented.reality.android.sensor.orientation.OrientationProvider
-    * @param orientationProviderType
-    */
-   public void setOrientationProviderType(ORIENTATION_PROVIDER orientationProviderType) { this.orientationProviderType = orientationProviderType; }
-
-   public ORIENTATION_PROVIDER getOrientationProviderType() { return orientationProviderType; }
-
-   /**
-    * Sets the recording file format. This is usually specified parsed from the header file so it should not need
-    * to be specified.
-    * @param format The format as specified by the RecordFileFormat enum.
-    */
-   public void setFileFormat(RecordFileFormat format) { fileFormat = format; }
-
-   /**
-    * Releases resources held by and stops threads owned by an ARCamera instance and stops previewing.
-    * If a delegate camera class exists it will also be released.
-    */
-   public void release()
-   //-------------------
-   {
-      isOpen = false;
-      if (isReviewing())
-         stopReview();
-      if (isPreviewing)
-         stopPreview();
-      isPreviewing = false;
-      if (camera != null)
-         try { camera.release(); } catch (Exception e) {}
-   }
-
-   public void unlock() { }
-
-   public void lock() { }
-
-   public void reconnect() { isOpen = true; }
 
    public Camera.Parameters getParameters()
    //--------------------------------------
@@ -494,77 +335,6 @@ public class ARCamera
    }
 
    /**
-    * Sets the Camera parameters. Relevant properties will be copied to the ARCamera class instance.
-    * Does not set the delegate Camera instance if any.
-    * @see android.hardware.Camera#setParameters
-    * @see #setParameters(android.hardware.Camera.Parameters, boolean)
-    * @param params
-    */
-   public void setParameters(Camera.Parameters params) { setParameters(params, false);}
-
-   /**
-    * Sets the Camera parameters. Relevant properties will be copied to the ARCamera class instance.
-    * If a delegate Camera instance has been specified and isDelegate is true then the delegate Camera instance
-    * parameters will also be set
-    * @see android.hardware.Camera#setParameters
-    * @param params
-    * @param isDelegate If <i>true</i> then also call setParameters on the delegate camera.
-    */
-   public void setParameters(final Camera.Parameters params, final boolean isDelegate)
-   //---------------------------------------------------------------------------------
-   {
-      setFrom(params);
-      if ( (isDelegate) && (camera != null) )
-         try { camera.setParameters(params); } catch (Exception e) { Log.e(TAG, "", e); }
-   }
-
-   /**
-    * Sets the delegate Camera parameters.
-    * @param params
-    */
-   public void setDelegateParameters(Camera.Parameters params) { if (camera != null) camera.setParameters(params);}
-
-   private void checkFPSRange(int fps)
-   //---------------------------------
-   {
-      if ( (fps > 0) && (fps < 1000) )
-         throw new RuntimeException(String.format(Locale.US,
-                                                  "Frame rate should be scaled by 1000. Did you mean %d instead of %d ?",
-                                                  fps*1000, fps));
-   }
-
-   private void setFrom(Camera.Parameters parameters)
-   //---------------------------------------------
-   {
-      if ( (previewWidth >= 0) && (previewHeight >= 0) )
-         parameters.setPreviewSize(previewWidth, previewHeight);
-      int fps = parameters.getPreviewFrameRate()*1000;
-      int[] range = new int[2];
-      parameters.getPreviewFpsRange(range);
-      if (fps != previewFrameRate)
-      {
-         checkFPSRange(fps);
-         range[1] = previewFrameRateMin = previewFrameRate = fps;
-      }
-      if (range[0] != previewFrameRateMin)
-      {
-         checkFPSRange(range[0]);
-         previewFrameRateMin = range[0]; // Not used at this time
-      }
-      if (range[1] != previewFrameRate)
-      {
-         checkFPSRange(range[1]);
-         previewFrameRate = range[1];
-      }
-      if (! QuickFloat.equals(parameters.getFocalLength(), focalLength, 0.0001f))
-         focalLength = parameters.getFocalLength();
-      if (! QuickFloat.equals(parameters.getHorizontalViewAngle(), fovx, 0.0001f))
-         fovx = parameters.getHorizontalViewAngle();
-      if (! QuickFloat.equals(parameters.getVerticalViewAngle(), fovy, 0.0001f))
-         fovy = parameters.getVerticalViewAngle();
-   }
-
-   /**
     * @see android.hardware.Camera#setPreviewDisplay
     * @param holder
     * @throws IOException
@@ -579,114 +349,7 @@ public class ARCamera
    }
 
    /**
-    * @return The location where the recording was made as recorded in the header file/
-    */
-   public Location getRecordedLocation()
-   //-----------------------------------
-   {
-      Location location = null;
-      if (headers != null)
-      {
-         String s = headers.get("Location");
-         if (s != null)
-         {
-            String[] as = s.split(",");
-            if ((as != null) && (as.length >= 2))
-            {
-               float latitude, longitude, altitude = 0;
-               try
-               {
-                  latitude = Float.parseFloat(as[0].trim());
-                  longitude = Float.parseFloat(as[1].trim());
-                  if (as.length > 2)
-                     try
-                     {
-                        altitude = Float.parseFloat(as[2].trim());
-                     }
-                     catch (NumberFormatException _e)
-                     {
-                        altitude = 0;
-                     }
-                  location = new Location(LocationManager.GPS_PROVIDER);
-                  location.setTime(System.currentTimeMillis());
-                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-                     location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-                  else
-                  {
-                     // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
-                     try
-                     {
-                        Method makeCompleteMethod = null;
-                        makeCompleteMethod = Location.class.getMethod("makeComplete");
-                        if (makeCompleteMethod != null)
-                           makeCompleteMethod.invoke(location);
-                     }
-                     catch (Exception e)
-                     {
-                        e.printStackTrace();
-                     }
-                  }
-
-                  location.setLatitude(latitude);
-                  location.setLongitude(longitude);
-                  location.setAltitude(altitude);
-                  location.setAccuracy(1.0f);
-               }
-               catch (Exception _e)
-               {
-                  Log.e(TAG, s, _e);
-                  location = null;
-               }
-            }
-         }
-      }
-      return location;
-   }
-
-   public int getPreviewBufferSize()
-   //-------------------------------
-   {
-      if ( previewWidth < 0 || previewHeight < 0 || bufferSize < 0)
-         return 0;
-      int size = previewWidth * previewHeight;
-      int count = -1;
-      switch (fileFormat)
-      {
-         case RGBA:     count = 4; break;
-         case RGB565:   count = 2; break;
-         case RGB:      count = 3; break;
-         case NV21:     count = ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
-      }
-      int length = size * count;
-      if (length != bufferSize)
-         throw new RuntimeException(String.format(Locale.US, "Header buffer size of %d does not match calculated buffer size of %d for size %dx%d",
-                                                  bufferSize, length, previewWidth, previewHeight));
-      return length;
-   }
-
-   /**
-    * @see  android.hardware.Camera#setPreviewTexture
-    * @param surfaceTexture
-    */
-   public void setPreviewTexture(SurfaceTexture surfaceTexture) { this.surfaceTexture = surfaceTexture;  }
-
-   LocationThread locationHandlerThread = null;
-   LocationListener locationListener = null;
-
-   /**
-    * Sets a LocationListener instance which will receive the dummy location from the recording.
-    * @param locationListener
-    */
-   public void setLocationListener(LocationListener locationListener) { this.locationListener = locationListener; }
-
-   /**
-    * Sets a BearingListener instance which will receive the latest bearing.
-    * @see to.augmented.reality.android.em.BearingListener
-    * @param bearingListener
-    */
-   public void setBearingListener(BearingListener bearingListener) { this.bearingListener = bearingListener; }
-
-   /**
+    * @see Camera#startPreview()
     * Starts the preview of the recording.
     */
    public void startPreview()
@@ -744,101 +407,6 @@ public class ARCamera
    }
 
    /**
-    * Stops the recording preview.
-    */
-   public final void stopPreview()
-   //-----------------------------
-   {
-      if (playbackThread != null)
-      {
-         playbackThread.mustStop = true;
-         if (playbackThread.isStarted())
-         {
-            if (playbackFuture != null)
-            {
-               try { playbackFuture.get(300, TimeUnit.MILLISECONDS); } catch (Exception _e) { }
-               if (!playbackFuture.isDone())
-                  playbackFuture.cancel(true);
-            }
-         }
-      }
-      if (locationHandlerThread != null)
-         locationHandlerThread.quit();
-      locationHandlerThread = null;
-   }
-
-   /**
-    * Starts review mode. In this mode instead of using the bearing obtained from the sensors the display bearing is
-    * cycled between a start and end bearing to allow debugging AR applications without having to manually move the
-    * device.
-    * @param startBearing The start bearing
-    * @param endBearing The end bearing.
-    * @param pauseMs Number of milliseconds to pause between frames.
-    * @param isRepeat <i>true></i> to repeatedly display review. The review will alternate between starting at
-    *                 startBearing and ending at endBearing and vice-versa.
-    * @param reviewable A callback class to alert client code at different points of the review. Can be null to not
-    *                   receive any callbacks. @see Reviewable
-    */
-   public void startReview(float startBearing, float endBearing, int pauseMs, boolean isRepeat, Reviewable reviewable)
-   //------------------------------------------------------------------------------------------------------------
-   {
-      if ( (playbackThread != null) && (playbackThread.isStarted()) )
-         playbackThread.review(startBearing, endBearing, pauseMs, isRepeat, reviewable);
-   }
-
-   /**
-    * Review callback interface.
-    */
-   public interface Reviewable
-   //=========================
-   {
-      /**
-       * Called before starting review
-       */
-      void onReviewStart();
-
-      /**
-       * Called before displaying the review frame for the specified bearing.
-       * @param bearing
-       */
-      void onReview(float bearing);
-
-      /**
-       * Called after displaying the review frame for the specified bearing.
-       * @param bearing
-       */
-      void onReviewed(float bearing);
-
-      /**
-       * Called when the review completes or is terminated.
-       */
-      void onReviewComplete();
-   }
-
-   public boolean isReviewing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.isReviewing(); return false;}
-   public float getReviewStartBearing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.getReviewStartBearing(); return -1; }
-   public float getReviewEndBearing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.getReviewEndBearing(); return -1;}
-   public float getReviewCurrentBearing() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.getReviewCurrentBearing(); return -1; }
-   public int getReviewPause() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.getReviewPause(); return -1; }
-   public void setReviewCurrentBearing(float bearing) { if ( (playbackThread != null) && (playbackThread.isStarted()) ) playbackThread.setReviewCurrentBearing(bearing); }
-   public boolean isReviewRepeating() { if ( (playbackThread != null) && (playbackThread.isStarted()) ) return playbackThread.isReviewRepeating(); return false;}
-
-   /**
-    * Stops the review
-    */
-   public void stopReview()
-   //----------------------
-   {
-      if ( (playbackThread != null) && (playbackThread.isStarted()) )
-         playbackThread.stopReview();
-   }
-
-   /**
-    * Return current preview state.
-    */
-   public boolean previewEnabled() { return isPreviewing; }
-
-   /**
     * @see android.hardware.Camera#setPreviewCallback
     * @param callback
     */
@@ -861,29 +429,6 @@ public class ARCamera
    }
 
    /**
-    * Sets the render mode for the recording playback. Can be one of GLSurfaceView.RENDERMODE_CONTINUOUSLY or
-    * GLSurfaceView.RENDERMODE_WHEN_DIRTY. For GLSurfaceView.RENDERMODE_CONTINUOUSLY the preview callback is
-    * continuously called even if there is no bearing change, while for GLSurfaceView.RENDERMODE_WHEN_DIRTY
-    * the callback is only called when the bearing changes. If updating a OpenGL texture to display the preview
-    * when using  continuous rendering, if flickering is encountered it may be due to the frame rate being to
-    * high. Consider setting the frame rate using methods in @link android.hardware.Camera#Parameters.
-    * @param renderMode GLSurfaceView.RENDERMODE_CONTINUOUSLY or GLSurfaceView.RENDERMODE_WHEN_DIRTY
-    */
-   public void setRenderMode(int renderMode)
-   //---------------------------------------
-   {
-      switch (renderMode)
-      {
-         case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
-         case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
-            this.renderMode = renderMode;
-            break;
-         default:
-            throw new RuntimeException("setRenderMode: renderMode must be GLSurfaceView.RENDERMODE_CONTINUOUSLY or GLSurfaceView.RENDERMODE_WHEN_DIRTY");
-      }
-   }
-
-   /**
     * @see android.hardware.Camera#setPreviewCallbackWithBuffer
     * @param callback
     */
@@ -894,28 +439,12 @@ public class ARCamera
       isUseBuffer = true;
    }
 
-   final static private int MAX_QUEUE_BUFFERS = 5;
-   final ArrayBlockingQueue<byte[]> bufferQueue = new ArrayBlockingQueue<byte[]>(MAX_QUEUE_BUFFERS);
-
-   /**
-    * @see android.hardware.Camera#addCallbackBuffer
-    * @param callbackBuffer
-    */
-   public void addCallbackBuffer(byte[] callbackBuffer)
-   //--------------------------------------------------
-   {
-      if (callbackBuffer.length < bufferSize)
-         throw new RuntimeException("addCallbackBuffer: Buffer must be size " + bufferSize);
-      isUseBuffer = true;
-      bufferQueue.offer(callbackBuffer);
-   }
-
    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
    public Allocation createPreviewAllocation(RenderScript rs, int usage) throws RSIllegalArgumentException
    //------------------------------------------------------------------------------------------------------
    {
-      Type.Builder yuvBuilder = new Type.Builder(rs, Element.createPixel(rs, Element.DataType.UNSIGNED_8,
-                                                                         Element.DataKind.PIXEL_YUV)
+      Type.Builder yuvBuilder = new Type.Builder(rs, Element.createPixel                           (rs, Element.DataType.UNSIGNED_8,
+                                                                                                    Element.DataKind.PIXEL_YUV)
       );
       // Use YV12 for wide compatibility. Changing this requires also
       // adjusting camera service's format selection.
@@ -1039,7 +568,7 @@ public class ARCamera
    /**
     * @see android.hardware.Camera#stopSmoothZoom
     * Not implemented by ARCamera. Delegates to Camera instance if it was supplied.
-     */
+    */
    public void stopSmoothZoom()
    //--------------------------
    {
@@ -1124,7 +653,24 @@ public class ARCamera
          camera.setErrorCallback(callback);
    }
 
-   public int getFrameRate() { return previewFrameRate; }
+   /**
+    * Releases resources held by and stops threads owned by an ARCamera instance and stops previewing.
+    * If a delegate camera class exists it will also be released.
+    */
+   public void release()
+   //-------------------
+   {
+      isOpen = false;
+      if (isReviewing())
+         stopReview();
+      if (isPreviewing)
+         stopPreview();
+      isPreviewing = false;
+      if (camera != null)
+         try { camera.release(); } catch (Exception e) { Log.e(TAG, "", e); }
+   }
+
+   public void close() throws Exception { release(); }
 
    protected Camera.Size stealSize(int width, int height)
    //----------------------------------------------------
@@ -1175,21 +721,78 @@ public class ARCamera
       return parameters;
    }
 
-   static public int getMapInt(Map<String, String> m, String k, int def)
-   //---------------------------------------------------
+
+
+   /**
+    * Sets the delegate Camera parameters.
+    * @param params
+    */
+   public void setDelegateParameters(Camera.Parameters params) { if (camera != null) camera.setParameters(params);}
+
+   /**
+    * Sets the Camera parameters. Relevant properties will be copied to the ARCamera class instance.
+    * Does not set the delegate Camera instance if any.
+    * @see android.hardware.Camera#setParameters
+    * @see #setParameters(android.hardware.Camera.Parameters, boolean)
+    * @param params
+    */
+   public void setParameters(Camera.Parameters params) { setParameters(params, false);}
+
+   /**
+    * Sets the Camera parameters. Relevant properties will be copied to the ARCamera class instance.
+    * If a delegate Camera instance has been specified and isDelegate is true then the delegate Camera instance
+    * parameters will also be set
+    * @see android.hardware.Camera#setParameters
+    * @param params
+    * @param isDelegate If <i>true</i> then also call setParameters on the delegate camera.
+    */
+   public void setParameters(final Camera.Parameters params, final boolean isDelegate)
+   //---------------------------------------------------------------------------------
    {
-      String s = m.get(k);
-      if (s == null)
-         return def;
-      try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
+      setFrom(params);
+      if ( (isDelegate) && (camera != null) )
+         try { camera.setParameters(params); } catch (Exception e) { Log.e(TAG, "", e); }
    }
 
-   static public float getMapFloat(Map<String, String> m, String k, float def)
-   //------------------------------------------------------------------------
+
+   private void checkFPSRange(int fps)
+   //---------------------------------
    {
-      String s = m.get(k);
-      if (s == null)
-         return def;
-      try { return Float.parseFloat(s.trim()); } catch (NumberFormatException e) { return def; }
+      if ( (fps > 0) && (fps < 1000) )
+         throw new RuntimeException(String.format(Locale.US,
+                                                  "Frame rate should be scaled by 1000. Did you mean %d instead of %d ?",
+                                                  fps*1000, fps));
    }
+
+   private void setFrom(Camera.Parameters parameters)
+   //---------------------------------------------
+   {
+      if ( (previewWidth >= 0) && (previewHeight >= 0) )
+         parameters.setPreviewSize(previewWidth, previewHeight);
+      int fps = parameters.getPreviewFrameRate()*1000;
+      int[] range = new int[2];
+      parameters.getPreviewFpsRange(range);
+      if (fps != previewFrameRate)
+      {
+         checkFPSRange(fps);
+         range[1] = previewFrameRateMin = previewFrameRate = fps;
+      }
+      if (range[0] != previewFrameRateMin)
+      {
+         checkFPSRange(range[0]);
+         previewFrameRateMin = range[0]; // Not used at this time
+      }
+      if (range[1] != previewFrameRate)
+      {
+         checkFPSRange(range[1]);
+         previewFrameRate = range[1];
+      }
+      if (! QuickFloat.equals(parameters.getFocalLength(), focalLength, 0.0001f))
+         focalLength = parameters.getFocalLength();
+      if (! QuickFloat.equals(parameters.getHorizontalViewAngle(), fovx, 0.0001f))
+         fovx = parameters.getHorizontalViewAngle();
+      if (! QuickFloat.equals(parameters.getVerticalViewAngle(), fovy, 0.0001f))
+         fovy = parameters.getVerticalViewAngle();
+   }
+
 }

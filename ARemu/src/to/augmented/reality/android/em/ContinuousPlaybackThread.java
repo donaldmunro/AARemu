@@ -35,7 +35,7 @@ public class ContinuousPlaybackThread extends PlaybackThread
 {
    final static private String TAG = ContinuousPlaybackThread.class.getSimpleName();
 
-   public ContinuousPlaybackThread(Context context, ARCamera camera, File framesFile, int bufferSize,
+   public ContinuousPlaybackThread(Context context, ARCameraCommon camera, File framesFile, int bufferSize,
                                    float recordingIncrement, Camera.PreviewCallback callback,
                                    boolean isOneShot, BearingListener bearingListener,
                                    ArrayBlockingQueue<byte[]> bufferQueue,
@@ -47,8 +47,20 @@ public class ContinuousPlaybackThread extends PlaybackThread
             bufferQueue, providerType, fileFormat);
    }
 
+   public ContinuousPlaybackThread(Context context, ARCameraCommon camera, File framesFile, int bufferSize,
+                                   float recordingIncrement, ARCameraDevice.ARCaptureCallback callback,
+                                   boolean isOneShot, BearingListener bearingListener,
+                                   ArrayBlockingQueue<byte[]> bufferQueue,
+                                   OrientationProvider.ORIENTATION_PROVIDER providerType,
+                                   ARCamera.RecordFileFormat fileFormat)
+   //-----------------------------------------------------------------------------------------------
+   {
+      super(context, camera, framesFile, bufferSize, recordingIncrement, callback, isOneShot, bearingListener,
+            bufferQueue, providerType, fileFormat);
+   }
+
    /**
-    * Called between calling the preview callback in order to reduce the frame rate approximately to the value specified
+    * Called between calling the preview previewCallback in order to reduce the frame rate approximately to the value specified
     * in Camera.Parameters. The default implementation sleeps for idleTimeNS nanoseconds. Note this is approximate as
     * invoking the sleep method has overhead too, the idle time should perhaps be reduced by about 1 to 1.5 milliseconds
     * to account for this.
@@ -137,11 +149,19 @@ public class ContinuousPlaybackThread extends PlaybackThread
                long dt = endTime - startTime;
                if (dt < fpsInterval)
                   onIdle((fpsInterval - dt)<<1); // TODO: Why does it require a multiply by 2 ???????!!!!!
-               callback.onPreviewFrame(frameBuffer, null);
+               if (previewCallback != null)
+                  previewCallback.onPreviewFrame(frameBuffer, null);
+               else
+                  captureCallback.onPreviewFrame(frameBuffer);
                startTime = endTime;
             }
             else
-               callback.onPreviewFrame(frameBuffer, null);
+            {
+               if (previewCallback != null)
+                  previewCallback.onPreviewFrame(frameBuffer, null);
+               else
+                  captureCallback.onPreviewFrame(frameBuffer);
+            }
 
             if (isOneShot)
             {

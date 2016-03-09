@@ -3,11 +3,19 @@ package to.augmented.reality.android.em.displayframes;
 import android.app.ActionBar;
 import android.app.Activity;
 import android.app.FragmentTransaction;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.hardware.Camera;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.ParcelFileDescriptor;
+import android.provider.MediaStore;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -20,17 +28,42 @@ import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.BearingListener;
 
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.Locale;
 
 public class MainActivity extends Activity implements OpenDialog.DialogCloseable
 //==============================================================================
 {
    final static String TAG = MainActivity.class.getSimpleName();
-   final static File DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-                                    "ARRecorder");
+   static File DIR;
+   static
+   {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+         DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                        "ARRecorder");
+      else
+      {
+         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                             "../Documents/ARRecorder");
+         if (!dir.mkdirs())
+         {
+            dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                           "ARRecorder");
+            dir.mkdirs();
+         }
+         try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
+      }
+   }
 
-   private File headerFile = new File(DIR, "test.head");
-   private File framesFile = new File(DIR, "test.frames");
+   private File headerFile = null;
+   private File framesFile = null;
+   private int width, height;
+   private File recordingDir;
+   private String recordingName, format;
    boolean isDrawerOpen = false, isOpeningDrawer = false;
 
    private View decorView = null;
@@ -42,6 +75,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    private Button buttonReview;
 
    private float increment = -1;
+   private int bufferSize = -1;
    private boolean isPreviewing = false, isReviewing = false;
    int uiOptions;
    final Handler hideHandler = new Handler();
@@ -59,7 +93,6 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       }
    };
 
-
    private class UpdateBearingRunner implements Runnable
    //============================================
    {
@@ -67,8 +100,6 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       @Override public void run() { bearingText.setText(String.format("%.4f", bearing)); }
    };
    final private UpdateBearingRunner updateBearingRunner = new UpdateBearingRunner();
-
-
 
    @Override
    protected void onCreate(Bundle savedInstanceState)
@@ -165,24 +196,35 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
             Toast.makeText(MainActivity.this, framesFile.getAbsolutePath() + " not found or not readable", Toast.LENGTH_LONG).show();
             return;
          }
-         previewSurface.setPreviewFiles(headerFile, framesFile);
-         ARCamera camera = previewSurface.getCamera();
-         Camera.Parameters parameters = camera.getParameters();
-         Camera.Size sz = parameters.getPreviewSize();
-         int width = sz.width;
-         int height = sz.height;
-         if ( (width < 0) || (height < 0) )
-         {
-            Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain preview width or height", Toast.LENGTH_LONG).show();
-            return;
-         }
-         increment = camera.getHeaderFloat("Increment", -1);
-         if (increment < 0)
-         {
-            Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain frame increment", Toast.LENGTH_LONG).show();
-            return;
-         }
+         recordingDir = dir;
+         recordingName = basename;
+         initCamera();
       }
+   }
+
+   private boolean initCamera()
+   //-------------------------
+   {
+      previewSurface.setPreviewFiles(headerFile, framesFile);
+      ARCamera camera = previewSurface.getCamera();
+      Camera.Parameters parameters = camera.getParameters();
+      Camera.Size sz = parameters.getPreviewSize();
+      width = sz.width;
+      height = sz.height;
+      if ( (width < 0) || (height < 0) )
+      {
+         Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain preview width or height", Toast.LENGTH_LONG).show();
+         return false;
+      }
+      increment = camera.getHeaderFloat("Increment", -1);
+      if (increment < 0)
+      {
+         Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain frame increment", Toast.LENGTH_LONG).show();
+         return false;
+      }
+      bufferSize = camera.getHeaderInt("BufferSize", -1);
+      format = camera.getHeader("FileFormat");
+      return true;
    }
 
    public void onReview(View view)
@@ -216,6 +258,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       else
       {
          previewSurface.stopReview();
+         previewSurface.stopPreview();
          isReviewing = false;
       }
    }
@@ -393,4 +436,145 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
             decorView.setSystemUiVisibility(uiOptions);
    }
 
+   boolean hasShownResToast = false;
+
+   public void takePhoto(View view)
+   //------------------------------
+   {
+      if (! format.equals("RGBA"))
+      {
+         Toast.makeText(this, "Currently only supported for RGBA", Toast.LENGTH_LONG).show();
+         return;
+      }
+      float bearing = getSetBearing();
+      if (bearing == -1)
+      {
+         Toast.makeText(this, "Could not obtain current bearing", Toast.LENGTH_LONG).show();
+         return;
+      }
+      if (! hasShownResToast)
+      {
+         Toast.makeText(this,
+                        "Remember to set the camera to use " + width + "x" + height + " resolution. You may need to " +
+                              "install a camera application which allows setting resolution eg Open Camera " +
+                              "(https://play.google.com/store/apps/details?id=net.sourceforge.opencamera&hl=en)",
+                        Toast.LENGTH_LONG).show();
+         hasShownResToast = true;
+      }
+      ARCamera camera = previewSurface.getCamera();
+      camera.release();
+      Intent cameraIntent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+      Uri fileUri =  Uri.fromFile(new File(recordingDir, String.format("%.1f.photo", bearing)));
+      cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, fileUri);
+      cameraIntent.putExtra("bearing", bearing);
+      startActivityForResult(cameraIntent, 1);
+   }
+
+   public void onActivityResult(int requestCode, int resultCode, Intent intent)
+   //------------------------------------------------------------------------
+   {
+      if ( (resultCode == RESULT_OK) && (requestCode == 1) )
+      {
+         float bearing;
+         try { bearing = intent.getExtras().getFloat("bearing", -1); } catch (Exception _e) { bearing = -1; }
+         if (bearing < 0)
+         {
+            bearing = getSetBearing();
+            if (bearing < 0)
+            {
+               Toast.makeText(this, "Could not obtain current bearing", Toast.LENGTH_LONG).show();
+               return;
+            }
+         }
+         ARCamera camera = previewSurface.getCamera();
+         camera.reconnect();
+         Bitmap photo = null;
+         Uri uri;
+         if (intent != null)
+         {
+            uri = intent.getData();
+            if ( (uri == null) && (intent.getExtras() != null) )
+               photo = (Bitmap) intent.getExtras().get("data");
+         }
+         else
+            uri = Uri.fromFile(new File(recordingDir, String.format("%.1f.photo", bearing)));
+         if (uri != null)
+         {
+            ParcelFileDescriptor parcelFileDescriptor = null;
+            try
+            {
+               parcelFileDescriptor = this.getContentResolver().openFileDescriptor(uri, "r");
+               if (parcelFileDescriptor != null)
+               {
+                  FileDescriptor fileDescriptor = parcelFileDescriptor.getFileDescriptor();
+                  photo = BitmapFactory.decodeFileDescriptor(fileDescriptor);
+               }
+            }
+            catch (Exception e)
+            {
+               Log.e(TAG, "", e);
+               Toast.makeText(this, "Exception processing image " + uri + " " + e.getMessage(),
+                              Toast.LENGTH_LONG).show();
+            }
+            finally
+            {
+               if (parcelFileDescriptor != null)
+                  try { parcelFileDescriptor.close(); } catch (Exception _e) {}
+               if (uri != null)
+                  try { new File(uri.toString()).delete(); } catch (Exception _e) {}
+            }
+         }
+
+         if (photo == null)
+         {
+            Toast.makeText(this, "Error obtaining image from camera", Toast.LENGTH_LONG).show();
+            setBearingEdit.setText(Float.toString(bearing));
+            return;
+         }
+         if ( (photo.getWidth() != width) || (photo.getHeight() != height) )
+         {
+            Toast.makeText(this, "Please set the camera to use " + width + "x" + height + " resolution",
+                           Toast.LENGTH_LONG).show();
+            setBearingEdit.setText(Float.toString(bearing));
+            return;
+         }
+         ByteBuffer rgba = ByteBuffer.allocate(bufferSize);
+//         boolean isRGB = format.equals("RGB");
+         rgba.rewind();
+         for (int i=0; i<height; i++)
+         {
+            for (int j=0; j<width; j++)
+            {
+               int pixel = photo.getPixel(j, i);
+               rgba.put((byte) Color.red(pixel));
+               rgba.put((byte) Color.green(pixel));
+               rgba.put((byte) Color.blue(pixel));
+               rgba.put((byte) Color.alpha(pixel));
+            }
+         }
+         RandomAccessFile framesRAF = null;
+         long offset = (long) (Math.floor(bearing / increment));
+         try
+         {
+            framesRAF = new RandomAccessFile(framesFile, "rws");
+            framesRAF.seek(offset * bufferSize);
+            FileChannel channel = framesRAF.getChannel();
+            rgba.rewind();
+            channel.write(rgba);
+         }
+         catch (Exception e)
+         {
+            Log.e(TAG, "Error writing updated frame at " + bearing + " (" + offset + ")", e);
+         }
+         finally
+         {
+            if (framesRAF != null)
+               try { framesRAF.close(); } catch (Exception _e) {}
+         }
+         bearing = bearing - increment;
+         if (bearing < 0)
+            bearing += 360;
+         setBearingEdit.setText(Float.toString(bearing));
+      }
+   }
 }

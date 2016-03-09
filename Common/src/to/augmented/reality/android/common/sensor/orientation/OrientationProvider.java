@@ -233,7 +233,7 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
    /**
     * Stops the sensor fusion (e.g. when pausing/suspending the activity)
     */
-   public void halt() // Renamed from stop to halt (clashes with Thread.halt) - Donald Munro
+   public void halt() // Renamed from stop to halt (clashes with Thread.stop) - Donald Munro
    //----------------
    {
       boolean isMutexAcquired = false;

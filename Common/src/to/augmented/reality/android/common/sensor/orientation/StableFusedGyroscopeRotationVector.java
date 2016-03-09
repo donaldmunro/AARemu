@@ -218,6 +218,7 @@ public class StableFusedGyroscopeRotationVector extends OrientationProvider
                // Increase panic counter
                if (Math.abs(dotProd) < OUTLIER_PANIC_THRESHOLD)
                   panicCounter++;
+
                // Directly use Gyro
                setOrientationQuaternionAndMatrix(quaternionGyroscope);
 

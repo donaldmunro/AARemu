@@ -32,6 +32,7 @@
             android:layout_alignParentTop="true"
             android:text="Open"
             android:onClick="onOpen"
+            android:layout_marginTop="15dip"
             />
 
       <TextView
@@ -91,19 +92,31 @@
             android:layout_height="wrap_content"
             android:layout_below="@+id/button_display"
       >
-         <ImageButton android:id="@+id/button_left"
+         <ImageButton
+               android:id="@+id/button_left"
                android:layout_alignParentTop="true"
-               android:layout_width="60dip"
+               android:layout_width="50dip"
                android:layout_height="50dip"
-               android:layout_marginRight="35dp"
+               android:layout_marginRight="5dp"
                android:onClick="decrementBearing"
                android:src="@drawable/left_arrow"/>
+            <ImageButton
+                  android:id="@+id/button_camera"
+                  android:layout_width="50dip"
+                  android:layout_height="50dip"
+                  android:layout_marginRight="5dp"
+                  android:layout_toRightOf="@+id/button_left"
+                  android:onClick="takePhoto"
+                  android:src="@drawable/camera"/>
          <ImageButton
-               android:layout_width="60dip"
+               android:layout_width="50dip"
+               android:layout_alignParentEnd="true"
+               android:layout_alignParentRight="true"
                android:layout_height="50dip"
-               android:layout_toRightOf="@+id/button_left"
+               android:layout_toRightOf="@+id/button_camera"
                android:onClick="incrementBearing"
-               android:src="@drawable/right_arrow"/>
+               android:src="@drawable/right_arrow"
+         />
       </RelativeLayout>
       <Button
             android:id="@+id/button_review"

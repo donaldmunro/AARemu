@@ -32,6 +32,8 @@
             android:layout_alignParentTop="true"
             android:text="@string/open"
             android:onClick="onOpen"
+            android:layout_marginTop="15dp"
+            android:focusable="true"
       />
 
       <TextView

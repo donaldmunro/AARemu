@@ -1,0 +1,29 @@
+HOME := $(call my-dir)
+
+include $(CLEAR_VARS)
+
+LOCAL_PATH := $(HOME)/framediff
+OPENCV_LIB_TYPE := STATIC
+OPENCV_CAMERA_MODULES := off
+OPENCV_INSTALL_MODULES := on
+include $(HOME)/opencv/native/jni/OpenCV.mk
+
+LOCAL_PATH := $(HOME)/framediff
+
+LOCAL_MODULE    := framediff
+
+LOCAL_SRC_FILES := framediff.cc
+
+#LOCAL_ARM_MODE := arm
+
+LOCAL_CPP_EXTENSION := .cc
+LOCAL_CPP_FEATURES += rtti
+LOCAL_CPP_FEATURES += exceptions
+LOCAL_C_INCLUDES = $(HOME)/opencv/native/jni/include/
+
+LOCAL_LDLIBS := -lstdc++
+LOCAL_LDLIBS += -llog
+LOCAL_LDLIBS += -lz
+
+include $(BUILD_SHARED_LIBRARY)
+

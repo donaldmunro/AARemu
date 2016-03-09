@@ -16,17 +16,19 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.content.Context;
 import android.os.ConditionVariable;
+import android.os.PowerManager;
+import android.os.Process;
 import android.util.Log;
 import android.widget.Toast;
-import to.augmented.reality.android.common.math.QuickFloat;
+import to.augmented.reality.android.em.recorder.util.MutablePair;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -37,42 +39,40 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
 import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeMap;
-import java.util.TreeSet;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 public class TraverseRecordingThread extends RecordingThread implements Freezeable
 //================================================================================
 {
    static final private String TAG = TraverseRecordingThread.class.getSimpleName();
-   static final long epsilon = 60000000L;
-   private static final boolean DEBUG_MATCH = true;
+   static final long EPSILON = 40000000L;
+   public static final boolean DESKTOP_UNIT_TEST = true;
+   public static final boolean DESKTOP_SERIALIZE = true;
+   private static final double DEFAULT_SHIFT_AVERAGE = 10;
+   private static final double DEFAULT_SHIFT_DEVIATION = 4;
 
-   private float recordingLastBearing = -1.0f, startBearing = 1001, bearing = 0, lastBearing = Float.MIN_VALUE, diff = 0,
-                 minBearingCorrectionDelta = 1.8f * recordingIncrement;
-   private Set<Float> skippedBearings  = new HashSet<>();
-   private int discrepancies = 0;
+   private float bearing = 0, lastBearing = Float.MIN_VALUE, diff = 0;
+   private Set<Long> skippedBearings  = new HashSet<>();
    private BearingRingBuffer.RingBufferContent bearingInfo;
    private ExecutorService matchFramesExecutor = null;
    private Future<?> matchFrameFuture = null;
    private FrameWriterThread matchFramesThread = null;
-   private File recordTimestampsFile = null;
+   File recordTimestampsFile = null;
+   private final ArrayBlockingQueue<Float> bearingUIQueue = new ArrayBlockingQueue(100);
+//   private final ArrayBlockingQueue<ProgressParam> bearingProgressQueue = new ArrayBlockingQueue(100);
 
-   protected TraverseRecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer) { super(renderer,
-                                                                                                           frameBuffer); }
+   protected TraverseRecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer)
+   {
+      super(renderer, frameBuffer);
+   }
 
    protected TraverseRecordingThread(GLRecorderRenderer renderer, int nv21BufferSize,
                                      float increment, CameraPreviewThread previewer,
@@ -87,34 +87,131 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
 
    //@Override public void restore(Bundle B) { super.restore(B); }
 
-   private float bearingCorrection = 0;
-   private long  bearingCorrectionTime = Long.MAX_VALUE;
+   class BearingUIThread implements Runnable
+   //=======================================
+   {
+      @Override
+      public void run()
+      //---------------
+      {
+         Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
+         float bearing;//, lastBearing = Float.MAX_VALUE; //, lastUIBearing = 1000;
+         ProgressParam progress = new ProgressParam();
+         int pass2Count = 0, count  = 0;
+         while ( (pass <= 3) && (renderer.isRecording) && (! isCancelled()) )
+         {
+            try { bearing = bearingUIQueue.take(); } catch (InterruptedException e) { break; }
+            if (bearing == Float.MIN_VALUE) break;
+            if (bearing < 0)
+            {
+               bearing = -bearing;
+               long offset = (long) (Math.floor(bearing / recordingIncrement));
+               float nextBearing = ((++offset) * recordingIncrement) % 360;
+               offset = nextIncompleteOffset(nextBearing);
+               if (offset >= 0)
+               {
+                  recordingNextBearing = offset * recordingIncrement;
+                  progress.set(bearing, recordingNextBearing, renderer.recordColor,
+                               (count * 100) / no);
+               }
+               int perc = (++count*100)/no;
+               progress.setStatus("Pass " + pass + " (" + perc + "%)", perc, false, 0);
+               publishProgress(progress);
+            }
+            float lastDist = distance(bearing, lastBearing);
+            if (lastDist > 0)
+            {
+               renderer.recordColor = GLRecorderRenderer.RED;
+               if (pass == 2)
+                  pass2Count++;
+            }
+            else
+               renderer.recordColor = GLRecorderRenderer.GREEN;
+
+//            long offset = (long) (Math.floor(bearing / recordingIncrement));
+//            float nextBearing = ((++offset) * recordingIncrement) % 360;
+//            if (distance(bearing, recordingNextBearing) <= 0)
+//            {
+//               offset = nextIncompleteOffset(nextBearing, completedBearings);
+//               if (offset >= 0)
+//               {
+////                  recordingLastBearing = recordingNextBearing;
+//                  recordingNextBearing = offset * recordingIncrement;
+////                  recordingNextOffset = offset;
+//   //               recordingNextBearing = recordingNextOffset * recordingIncrement;
+//   //               logWriter.write("NextBearing: " + recordingNextBearing + " (" + recordingLastBearing + " " + bearing + ")"); logWriter.newLine();
+//               }
+//            }
+//            else
+//               renderer.recordColor = GLRecorderRenderer.BLUE;
+
+            float dist = distance(lastBearing, startBearing);
+            if ( (pass == 1) && (frameWriterThread.getCount() > 30) && ( dist >= 0) && (dist <= 2*recordingIncrement) )
+            {
+               pass++;
+               renderer.isPause = true;
+               renderer.requestRender();
+            }
+            else if ( (pass > 1) && (pass2Count > 30) && ( dist >= 0) && (dist <= 2*recordingIncrement) )
+            {
+               pass++;
+               pass2Count = 0;
+            }
+//            if (Math.abs(bearing - lastUIBearing) >= recordingIncrement)
+//            {
+//               lastUIBearing = bearing;
+//               ProgressParam progress = new ProgressParam();
+//               progress.set(bearing, recordingNextBearing, renderer.recordColor,
+//                            (frameWriterThread.getCount() * 100) / no);
+////               publishProgress(progress);
+//               if (! bearingProgressQueue.offer(progress))
+//               {
+//                  bearingProgressQueue.clear();
+//                  bearingProgressQueue.offer(progress);
+//               }
+//            }
+            renderer.requestRender();
+         }
+      }
+   }
+
+   volatile private int pass = 1;
 
    @Override
    protected Boolean doInBackground(Void... params)
    //--------------------------------------------
    {
-//      Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-      renderer.recordColor = GLRecorderRenderer.GREEN;
-      if (previewBuffer == null)
-         previewBuffer = new byte[renderer.nv21BufferSize];
-      if (previousBuffer == null)
-         previousBuffer = new byte[renderer.nv21BufferSize];
-      ProgressParam progress = new ProgressParam();
+      PowerManager powerManager = (PowerManager) renderer.activity.getSystemService(Context.POWER_SERVICE);
+      PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
+      wakeLock.acquire();
       renderer.recordColor = GLRecorderRenderer.RED;
       renderer.isPause = true;
       renderer.requestRender();
+      ExecutorService bearingUIExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
+      {
+         @Override
+         public Thread newThread(Runnable r)
+         //-------------------------------------------
+         {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            t.setName("TraverseRecordingThread.UI");
+            return t;
+         }
+      });
+      BearingUIThread bearingUIThread = new BearingUIThread();
+      Future<?> bearingUIFuture = null;
+      byte[] data;
       try
       {
-         float lastUIBearing = 1000;
          recordingCurrentBearing = -1;
 //         previewer.clearBuffer();
          startFrameWriter();
-         float nextBearing, startBearingDist = -1;
          long frameTimestamp;
          previewer.clearBuffer();
-         previewer.awaitFrame(1000, previewBuffer);
          bearingBuffer.clear();
+         data = new byte[renderer.nv21BufferSize];
+         previewer.awaitFrame(1000, data);
          lastBearing = bearingBuffer.peekBearing();
          while (lastBearing == Float.MIN_VALUE)
          {
@@ -122,29 +219,40 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             bearingCondVar.block(20);
             lastBearing = bearingBuffer.peekBearing();
          }
-         minBearingCorrectionDelta = 1.8f * recordingIncrement;
-         boolean mustMatch = true;
+         long recordingNextOffset = (long) (Math.floor(lastBearing / recordingIncrement));
+         recordingNextBearing = ++recordingNextOffset*recordingIncrement;
+         if (recordingNextBearing >= 360)
+            recordingNextBearing -= 360;
          File matchFramesDir = null;
          renderer.recordColor = GLRecorderRenderer.GREEN;
          renderer.isPause = false;
          renderer.requestRender();
-         int discrepancyCount = 0;
-         while ( (frameWriterThread.count < no) && (renderer.isRecording) && (! isCancelled()) )
+         bearingUIFuture = bearingUIExecutor.submit(bearingUIThread);
+         ProgressParam progress = new ProgressParam();
+         progress.setStatus("Follow the arrow", 0, true, Toast.LENGTH_LONG);
+         publishProgress(progress);
+         int[] completed = new int[no];
+         Arrays.fill(completed, -1);
+         while (pass == 1)
          {
-            frameTimestamp = frameBuffer.peek(previewBuffer);
-            if (frameTimestamp < 0)
-               frameTimestamp = previewer.awaitFrame(200, previewBuffer);
-            long offset = -1;
+            data = new byte[renderer.nv21BufferSize];
+            frameTimestamp = frameBuffer.peek(data);
+            int offset;
             if (frameTimestamp >= 0)
             {
-               bearingInfo = null;
                for (int retry=0; retry<3; retry++)
                {
-                  bearingInfo = bearingBuffer.find(frameTimestamp, epsilon);
+                  bearingInfo = bearingBuffer.findClosest(frameTimestamp, 5000000L, EPSILON);
                   if (bearingInfo == null)
                   {
-                     bearingCondVar.close();
-                     bearingCondVar.block(20);
+                     long bearingTimestamp = bearingBuffer.peekTime();
+                     if ( (bearingTimestamp >= 0) && (frameTimestamp > bearingTimestamp) )
+                     {
+                        bearingCondVar.close();
+                        bearingCondVar.block(20);
+                     }
+                     else
+                        break;
                   }
                   else
                      break;
@@ -152,548 +260,676 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
                if (bearingInfo != null)
                {
                   bearing = bearingInfo.bearing;
-                  if (bearingInfo.timestamp >= bearingCorrectionTime)
+                  offset = (int) (Math.floor(bearing / recordingIncrement));
+                  if ( (completed[offset] < 0) && (distance(lastBearing, bearing) >= 0) )
                   {
-                     bearing -= bearingCorrection;
-                     if (bearing < 0)
-                        bearing += 360;
-                     if ( (Math.floor(bearing) > 360) || (bearing < 0) )
-                        Log.e(TAG, "Invalid bearing " + bearing);
-                  }
-                  if (Math.abs(bearing - recordingNextBearing) < recordingIncrement)
-                  {
-                     offset = (long) (Math.floor(bearing / recordingIncrement));
-                     if (! completedBearings.contains(offset))
+                     FrameAndOffset item = new FrameAndOffset(offset, bearingInfo.timestamp, data);
+                     if (addFrameToWriteBuffer(item))
                      {
-                        if (addFrameToWriteBuffer(offset, bearingInfo.timestamp))
-                        {
-                           lastFrameTimestamp = frameTimestamp;
-                           if (startBearing > 1000)
-                           {
-                              startBearing = offset * recordingIncrement;
-                              if (startBearing >= 350)
-                                 startBearingDist = 360 - startBearing;
-                              else
-                                 startBearingDist = startBearing;
-                              lastUIBearing = startBearing;
-                           }
-                           renderer.recordColor = GLRecorderRenderer.GREEN;
-                        } else
-                        {
-                           renderer.recordColor = GLRecorderRenderer.RED;
-                           if (IS_LOGCAT_GOT)
-                              Log.i(TAG, "TraverseRecordingThread2: Error writing " + bearing);
-                        }
+                        lastBearing = bearing;
+                        completed[offset] = 1;
+                        if (startBearing > 1000)
+                           startBearing = offset * recordingIncrement;
+                        bearing = -bearing; // negative to indicate UI update
+                     }
+                     else
+                     {
+                        renderer.recordColor = GLRecorderRenderer.RED;
+                        if (IS_LOGCAT_GOT)
+                           Log.i(TAG, "TraverseRecordingThread: Error writing " + bearing);
                      }
                   }
-               }
-               else
-                  bearing = -1;
-            }
-
-            bearingInfo = bearingBuffer.peekHead(); // Get latest bearing
-            if (bearingInfo != null)                // if possible
-            {
-               float newBearing = bearingInfo.bearing - bearingCorrection;
-               if (newBearing < 0)
-                  newBearing += 360;
-               if (lastBearing < 0)
-                  lastBearing = newBearing;
-               diff = newBearing - lastBearing;
-               while ( (diff >= 8) && (discrepancyCount < 3) )
-               {
-                  bearingInfo = bearingBuffer.peekHead();
-                  if (bearingInfo == null) continue;
-                  newBearing = bearingInfo.bearing - bearingCorrection;
-                  if (newBearing < 0)
-                     newBearing += 360;
-                  diff = newBearing - lastBearing;
-                  if (diff >= 8)
-                     discrepancyCount++;
-
-               }
-               if (discrepancyCount >= 3)
-               {
-                  checkBearingDiscrepencies(newBearing, completedBearings, progress);
-                  discrepancyCount = 0;
-                  continue;
-               }
-               else
-                  discrepancyCount = 0;
-               if (newBearing == Float.MIN_VALUE)
-                  break;
-               discrepancies = 0;
-               lastBearing = bearing;
-               bearing = newBearing;
-               if ( (lastBearing > 350) && (bearing < 10) )
-                  diff = bearing + (360 - lastBearing);
-               else if ( (bearing > 350) && (lastBearing < 10) )
-                  diff = -(lastBearing + (360 - bearing));
-               else
-                  diff = bearing - lastBearing;
-
-               if ( (lastBearing >= 0) && (Math.abs(diff) > minBearingCorrectionDelta) )
-               {
-                  bearingCorrection = diff;
-                  if (bearingCorrectionTime == Long.MAX_VALUE)
-                     bearingCorrectionTime = bearingInfo.timestamp;
-//                  Log.i(TAG, "Set bearing correction " + bearingCorrection + " " + bearing + " - " + lastBearing + " = " + diff);
-                  bearing = lastBearing;
-
+                  bearingUIQueue.put(bearing);
+                  Thread.yield();
                }
             }
             else
-               continue;
-
-            offset = (long) (Math.floor(bearing / recordingIncrement));
-            nextBearing = ((++offset) * recordingIncrement) % 360;
-            if (QuickFloat.compare(nextBearing, recordingNextBearing, 0.00001f) != 0)
-            {
-               offset = nextOffset(nextBearing, completedBearings);
-               if (offset < 0)
-                  break;
-
-               recordingLastBearing = recordingNextBearing;
-               recordingNextBearing = offset * recordingIncrement - bearingCorrection;
-               if (recordingNextBearing < 0)
-                  recordingNextBearing += 360;
-               offset = (long) (Math.floor(recordingNextBearing / recordingIncrement));
-               recordingNextBearing = offset * recordingIncrement;
-
-               if ( (frameWriterThread.count > 20) && (Math.abs(distance(startBearing, recordingNextBearing)) <= 10) )
-               {
-                  matchFramesDir = writeMatchFrames(progress);
-                  mustMatch = true;
-                  break;
-               }
-            }
-            else
-               renderer.recordColor = GLRecorderRenderer.BLUE;
-            if (Math.abs(bearing - lastUIBearing) >= recordingIncrement)
-            {
-               lastUIBearing = bearing;
-               progress.set(bearing, recordingNextBearing, renderer.recordColor, (frameWriterThread.count * 100) / no);
-               publishProgress(progress);
-            }
-            renderer.requestRender();
+               Thread.yield();
          }
+
+         renderer.isPause = true;
+         renderer.requestRender();
+         captureSkipped(startBearing, progress);
+         renderer.isPause = true;
+         renderer.recordColor = GLRecorderRenderer.GREEN;
+         renderer.requestRender();
          stopFrameWriter();
-         if (matchFrameFuture != null)
-         {
-            matchFramesThread.enqueue(new FrameWriterThread.FrameFile());
-            try {Thread.sleep(200); } catch (Exception _e) {}
-            matchFramesExecutor.shutdown();
-            matchFrameFuture.get();
-            matchFramesExecutor.shutdownNow();
-         }
+         bearingUIQueue.put(Float.MIN_VALUE);
+         bearingUIFuture.get();
+         saveCompleted();
 
+         if ( (DESKTOP_SERIALIZE) || (DESKTOP_UNIT_TEST) ) serialize();
+         if (isPostProcess)
+         {
+            kludge(startBearing, progress);
+            renderer.isRecording = true;
+         }
+         else
+            renderer.isRecording = false;
          renderer.lastSaveBearing = 0;
-//         if (error != null)
-//         {
-//            progress.setStatus(error, 100, true, Toast.LENGTH_LONG);
-//            publishProgress(progress);
-//            renderer.isRecording = false;
-//            return false;
-//         }
-         if (mustMatch)
-            matchFrames(matchFramesDir);
-         pause(renderer.lastInstanceState);
          return true;
       }
       catch (Exception e)
       {
-         Log.e(TAG, "", e);
-         progress.setStatus("Exception in Record thread: " + e.getMessage(), 100, true, Toast.LENGTH_LONG);
+         final String errm = "Exception in " + this.getClass().getSimpleName() + " thread: " + e.getMessage();
+         logException(errm, e);
+         Log.e(TAG, errm, e);
+         ProgressParam progress = new ProgressParam();
+         progress.setStatus(errm, 100, true, Toast.LENGTH_LONG);
          publishProgress(progress);
          renderer.isRecording = false;
       }
       finally
       {
+         wakeLock.release();
          stopFrameWriter();
+         if (logWriter != null)
+            try { logWriter.close(); logWriter = null; } catch (Exception e) {}
       }
       return null;
    }
 
-   //#ifdef(DEBUG_MATCH)
-   private void serialize() throws IOException, ClassNotFoundException
+   public void kludge(float startBearing, ProgressParam progress) throws FileNotFoundException
+   //------------------------------------------------------------------------------------------
+   {
+      final int bufferSize = renderer.nv21BufferSize;
+      final String name;
+      name = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
+      renderer.recordFramesFile = new File(renderer.recordDir, name + ".frames.part");
+      if (! renderer.recordFramesFile.exists())
+         throw new FileNotFoundException(renderer.recordFramesFile.getAbsolutePath() + " not found");
+      skippedBearings.clear();
+      for (int off=0; off<no; off++)
+      {
+         if (completedBearings.get(off) < 0)
+            skippedBearings.add((long) off);
+      }
+      RandomAccessFile framesRAF = null;
+      try
+      {
+         framesRAF = new RandomAccessFile(renderer.recordFramesFile, "rws");
+         FileChannel channel = framesRAF.getChannel();
+         ByteBuffer frame = ByteBuffer.allocateDirect(bufferSize),
+                    nextFrame = ByteBuffer.allocateDirect(bufferSize),
+                    rgbaFrame = ByteBuffer.allocateDirect(renderer.rgbaBufferSize);
+         MutablePair<Double, Double> stats = stats(startBearing, channel, bufferSize, progress, 1, 40, null,
+                                                   "Validating frames");
+         final double averageShift, deviation;
+         if (stats == null)
+         {
+            averageShift = DEFAULT_SHIFT_AVERAGE;
+            deviation = DEFAULT_SHIFT_DEVIATION;
+         }
+         else
+         {
+            averageShift = stats.one;
+            deviation = stats.two;
+         }
+         long startOffset = (long) (Math.floor(startBearing / recordingIncrement));
+         long offset = startOffset;
+         while (skippedBearings.contains(offset))
+         {
+            startBearing += recordingIncrement;
+            if (startBearing >= 360)
+               startBearing -= 360;
+            offset = (long) (Math.floor(startBearing / recordingIncrement));
+            if (offset == startOffset)
+               return;
+         }
+         startOffset = offset;
+         float bearing = startBearing, previousBearing;
+         channel.position(offset * bufferSize);
+         frame.rewind();
+         channel.read(frame);
+         double badmaxshift = (int) Math.round(averageShift + deviation * 4.5);
+         double badminshift = (int) Math.max(Math.round(averageShift - deviation * 4.5), 1);
+         int[] result = new int[2];
+         int count = 0;
+         // Kludge out of range shifts
+         do
+         {
+            int perc = (++count*100)/no;
+            progress.setStatus("Fixing shifts: (" + perc + "%)", perc, true, Toast.LENGTH_LONG);
+            publishProgress(progress);
+            previousBearing = bearing;
+            bearing += recordingIncrement;
+            if (bearing >= 360)
+               bearing -= 360;
+            offset = (long) (Math.floor(bearing / recordingIncrement));
+            if (offset == startOffset) break;
+            if (skippedBearings.contains(offset))
+            {
+               while ( (skippedBearings.contains(offset)) && (offset != startOffset) )
+               {
+                  bearing += recordingIncrement;
+                  if (bearing >= 360)
+                     bearing -= 360;
+                  offset = (long) (Math.floor(bearing / recordingIncrement));
+               }
+               if (offset == startOffset)
+                  break;
+               channel.position(offset * bufferSize);
+               frame.rewind();
+               channel.read(frame);
+               continue;
+            }
+            channel.position(offset * bufferSize);
+            nextFrame.rewind();
+            channel.read(nextFrame);
+            CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame, nextFrame, result);
+            int shift = result[0];
+            if ( (shift < badminshift) || (shift > badmaxshift) )
+            {
+               MutablePair<Float, Integer> pp = checkRot(channel, frame, bearing, averageShift, deviation, startOffset,
+                                                         bufferSize);
+               float nextBearing = pp.one;
+               if (nextBearing < 0)
+                  break;
+               int bearingDist = pp.two;
+               long nextOffset = (long) (Math.floor(nextBearing / recordingIncrement));
+               channel.position(nextOffset * bufferSize);
+               nextFrame.rewind();
+               channel.read(nextFrame);
+               CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame, nextFrame, result);
+               shift = result[0] / bearingDist;
+               if (shift < 1)
+                  break;
+               float shiftBearing = bearing;
+               offset = (long) (Math.floor(shiftBearing / recordingIncrement));
+               StringBuilder msg = new StringBuilder();
+               int kc = 1;
+               do
+               {
+                  if (! CV.KLUDGE(renderer.previewWidth, renderer.previewHeight, frame, shift*kc++, true, rgbaFrame))
+                  {
+                     msg.append("Error shifting image for skipped bearing ").append(shiftBearing).append("\n");
+                     nextBearing = shiftBearing;
+                     nextOffset = (long) (Math.floor(nextBearing / recordingIncrement));
+                     channel.position(nextOffset * bufferSize);
+                     nextFrame.rewind();
+                     channel.read(nextFrame);
+                     break;
+                  }
+                  else
+                     msg.append("kludged frame at: ").append(shiftBearing).append("\n");
+                  if (skippedBearings.contains(offset))
+                  {
+                     skippedBearings.remove(offset);
+                     completedBearings.set((int) offset, 1);
+                  }
+                  if (! writeKludgeFile(shiftBearing, rgbaFrame))
+                     msg.append("Error writing Kludge file for ").append(shiftBearing).append("\n");
+                  shiftBearing += recordingIncrement;
+                  if (shiftBearing >= 360)
+                     shiftBearing -= 360;
+                  offset = (long) (Math.floor(shiftBearing / recordingIncrement));
+               } while ( (offset != nextOffset) && (offset != startOffset) );
+               if (logWriter != null)
+               {
+                  logWriter.write(msg.toString());
+                  logWriter.newLine();
+               }
+               if (offset == startOffset) break;
+               bearing = nextBearing;
+               offset = (long) (Math.floor(bearing / recordingIncrement));
+            }
+            frame.rewind();nextFrame.rewind();
+            frame.put(nextFrame);
+         } while (offset != startOffset);
+
+         bearing = startBearing;
+         StringBuilder msg = new StringBuilder();
+         count = 0;
+         do
+         {
+            int perc = (++count*100)/skippedBearings.size();
+            progress.setStatus("Fixing skipped: (" + perc + "%)", perc, true, Toast.LENGTH_LONG);
+            publishProgress(progress);
+            previousBearing = bearing;
+            bearing += recordingIncrement;
+            if (bearing >= 360)
+               bearing -= 360;
+            offset = (long) (Math.floor(bearing / recordingIncrement));
+            if (skippedBearings.contains(offset))
+            {
+               long previousOffset = (long) (Math.floor(previousBearing / recordingIncrement));
+               channel.position(previousOffset * bufferSize);
+               frame.rewind();
+               channel.read(frame);
+               if (! CV.KLUDGE(renderer.previewWidth, renderer.previewHeight, frame, (int) averageShift, true,
+                              rgbaFrame))
+                  msg.append("Error shifting image for skipped bearing ").append(bearing).append("\n");
+               else
+                  msg.append("kludged frame at: ").append(bearing).append("\n");
+               if (! writeKludgeFile(bearing, rgbaFrame))
+                  msg.append("Error writing Kludge file for ").append(bearing).append("\n");
+               skippedBearings.remove(offset);
+               completedBearings.set((int) offset, 1);
+            }
+         } while (offset != startOffset);
+         if ( (logWriter != null) && (msg.length() > 0) )
+         {
+            logWriter.write(msg.toString());
+            logWriter.newLine();
+         }
+      }
+      catch (Exception e)
+      {
+         if (DESKTOP_UNIT_TEST)
+            e.printStackTrace(System.err);
+         else
+            Log.e(TAG, "", e);
+         return;
+      }
+      finally
+      {
+         if (framesRAF != null)
+            try { framesRAF.close(); } catch (Exception _e) {}
+      }
+   }
+
+   private MutablePair<Float, Integer> checkRot(FileChannel channel, ByteBuffer okFrame, float bearing,  double average,
+                                                double deviation, long startOffset, int bufferSize) throws IOException
+   //------------------------------------------------------------------------------------------------------------------
+   {
+      ByteBuffer nextFrame = ByteBuffer.allocateDirect(bufferSize);
+      long offset;
+      double badmaxshift = (int) Math.round(average + deviation * 4.5);
+      double badminshift = (int) Math.max(Math.round(average - deviation * 4.5), 1);
+      int[] result = new int[2];
+      int shiftCount = 2, shiftInitial;
+      float worstCaseBearing = -1;
+      double bestDistance = Double.MAX_VALUE;
+      MutablePair<Float, Integer> res = new MutablePair<>(-1.0f, 0);
+      do
+      {
+         bearing += recordingIncrement;
+         if (bearing >= 360)
+            bearing -= 360;
+         offset = (long) (Math.floor(bearing / recordingIncrement));
+         if (! skippedBearings.contains(offset))
+         {
+            channel.position(offset * bufferSize);
+            nextFrame.rewind();
+            channel.read(nextFrame);
+            CV.SHIFT(renderer.previewWidth, renderer.previewHeight, okFrame, nextFrame, result);
+            shiftInitial = result[0];
+            double initialMin = badminshift * shiftCount;
+            double initialMax = badmaxshift * shiftCount;
+            boolean isInitialBad = ((shiftInitial < initialMin) || (shiftInitial > initialMax));
+            if (! isInitialBad)
+            {
+               res.one = bearing;
+               res.two = shiftCount;
+               return res;
+            }
+            if (shiftInitial > 3 * shiftCount)
+            {
+               final double distance;
+               if (shiftInitial < initialMin)
+                  distance = initialMin - shiftInitial;
+               else if (shiftInitial > initialMax)
+                  distance = shiftInitial - initialMax;
+               else
+                  distance = 0;
+               if (distance < bestDistance)
+               {
+                  worstCaseBearing = bearing;
+                  bestDistance = distance;
+               }
+            }
+         }
+      } while ( (offset != startOffset) && (shiftCount++ < 12) );
+      res.one = worstCaseBearing;
+      res.two = shiftCount - 1;
+      return res;
+   }
+
+   private boolean writeKludgeFile(float bearing, ByteBuffer rgbaFrame)
+   //---------------------------------------------------------------
+   {
+      File shiftFile = new File(renderer.recordDir, String.format("%.1f.rgba", bearing));
+      FileOutputStream fos = null;
+      try
+      {
+         fos = new FileOutputStream(shiftFile);
+         rgbaFrame.rewind();
+         fos.getChannel().write(rgbaFrame);
+         return true;
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "", e);
+         return false;
+      }
+      finally
+      {
+         if (fos != null)
+            try { fos.close(); } catch (Exception _e) {}
+      }
+   }
+
+   private void captureSkipped(float startBearing, ProgressParam progress) throws IOException
+   //-------------------------------------------------------------------------------------------
+   {
+      final long[] completed = super.completedArray();
+      int noSkipped = 0;
+      for (int i=0; i<no; i++)
+      {
+         if (completed[i] < 0)
+            noSkipped++;
+      }
+
+      Log.i(TAG, "captureSkipped(" + startBearing + ") skipped = " + noSkipped);
+      if (noSkipped == 0)
+         return;
+
+      long count = completedLength();
+      long offset = nextIncompleteOffset(startBearing);
+      if (offset < 0)
+      {
+         Log.w(TAG, "captureSkipped: No outstanding bearings (" + count + ")");
+         return;
+      }
+      //recordingLastBearing = recordingNextBearing;
+      recordingNextBearing = offset * recordingIncrement;
+      renderer.recordColor = GLRecorderRenderer.GREEN;
+      renderer.isPause = false;
+      renderer.requestRender();
+      boolean isExiting = false;
+      int exitCount = 0;
+      float targetBearing = recordingNextBearing;
+      if (! DESKTOP_UNIT_TEST)
+      {
+         progress.setStatus("Pass 2: Capture skipped bearings", (frameWriterThread.getCount()*100)/no, false, 0);
+         publishProgress(progress);
+      }
+      renderer.recordColor = GLRecorderRenderer.GREEN;
+      renderer.isPause = false;
+      renderer.requestRender();
+      class FrameListener implements CameraPreviewThread.FrameListenable
+      //-----------------------------------------------------------------
+      {
+         volatile public boolean isRecording = false;
+
+         @Override
+         public void onFrameAvailable(byte[] data, long timestamp)
+         //------------------------------------------------------
+         {
+            if (isRecording)
+            {
+               int offset = (int) (Math.floor(renderer.currentBearing / recordingIncrement));
+               if (completed[offset] < 0)
+               {
+                  FrameAndOffset item = new FrameAndOffset(offset, bearingInfo.timestamp, Arrays.copyOf(data, data.length));
+                  if (addFrameToWriteBufferNoWait(item))
+                  {
+                     completed[offset] = 1;
+                     lastBearing = bearing;
+                     bearingUIQueue.offer(-bearing);
+                  }
+               }
+            }
+         }
+      }
+      FrameListener frameListener = new FrameListener();
+      previewer.setFrameListener(frameListener);
+      while ( (pass <= 3) && (renderer.isRecording) && (! isCancelled()) )
+      {
+         if (count >= no)
+         {
+            if (frameListener.isRecording)
+               isExiting = true;
+            else
+               break;
+         }
+         try
+         {
+            bearing = renderer.currentBearing;
+            final float dist = distance(bearing, recordingNextBearing);
+            offset = (long) (Math.floor(bearing / recordingIncrement));
+            if (Math.abs(dist) <= 2)
+            {
+               if (! frameListener.isRecording)
+                  frameListener.isRecording = true;
+               renderer.recordColor = GLRecorderRenderer.PURPLE;
+            }
+            else
+            {
+               if (frameListener.isRecording)
+               {
+                  frameListener.isRecording = false;
+                  if (isExiting) break;
+               }
+               renderer.recordColor = GLRecorderRenderer.BLUE;
+            }
+
+            if (dist <= 0)
+            {
+               float nextBearing = (++offset) * recordingIncrement;
+               if (nextBearing >= 360)
+                  nextBearing -= 360;
+               long nextoffset = (long) Math.floor(nextBearing / recordingIncrement);
+               offset = nextIncompleteOffset(nextBearing);
+               if (offset < 0)
+               {
+                  if (! frameListener.isRecording)
+                     break;
+                  else
+                     isExiting = true;
+                  offset = nextoffset;
+               }
+               targetBearing = offset * recordingIncrement;
+               if (Math.abs(nextBearing - recordingNextBearing) > 2)
+               {
+                  if (isExiting) break;
+                  //recordingLastBearing = recordingNextBearing;
+                  recordingNextBearing = targetBearing;
+                  bearingUIQueue.offer(recordingNextBearing);
+               }
+               if ( (! frameListener.isRecording) && (Math.abs(distance(bearing, targetBearing)) <= 2) )
+               {
+                  frameListener.isRecording = true;
+                  renderer.recordColor = GLRecorderRenderer.PURPLE;
+               }
+//               recordingNextBearing = offset * recordingIncrement;
+            }
+            renderer.requestRender();
+         }
+         catch (Exception e)
+         {
+            logException(e.getMessage(), e);
+            Log.e(TAG, "", e);
+            continue;
+         }
+      }
+   }
+
+   private MutablePair<Double, Double> stats(final float startBearing, final FileChannel channel, final int bufferSize,
+                                             final ProgressParam progress, final int minShift, final int maxShift,
+                                             final Set<Float> badBearings, String progressMessage)
+   //------------------------------------------------------------------------------------------------------------------
+   {
+      ByteBuffer frame = ByteBuffer.allocateDirect(bufferSize), frame2 = null;
+      final long startOffset = (long) (Math.floor(startBearing / recordingIncrement));
+      long off = startOffset;
+      int sampleCount = 0, totalShift = 0;
+      int[] result = new int[2];
+      List<Integer> allShifts = new ArrayList<>();
+      int c = 0;
+      float bearing = startBearing;
+      do
+      {
+         try
+         {
+            if (! DESKTOP_UNIT_TEST)
+            {
+               int perc = (c++ * 100) / no;
+               String message = progressMessage + "(" + perc + "%)";
+               progress.setStatus(message, perc, true, Toast.LENGTH_SHORT);
+               publishProgress(progress);
+            }
+            if (completedBearings.get((int) off) >= 0)
+            {
+               channel.position(off * bufferSize);
+               frame.rewind();
+               channel.read(frame);
+               if (frame2 == null)
+                  frame2 = ByteBuffer.allocateDirect(bufferSize);
+               else
+               {
+                  CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame2, frame, result);
+                  final int shift = result[0];
+                  if ( (shift <= minShift) || (shift >= maxShift) )
+                  {
+//                     completedBearings.set((int) off, -1);
+                     if (badBearings != null)
+                        badBearings.add(off * recordingIncrement);
+                     frame2 = null;
+                  }
+                  else
+                  {
+                     totalShift += shift;
+                     allShifts.add(shift);
+                     sampleCount++;
+                  }
+               }
+               frame.rewind();
+               if (frame2 != null)
+               {
+                  frame2.rewind();
+                  frame2.put(frame);
+               }
+            }
+            else
+               frame2 = null;
+            bearing += recordingIncrement;
+            if (bearing >= 360)
+               bearing -= 360;
+            off = (long) (Math.floor(bearing / recordingIncrement));
+         }
+         catch (Exception e)
+         {
+            final String errm = "Exception in " + this.getClass().getSimpleName() + ".stats " + e.getMessage();
+            e.printStackTrace();
+            progress.setStatus(errm, 100, true, Toast.LENGTH_LONG);
+            publishProgress(progress);
+            logException(errm, e);
+            Log.e(TAG, "", e);
+         }
+      } while (off != startOffset);
+
+      double averageShift = 0, deviation = 0;
+      if (sampleCount > 5)
+      {
+         averageShift = (double) totalShift / (double) sampleCount;
+         double sum = 0.0;
+         for (int ashift : allShifts)
+            sum += (ashift - averageShift) * (ashift - averageShift);
+         deviation = Math.sqrt(sum / (double) (allShifts.size() - 1));
+         return new MutablePair<>(averageShift, deviation);
+      }
+      return null;
+   }
+
+   private void saveCompleted()
+   //--------------------------
+   {
+      BufferedWriter bw = null;
+      PrintWriter headerWriter = null;
+      try
+      {
+         bw = new BufferedWriter(new FileWriter(new File(renderer.recordDir, "completed.bearings")));
+         for (int i=0; i<no; i++)
+         {
+            bw.write(i + "=" + completedBearings.get(i));
+            bw.newLine();
+         }
+         bw.close();
+         bw = new BufferedWriter(new FileWriter(new File(renderer.recordDir, "skipped.bearings")));
+         for (long bb : skippedBearings)
+         {
+            bw.write(Float.toString(bb*recordingIncrement));
+            bw.newLine();
+         }
+         String name = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
+         File recordHeaderFile = new File(renderer.recordDir, name + ".head");
+         if (recordHeaderFile.exists())
+            recordHeaderFile.delete();
+         headerWriter = new PrintWriter(recordHeaderFile);
+         headerWriter.println(String.format("Increment=%6.2f", recordingIncrement));
+         headerWriter.println(String.format("BufferSize=%d", renderer.nv21BufferSize));
+         headerWriter.println(String.format("PreviewWidth=%d", renderer.previewWidth));
+         headerWriter.println(String.format("PreviewHeight=%d", renderer.previewHeight));
+         headerWriter.println(String.format("StartBearing=%.1f", startBearing));
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "", e);
+      }
+      finally
+      {
+         if (bw != null)
+            try { bw.close(); } catch (Exception _e) {}
+         if (headerWriter != null)
+            try { headerWriter.close(); } catch (Exception _e) {}
+      }
+   }
+
+   //#ifdef(DESKTOP_UNIT_TEST)
+   public void serialize() throws IOException, ClassNotFoundException
    //------------------------------------------------------------------
    {
-      if (DEBUG_MATCH)
+      if (DESKTOP_SERIALIZE)
       {
-         File dir = new File("/sdcard/Documents/ARRecorder/debug");
-         if (! dir.exists())
-            dir.mkdirs();
-         File completeSerial = new File(dir, "complete.ser");
-         File skippedSerial= new File(dir, "skipped.ser");
-         File bearingTimestampsFile = new File(dir, "skipped.bearings");
-         if ( (completeSerial.exists()) && (skippedSerial.exists()) )
+         try
          {
-            ObjectInputStream serializeStream = new ObjectInputStream(new FileInputStream(completeSerial));
-            completedBearings = (Set<Long>) serializeStream.readObject();
-            serializeStream.close();
-            serializeStream = new ObjectInputStream(new FileInputStream(skippedSerial));
-            skippedBearings = (Set<Float>) serializeStream.readObject();
-            serializeStream.close();
+            File dir = new File(renderer.recordDir, "debug");
+            if (!dir.exists())
+               dir.mkdirs();
+            File completeSerial = new File(dir, "complete.ser");
+            File skippedSerial = new File(dir, "skipped.ser");
+            File bearingTimestampsFile = new File(dir, "skipped.bearings");
+            if ((completeSerial.exists()) && (skippedSerial.exists()))
+            {
+               ObjectInputStream serializeStream = new ObjectInputStream(new FileInputStream(completeSerial));
+               completedBearings = (AtomicLongArray) serializeStream.readObject();
+               serializeStream.close();
+               serializeStream = new ObjectInputStream(new FileInputStream(skippedSerial));
+               skippedBearings = (Set<Long>) serializeStream.readObject();
+               serializeStream.close();
+            }
+            else if (completedLength() > 0)
+            {
+               ObjectOutputStream serializeStream = new ObjectOutputStream(new FileOutputStream(completeSerial));
+               serializeStream.writeObject(completedBearings);
+               serializeStream.close();
+               serializeStream = new ObjectOutputStream(new FileOutputStream(skippedSerial));
+               serializeStream.writeObject(skippedBearings);
+               serializeStream.close();
+               //            FileChannel ch1 = new FileInputStream(recordTimestampsFile).getChannel();
+               //            FileChannel ch2 = new FileOutputStream(bearingTimestampsFile).getChannel();
+               //            ch2.transferFrom(ch1, 0, ch1.size());
+               //            ch1.close(); ch2.close();
+            }
          }
-         else if (completedBearings.size() > 0)
+         catch (Exception e)
          {
-            ObjectOutputStream serializeStream = new ObjectOutputStream(new FileOutputStream(completeSerial));
-            serializeStream.writeObject(completedBearings);
-            serializeStream.close();
-            serializeStream = new ObjectOutputStream(new FileOutputStream(skippedSerial));
-            serializeStream.writeObject(skippedBearings);
-            serializeStream.close();
-            FileChannel ch1 = new FileInputStream(recordTimestampsFile).getChannel();
-            FileChannel ch2 = new FileOutputStream(bearingTimestampsFile).getChannel();
-            ch2.transferFrom(ch1, 0, ch1.size());
-            ch1.close(); ch2.close();
+            Log.e(TAG, "", e);
          }
       }
    }
    //#endif
 
-   public class MutableTriple<T1, T2, T3>
-   {
-      public T1 one;
-      public T2 two;
-      public T3 three;
+   private ByteBuffer nextFrame = null;
 
-      public MutableTriple(T1 one, T2 two, T3 three) { this.one = one; this.two = two; this.three = three; }
-   }
-
-   @SuppressWarnings("unchecked")
-   //Public for tests
-   public boolean matchFrames(File matchFramesDir)
-   //-----------------------------------------------
-   {
-      File framesFile = renderer.recordFramesFile;
-      if ( (! framesFile.exists()) || (framesFile.length() == 0) )
-         return false;
-      File bearingTimestampsFile;
-      if (DEBUG_MATCH)
-      {
-         try { serialize(); } catch (Exception e) { Log.e(TAG, "serialize", e); throw new RuntimeException(e); }
-         bearingTimestampsFile = new File("/sdcard/Documents/ARRecorder/debug/skipped.bearings");
-      }
-      else
-         bearingTimestampsFile = recordTimestampsFile;
-      Map<Long, SortedSet<Long>> skippedBearingTimes = new HashMap<>();
-      BufferedReader br = null;
-      try
-      {
-         br = new BufferedReader(new FileReader(bearingTimestampsFile));
-         String s;
-         long offset, timestamp;
-         while ( (s = br.readLine()) != null)
-         {
-            String[] as = s.split("=");
-            if (as.length < 2) continue;
-            try
-            {
-               offset = Long.parseLong(as[0].trim());
-               timestamp = Long.parseLong(as[1].trim());
-               SortedSet<Long> bearingList = skippedBearingTimes.get(offset);
-               if (bearingList == null)
-               {
-                  bearingList = new TreeSet<>();
-                  skippedBearingTimes.put(offset, bearingList);
-               }
-               bearingList.add(timestamp);
-            }
-            catch (Exception e)
-            {
-               Log.e(TAG, "", e);
-            }
-         }
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-         return false;
-      }
-      finally
-      {
-         if (br != null)
-            try { br.close(); } catch (Exception e) {}
-      }
-
-      TreeMap<Long, File> frameFileMap = new TreeMap<>();
-      File[] frameFiles = matchFramesDir.listFiles();
-      for (File f : frameFiles)
-      {
-         long timestamp;
-         try { timestamp = Long.parseLong(f.getName().trim()); } catch (Exception _e) { continue; }
-         frameFileMap.put(timestamp, f);
-      }
-      if ( (! bearingTimestampsFile.exists()) || (bearingTimestampsFile.length() == 0) )
-         return false;
-      Float[] skippedBearingArray = skippedBearings.toArray(new Float[skippedBearings.size()]);
-      Arrays.sort(skippedBearingArray);
-      RandomAccessFile framesRAF = null;
-      final int bufferSize = renderer.nv21BufferSize;
-      try
-      {
-         framesRAF = new RandomAccessFile(renderer.recordFramesFile, "rw");
-         FileChannel channel = framesRAF.getChannel();
-         ByteBuffer frame = ByteBuffer.allocateDirect(bufferSize), frame2 = null,
-                    tmpFrame = ByteBuffer.allocateDirect(bufferSize);
-         SortedSet<Long> bearingList = null;
-         double psnr, psnrRight;
-         NavigableMap<Long, File> candidateFrames;
-         Set<File> checkedFiles = new HashSet<>(), completedFiles = new HashSet<>();
-         File writeFile = null;
-         for (int i=0; i < skippedBearingArray.length; i++)
-         {
-            float skippedBearing = skippedBearingArray[i];
-            final long offset = (long) (Math.floor(skippedBearing / recordingIncrement));
-            long previousOffset = previousCompleteOffset(skippedBearing);
-            long nextOffset = nextCompleteOffset(skippedBearing);
-            int previousDist = (int) (offset - previousOffset);
-            int nextdist = (int) (nextOffset - offset);
-            bearingList = skippedBearingTimes.get(offset);
-            if ( (previousDist == 1) && (nextdist == 1) )
-            {
-               channel.position(previousOffset * bufferSize);
-               frame.rewind();
-               channel.read(frame);
-               channel.position(nextOffset * bufferSize);
-               if (frame2 == null)
-                  frame2 = ByteBuffer.allocateDirect(bufferSize);
-               frame2.rewind();
-               channel.read(frame2);
-               List<MutableTriple<Double, Double, File>> combinedList = new ArrayList<>();
-               MutablePair<Double, File> maxLeft = new MutablePair<>(-1.0, null), maxRight = new MutablePair<>(-1.0, null);
-               if ( (bearingList != null) && (! bearingList.isEmpty()) )
-               {
-                  long mintime = bearingList.first();
-                  long maxtime = bearingList.last();
-                  candidateFrames = frameFileMap.tailMap(mintime, true).headMap(maxtime, true);
-                  Collection<File> files = candidateFrames.values();
-                  checkedFiles.clear();
-                  for (File f : files)
-                  {
-                     if (completedFiles.contains(f)) continue;
-                     checkedFiles.add(f);
-                     psnr = filePSNR(f, frame, tmpFrame);
-                     if (psnr > maxLeft.one)
-                     {
-                        maxLeft.one = psnr;
-                        maxLeft.two = f;
-                     }
-                     psnrRight = filePSNR(f, frame2, tmpFrame);
-                     if (psnrRight > maxRight.one)
-                     {
-                        maxRight.one = psnrRight;
-                        maxRight.two = f;
-                     }
-                     if ( (psnr > 14) && (psnrRight > 14) )
-                        combinedList.add(new MutableTriple<>(psnr, psnrRight, f));
-                  }
-               }
-               Collections.sort(combinedList, new Comparator<MutableTriple<Double, Double, File>>() {
-                  @Override
-                  public int compare(MutableTriple<Double, Double, File> lhs, MutableTriple<Double, Double, File> rhs)
-                  {
-                     return Double.compare(lhs.one, rhs.one);
-                  }
-               });
-               if ( ((maxLeft.one <= 15) && (maxRight.one <= 15)) || (combinedList.size() < 3) )
-               {
-                  candidateFrames = frameFileMap;
-                  Collection<File> files = candidateFrames.values();
-                  for (File f : files)
-                  {
-                     if (completedFiles.contains(f)) continue;
-                     if (checkedFiles.contains(f)) continue;
-                     psnr = filePSNR(f, frame, tmpFrame);
-                     if (psnr > maxLeft.one)
-                     {
-                        maxLeft.one = psnr;
-                        maxLeft.two = f;
-                     }
-                     psnrRight = filePSNR(f, frame2, tmpFrame);
-                     if (psnrRight > maxRight.one)
-                     {
-                        maxRight.one = psnrRight;
-                        maxRight.two = f;
-                     }
-                     if ( (psnr > 14) && (psnrRight > 14) )
-                        combinedList.add(new MutableTriple<>(psnr, psnrRight, f));
-                  }
-               }
-               psnr = psnrRight = -1.0;
-               if (! combinedList.isEmpty())
-               {
-                  Collections.sort(combinedList, new Comparator<MutableTriple<Double, Double, File>>() {
-                     @Override
-                     public int compare(MutableTriple<Double, Double, File> lhs, MutableTriple<Double, Double, File> rhs)
-                     {
-                        return Double.compare(Math.abs(lhs.one - lhs.two), Math.abs(rhs.one - rhs.two));
-                     }
-                  });
-                  psnr = combinedList.get(0).one;
-                  psnrRight = combinedList.get(0).two;
-                  if ( ((maxLeft.one - psnr) >= 1.0) || ((maxRight.one - psnrRight) >= 1.0) )
-                     psnr = psnrRight = -1;
-               }
-               if (psnr > 0)
-                  writeFile = combinedList.get(0).three;
-               else
-               {
-                  if (maxLeft.one >= maxRight.one)
-                     writeFile = maxLeft.two;
-                  else
-                     writeFile = maxRight.two;
-               }
-               completedBearings.add(offset);
-               frameWriterThread.count++;
-            }
-            else if ( (previousDist == 1) || (nextdist == 1) )
-            {
-               if (previousDist == 1)
-               {
-                  channel.position(previousOffset * bufferSize);
-                  int j = i + 1;
-                  if (j < skippedBearingArray.length)
-                  {
-                     float nextSkippedBearing = skippedBearingArray[j];
-                     long nextOff = (long) (Math.floor(nextSkippedBearing / recordingIncrement));
-                     if ((offset + 1) == nextOff)
-                        bearingList.addAll(skippedBearingTimes.get(nextOff));
-                  }
-               }
-               else
-               {
-                  channel.position(nextOffset * bufferSize);
-                  int j = i - 1;
-                  if (j >= 0)
-                  {
-                     float prevSkippedBearing = skippedBearingArray[j];
-                     long prevOff = (long) (Math.floor(prevSkippedBearing / recordingIncrement));
-                     if ((offset - 1) == prevOff)
-                        bearingList.addAll(skippedBearingTimes.get(prevOff));
-                  }
-               }
-               frame.rewind();
-               channel.read(frame);
-
-//               FileOutputStream fos = null;
-//               try
-//               {
-//                  fos = new FileOutputStream("/tmp/x/frame");
-//                  frame.rewind();
-//                  fos.getChannel().write(frame);
-//               }
-//               catch (Exception _e) { }
-//               finally
-//               {
-//                  if (fos != null) try { fos.close(); } catch (Exception _e) {}
-//               }
-
-               double maxPsnr = -1;
-               File maxFile = null;
-               if ( (bearingList != null) && (! bearingList.isEmpty()) )
-               {
-                  long mintime = bearingList.first();
-                  long maxtime = bearingList.last();
-                  if (previousDist == 1)
-                     candidateFrames = frameFileMap.tailMap(mintime, true).headMap(maxtime, true);
-                  else
-                     candidateFrames = frameFileMap.headMap(maxtime, true).tailMap(mintime, true);
-                  Collection<File> files = candidateFrames.values();
-                  checkedFiles.clear();
-                  for (File f : files)
-                  {
-                     if (completedFiles.contains(f)) continue;
-                     checkedFiles.add(f);
-                     psnr = filePSNR(f, frame, tmpFrame);
-                     //System.out.println(f + " " + psnr);
-                     if (psnr > maxPsnr)
-                     {
-                        maxPsnr = psnr;
-                        maxFile = f;
-                     }
-                  }
-               }
-               if (maxPsnr < 14)
-               {
-                  double maxPsnr2 = maxPsnr;
-                  File ff = null;
-                  candidateFrames = frameFileMap;
-                  Collection<File> files = candidateFrames.values();
-                  for (File f : files)
-                  {
-                     if (completedFiles.contains(f)) continue;
-                     if (checkedFiles.contains(f)) continue;
-                     psnr = filePSNR(f, frame, tmpFrame);
-                     if (psnr > maxPsnr2)
-                     {
-                        maxPsnr2 = psnr;
-                        ff = f;
-                     }
-                  }
-                  if (maxPsnr2 > maxPsnr)
-                  {
-                     if (fileMSSIM(ff, frame, tmpFrame) > fileMSSIM(maxFile, frame, tmpFrame))
-                     {
-                        maxPsnr = maxPsnr2;
-                        maxFile = ff;
-                     }
-                  }
-               }
-               writeFile = maxFile;
-               completedBearings.add(offset);
-               frameWriterThread.count++;
-            }
-
-            if (writeFile != null)
-            {
-               FileInputStream fis = null;
-               FileChannel readChannel = null;
-               try
-               {
-                  fis = new FileInputStream(writeFile);
-                  readChannel = fis.getChannel();
-                  tmpFrame.rewind();
-                  readChannel.read(tmpFrame);
-                  channel.position(offset * bufferSize);
-                  channel.write(tmpFrame);
-                  completedFiles.add(writeFile);
-                  try { framesRAF.getFD().sync(); } catch (Exception _ee) { Log.e(TAG, "", _ee); }
-                  System.out.println("Wrote " + writeFile + " at " + offset);
-               }
-               catch (Exception _e)
-               {
-                  Log.e(TAG, "Error writing " + writeFile + " to offset " + offset, _e);
-               }
-               finally
-               {
-                  if (readChannel != null)
-                     try { readChannel.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
-                  if (fis != null)
-                     try { fis.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
-               }
-            }
-         }
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-      }
-      finally
-      {
-         if (framesRAF != null)
-            try { framesRAF.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
-      }
-     return true;
-   }
-
+/*
    private float checkBearingDiscrepencies(float newBearing, Set<Long> completedBearings, ProgressParam progress)
    //------------------------------------------------------------------------------------------------------------
    {
       final String message = "Large number of bearing discrepancies. Try to recalibrate by waving device "
             + "in a figure of 8 motion. ";
-      discrepancies = 0;
+      int discrepancies = 0;
       renderer.recordColor = GLRecorderRenderer.RED;
       renderer.isPause = true;
       renderer.requestRender();
@@ -708,8 +944,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             completedBearings.clear();
             skippedBearings.clear();
             bearingBuffer.clear();
-            bearingCorrection = 0;
-            bearingCorrectionTime = Long.MAX_VALUE;
             renderer.initOrientationSensor(null);
             ConditionVariable cond = new ConditionVariable(false);
             renderer.activity.userRecalibrate(cond, message +
@@ -724,13 +958,11 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
 
             long offset = (long) (Math.floor(bearing / recordingIncrement));
             float nextBearing = ((++offset) * recordingIncrement) % 360;
-            offset = nextOffset(nextBearing, completedBearings);
+            offset = nextIncompleteOffset(nextBearing, completedBearings);
             if (offset >= 0)
             {
                recordingLastBearing = recordingNextBearing;
-               recordingNextBearing = offset * recordingIncrement - bearingCorrection;
-               if (recordingNextBearing < 0)
-                  recordingNextBearing += 360;
+               recordingNextBearing = offset * recordingIncrement;
                offset = (long) (Math.floor(recordingNextBearing / recordingIncrement));
                recordingNextBearing = offset * recordingIncrement;
             }
@@ -744,8 +976,6 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
             renderer.activity.userRecalibrate(cond, message +
                   "When done orient camera at last recording location and press OK");
             cond.block();
-            bearingCorrection = 0;
-            bearingCorrectionTime = Long.MAX_VALUE;
             bearingBuffer.clear();
             bearingCondVar.close();
             bearingCondVar.block(30);
@@ -776,153 +1006,5 @@ public class TraverseRecordingThread extends RecordingThread implements Freezeab
       renderer.requestRender();
       return bearing;
    }
-
-   private File writeMatchFrames(ProgressParam progress) throws IOException
-   //-----------------------------------------------------
-   {
-      float lastUIBearing = -1;
-      matchFramesThread = new FrameWriterThread(renderer, previewer);
-      matchFramesExecutor = Executors.newSingleThreadExecutor();
-      matchFrameFuture = matchFramesExecutor.submit(matchFramesThread);
-      boolean isRecording = false;
-      Set<Long> writtenBearings = new HashSet<>();
-      String name = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
-      recordTimestampsFile = new File(renderer.recordDir, name + ".bearings");
-      Set<Long> completedBearings = new HashSet<>(this.completedBearings);
-      PrintWriter timestampWriter = new PrintWriter(new BufferedWriter(new FileWriter(recordTimestampsFile), 32768));
-      long count = frameWriterThread.count;
-      int discrepancyCount = 0;
-      while ( (count < no) && (renderer.isRecording) && (! isCancelled()) )
-      {
-         try
-         {
-            bearingInfo = bearingBuffer.peekHead(); // Get latest bearing
-            if (bearingInfo != null)                // if possible
-            {
-               float newBearing = bearingInfo.bearing - bearingCorrection;
-               if (newBearing < 0)
-                  newBearing += 360;
-               if (lastBearing < 0)
-                  lastBearing = newBearing;
-               diff = newBearing - lastBearing;
-               if (diff >= 8)
-               {
-                  if (discrepancyCount++ > 3)
-                  {
-                     newBearing = checkBearingDiscrepencies(newBearing, completedBearings, progress);
-                     discrepancyCount = 0;
-                  }
-                  else
-                     continue;
-               }
-               else
-                  discrepancyCount = 0;
-               if (newBearing == Float.MIN_VALUE)
-                  break;
-               discrepancies = 0;
-               lastBearing = bearing;
-               bearing = newBearing;
-               if ( (lastBearing > 350) && (bearing < 10) )
-                  diff = bearing + (360 - lastBearing);
-               else if ( (bearing > 350) && (lastBearing < 10) )
-                  diff = -(lastBearing + (360 - bearing));
-               else
-                  diff = bearing - lastBearing;
-
-               if ( (lastBearing >= 0) && (Math.abs(diff) > minBearingCorrectionDelta) )
-               {
-                  bearingCorrection = diff;
-                  if (bearingCorrectionTime == Long.MAX_VALUE)
-                     bearingCorrectionTime = bearingInfo.timestamp;
-   //                  Log.i(TAG, "Set bearing correction " + bearingCorrection + " " + bearing + " - " + lastBearing + " = " + diff);
-                  //TODO: Currently just reverts to the previous bearing; perhaps subtract moving average of differences
-                  bearing = lastBearing; // -= bearingCorrection;
-               }
-            }
-            else
-            {
-               bearingCondVar.close();
-               bearingCondVar.block(20);
-               continue;
-            }
-
-            final float dist = distance(bearing, recordingNextBearing);
-            long offset = (long) (Math.floor(bearing / recordingIncrement));
-            long off = (long) (Math.floor(recordingNextBearing / recordingIncrement));
-            if ( (! completedBearings.contains(off)) && (Math.abs(dist) <= recordingIncrement) )
-            {
-               skippedBearings.add(recordingNextBearing);
-               Log.i(TAG, "Skipped " + bearing + " " + recordingNextBearing + " " + dist + " " + recordingIncrement);
-               completedBearings.add(off); //local only
-               if (! writtenBearings.contains(off))
-               {
-                  timestampWriter.printf("%d=%d\n", off, bearingInfo.timestamp);
-                  writtenBearings.add(off);
-               }
-               if (++count >= no)
-                  break;
-            }
-            if (dist <= 0)
-            {
-               float nextBearing = ((++offset) * recordingIncrement) % 360;
-               offset = nextOffset(nextBearing, completedBearings);
-               if (offset < 0)
-                  break;
-               recordingLastBearing = recordingNextBearing;
-               recordingNextBearing = offset * recordingIncrement;
-               if (recordingNextBearing < 0)
-                  recordingNextBearing += 360;
-            }
-            if (Math.abs(dist) <= 10)
-            {
-               if (! isRecording)
-               {
-                  matchFramesThread.on();
-                  isRecording = true;
-               }
-               if (! writtenBearings.contains(offset))
-               {
-                  timestampWriter.printf("%d=%d\n", off, bearingInfo.timestamp);
-                  writtenBearings.add(off);
-               }
-               renderer.recordColor = GLRecorderRenderer.PURPLE;
-            }
-            else
-            {
-               if (isRecording)
-               {
-                  matchFramesThread.off();
-                  isRecording = false;
-               }
-               renderer.recordColor = GLRecorderRenderer.BLUE;
-            }
-
-            if (Math.abs(bearing - lastUIBearing) >= recordingIncrement)
-            {
-               lastUIBearing = bearing;
-               progress.set(bearing, recordingNextBearing, renderer.recordColor,
-                            (int) ((count * 100) / no));
-               publishProgress(progress);
-               renderer.requestRender();
-            }
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-            continue;
-         }
-      }
-      if (timestampWriter != null)
-         try { timestampWriter.close(); } catch (Exception _e) {}
-      matchFramesThread.off();
-      matchFramesThread.mustStop = true;
-      matchFramesThread.onFrameAvailable(null, -1);
-      try { Thread.sleep(100); } catch (Exception e) {}
-      boolean isTerminated = false;
-      matchFramesExecutor.shutdown();
-      try { isTerminated = matchFramesExecutor.awaitTermination(500, TimeUnit.MILLISECONDS); } catch (Exception e) { isTerminated = false; }
-      if (! isTerminated)
-         matchFramesExecutor.shutdownNow();
-      return matchFramesThread.getDir();
-   }
+*/
 }
