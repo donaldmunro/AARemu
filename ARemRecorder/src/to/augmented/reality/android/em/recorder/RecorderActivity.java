@@ -779,6 +779,14 @@ public class RecorderActivity extends Activity
    //-----------------------
    {
       super.onResume();
+//      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
+//      {
+//         if (Build.SUPPORTED_64_BIT_ABIS.length > 0)
+//         {
+//            Log.i("", Build.SUPPORTED_64_BIT_ABIS[0]);
+//            System.loadLibrary("opencv_java3");
+//         }
+//      }
       OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, loaderCallback);
       previewSurface.onResume();
       if ( (previewSurface.isRecording()) || (previewSurface.isStoppingRecording()) )
