@@ -17,164 +17,542 @@
 package to.augmented.reality.android.em.recorder;
 
 import android.os.AsyncTask;
-import android.os.Bundle;
 import android.os.ConditionVariable;
-import android.os.Process;
+import android.os.Environment;
 import android.util.Log;
-import android.widget.Toast;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.BufferedWriter;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLongArray;
 
-abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boolean> implements Freezeable
-//======================================================================================================================
+abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boolean>
+//====================================================================================
 {
    static final private String TAG = RecordingThread.class.getSimpleName();
-   static final protected long FRAME_BLOCK_TIME_MS = 120, FRAME_BLOCK_TIME_NS = 120000000L;
    static final protected int FRAMEWRITE_QUEUE_SIZE = 5;
    static final protected int WRITE_BUFFER_ADD_RETRIES = 20;
    static final protected int WRITE_BUFFER_DRAIN_TIMEOUT = 5;
    static final public boolean IS_LOGCAT_GOT = false;
 
-   private RecorderActivity activity = null;
+   public enum RecordingType { THREE60, FREE }
+
+   protected final OrientationHandler orientationHandler;
+   protected final LocationHandler locationHandler;
+
+   protected RecorderActivity activity = null;
 
    protected GLRecorderRenderer renderer;
-   protected float recordingIncrement = 0, recordingCurrentBearing = 0, recordingNextBearing = -1, startBearing = 1001;
-   protected int recordingCount = 0;
    protected int no;
-   protected long largestBearing = -1;;
    protected boolean isStartRecording;
-   protected ConditionVariable bearingCondVar = null, frameCondVar = null;
-   protected RecorderRingBuffer frameBuffer;
-   protected CameraPreviewThread previewer;
-   protected BearingRingBuffer bearingBuffer = null;
-   protected ExecutorService frameWriterExecutor;
-   protected Future<?> frameWriterFuture;
-   protected FrameWriteable frameWriterThread = null;
-//   protected ExecutorService frameCheckExecutor;
-//   protected Future<?> frameCheckFuture;
-//   protected FrameCheckThread frameCheckerThread = null;
-   protected ExecutorService processBearingExecutor;
-   protected Future<?> processBearingFuture;
-   final protected ArrayBlockingQueue<BearingRingBuffer.RingBufferContent> processBearingQueue =
-                                                                           new ArrayBlockingQueue<>(1000);
+   volatile protected boolean isPaused = false;
+   protected Previewable previewer;
+   final protected File recordingDir;
+   protected ConditionVariable frameAvailCondVar, pauseCondVar = null;
    protected File logFile = null;
-   protected BufferedWriter logWriter = null;
-   protected AtomicLongArray completedBearings = null;
+   protected PrintStream logWriter = null;
    protected String error = null;
-
-   protected boolean isPostProcess = true;
-   public void setPostProcess(boolean postProcess) { this.isPostProcess = postProcess; }
+   protected File recordingFile;
+   protected long maxFrameFileSize = 10000000000L; // ~= 10Gb
+   protected boolean isDebug = false;
 
    public String getError() { return error; }
 //   protected File recordCompleteBearingsFile = null;
 
-   static public RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
-                                                       float increment, ConditionVariable bearingCond,
-                                                       RecorderRingBuffer frameBuffer,
-                                                       ConditionVariable frameCond)
-   //-----------------------------------------------------------------------------------------------------------------
-   {
-      switch (mode)
-      {
-         case TRAVERSE: return new TraverseRecordingThread(renderer, renderer.nv21BufferSize, increment,
-                                                             renderer.previewer, bearingCond, frameCond,
-                                                             frameBuffer, renderer.bearingBuffer);
-      }
-      return null;
-   }
 
-   public static RecordingThread createRecordingThread(GLRecorderRenderer.RecordMode mode, GLRecorderRenderer renderer,
-                                                       RecorderRingBuffer frameBuffer)
-   //-----------------------------------------------------------------------------------------------------------------
-   {
-      switch (mode)
-      {
-         case TRAVERSE: return new TraverseRecordingThread(renderer, frameBuffer);
-      }
-      return null;
-   }
-
-   protected RecordingThread(GLRecorderRenderer renderer, int nv21BufferSize, float increment,
-                             CameraPreviewThread previewer,
-                             ConditionVariable recordingCondVar, ConditionVariable frameCondVar,
-                             RecorderRingBuffer frameBuffer, BearingRingBuffer bearingBuffer)
+   protected RecordingThread(GLRecorderRenderer renderer, Previewable previewer, File recordDir, long maxSize,
+                             ConditionVariable frameAvailCondVar, OrientationHandler orientationHandler,
+                             LocationHandler locationHandler, boolean isDebug)
    //----------------------------------------------------------------------------------------------------------------
    {
       this.renderer = renderer;
       this.activity = renderer.activity;
       this.previewer = previewer;
-      this.isStartRecording = true;
-      this.bearingCondVar = recordingCondVar;
-      this.frameCondVar = frameCondVar;
-      this.bearingBuffer = bearingBuffer;
-      this.frameBuffer = frameBuffer;
-      this.recordingIncrement = (float) (Math.rint(increment * 10.0f)/10.0);
-      this.largestBearing = (long) (Math.floor(360.0 / recordingIncrement) - 1);
-      no = (int) (Math.floor(360.0 / recordingIncrement));
-      long[] al = new long[no];
-      Arrays.fill(al, -1);
-      completedBearings = new AtomicLongArray(al);
-      logFile = new File(renderer.recordDir, "log");
-      try { logWriter = new BufferedWriter(new FileWriter(logFile)); } catch (Exception e) { logWriter = null; Log.e(TAG, "", e); }
-   }
-
-   public int completedLength()
-   //--------------------------
-   {
-      int count = 0;
-      for (int i = 0; i < no; i++)
+      if (recordDir == null)
       {
-         if (completedBearings.get(i) >= 0)
-            count++;
+         recordDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                              "ARRecorder");
+         recordDir.mkdirs();
+         if ( (! recordDir.isDirectory()) || (! recordDir.canWrite()) )
+         {
+            recordDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                                 "ARRecorder");
+            recordDir.mkdirs();
+         }
       }
-      return count;
-   }
-
-   public long[] completedArray()
-   //----------------------------
-   {
-      long[] al = new long[no];
-      for (int i=0; i<no; i++)
-         al[i] = completedBearings.get(i);
-      return al;
-   }
-
-   protected RecordingThread(GLRecorderRenderer renderer, RecorderRingBuffer frameBuffer)
-   {
-      this.renderer = renderer;
-      this.frameBuffer = frameBuffer;
+      if ( (! recordDir.isDirectory()) || (! recordDir.canWrite()) )
+         throw new RuntimeException("Cannot create recording file in directory " + recordDir.getAbsolutePath());
+      recordingDir = recordDir;
+      this.maxFrameFileSize = maxSize;
+      this.orientationHandler = orientationHandler;
+      this.locationHandler = locationHandler;
+      this.frameAvailCondVar = frameAvailCondVar;
+      this.isStartRecording = true;
       logFile = new File(renderer.recordDir, "log");
-      try { logWriter = new BufferedWriter(new FileWriter(logFile)); } catch (Exception e) { logWriter = null; Log.e(TAG, "", e); }
+      Log.i(TAG, "Record debug mode: " + isDebug);
+      this.isDebug = isDebug;
+      try
+      {
+         logWriter = new PrintStream(new BufferedOutputStream(new FileOutputStream(logFile)));
+      }
+      catch (Exception e)
+      {
+         logWriter = System.out;
+         Log.e(TAG, "", e);
+      }
    }
-
-   public RecordingThread setPreviewer(CameraPreviewThread previewer) { this.previewer = previewer; return this; }
-
-   public RecordingThread setBearingCondVar(ConditionVariable bearingCondVar) { this.bearingCondVar = bearingCondVar; return this; }
-
-   public RecordingThread setFrameCondVar(ConditionVariable frameCondVar) { this.frameCondVar = frameCondVar; return this; }
-
-   public RecordingThread setBearingBuffer(BearingRingBuffer bearingBuffer) { this.bearingBuffer = bearingBuffer; return this; }
 
    @Override abstract protected Boolean doInBackground(Void... params);
+
+   public void pauseRecording() { pauseCondVar = new ConditionVariable(false); isPaused = true; }
+
+   public void resumeRecording() { isPaused = false; pauseCondVar.open(); }
+
+   protected boolean pauseHandler(Bufferable cameraBuffer, Bufferable orientationBuffer)
+   //-------------------------------------------------------------------------------------
+   {
+      cameraBuffer.bufferOff();
+      cameraBuffer.writeOff();
+      orientationBuffer.bufferOff();
+      orientationBuffer.writeOff();
+      renderer.recordColor = GLRecorderRenderer.GREEN;
+      renderer.isPause = true;
+      renderer.requestRender();
+      while (isPaused)
+      {
+         if (pauseCondVar != null)
+            pauseCondVar.block(50);
+         else
+            break;
+         if (! renderer.isRecording)
+            break;
+      }
+      if (! renderer.isRecording)
+         return false;
+      cameraBuffer.bufferOn();
+      cameraBuffer.writeOn();
+      orientationBuffer.bufferOn();
+      orientationBuffer.writeOn();
+      renderer.recordColor = GLRecorderRenderer.GREEN;
+      renderer.isPause = true;
+      renderer.requestRender();
+      return true;
+   }
+
+   protected NativeFrameBuffer convertFrames(File dir, Bufferable framesBuffer, Previewable previewer,
+                                             ProgressParam progress, boolean isRemoveRepeats, boolean isDebug)
+         throws IOException
+   //-----------------------------------------------------------------------------------------------------------
+   {
+      File f = new File(dir, "frames.RGBA"), ff = null;
+      PrintWriter pw = null;
+      if (isDebug)
+      {
+         ff = new File(dir, "framestamps.txt");
+         try { pw = new PrintWriter(new FileWriter(ff)); } catch (Exception e) { pw = null; Log.e(TAG, "Create frame timestamps file", e); }
+      }
+      int count = framesBuffer.writeCount();
+      if (count == 0)
+         count = 1;
+      if (progress != null)
+      {
+         progress.setStatus("Frame Conversion", 0, false, 0);
+         publishProgress(progress);
+      }
+      Bufferable.BufferData frameBufData = framesBuffer.read();
+      if (frameBufData == null)
+         return null;
+      long ts = frameBufData.timestamp, ts2 = -1L;
+      byte[] grey = null, nextGrey = null;
+      NativeFrameBuffer newFrameBuffer = new NativeFrameBuffer(3, renderer.rgbaBufferSize, false);
+      newFrameBuffer.startTimestamp(0);
+      newFrameBuffer.bufferOff();
+      newFrameBuffer.writeFile(f.getAbsolutePath());
+      if (isRemoveRepeats)
+      {
+         grey = new byte[renderer.rgbaBufferSize / 4];
+         nextGrey = new byte[renderer.rgbaBufferSize / 4];
+      }
+
+//      ByteBuffer bb = (ByteBuffer) frameBufData.data;
+//      bb.rewind();
+//      FileOutputStream fw = new FileOutputStream(new File(dir, "frame.raw"));
+//      byte buf[] = new byte[previewer.getPreviewBufferSize()];
+//      bb.get(buf);
+//      fw.write(buf);
+//      fw.close();
+//      bb.rewind();
+
+      byte[] frame = convertRGBA(previewer, (ByteBuffer) frameBufData.data, previewer.getPreviewBufferSize(), grey);
+      final int w = renderer.previewWidth;
+      final int h = renderer.previewHeight;
+      newFrameBuffer.writeOn();
+      newFrameBuffer.bufferOn();
+      List<Long> duplicateTimestamps = new ArrayList<>();
+      double psnr;
+      int n = 0;
+      while ( (frameBufData = framesBuffer.read()) != null)
+      {
+         n++;
+         if ( (progress != null) && ((n % 5) == 0) )
+         {
+            progress.setStatus("Frame Conversion", (n*100)/count, false, 0);
+            publishProgress(progress);
+         }
+         ts2 = frameBufData.timestamp;
+         byte[] nextframe = convertRGBA(previewer, (ByteBuffer) frameBufData.data, previewer.getPreviewBufferSize(),
+                                        nextGrey);
+         try { psnr = CV.PSNR(w, h, frame, nextframe); } catch (Exception ee) { Log.e(TAG, "", ee); psnr = -1; }
+         if (psnr < 0)
+         {
+            continue;
+//            if (pw != null)
+//               pw.close();
+//            Mat m = new Mat(h, w, CvType.CV_8UC1);
+//            m.put(0, 0, frame);
+//            Imgcodecs.imwrite("/sdcard/bad1.png", m);
+//            m.put(0, 0, nextframe);
+//            Imgcodecs.imwrite("/sdcard/bad2.png", m);
+//            throw new RuntimeException("PSNR exception: images in /sdcard/bad1.png, /sdcard/bad2.png");
+         }
+         if (isRemoveRepeats)
+         {
+//               if (renderer.activity.isOpenCVJava())
+//               {
+//                  Mat m = new Mat(h, w, CvType.CV_8UC1);
+//                  m.put(0, 0, grey);
+//                  Imgcodecs.imwrite("/sdcard/m1.png", m);
+//                  m.put(0, 0, nextGrey);
+//                  Imgcodecs.imwrite("/sdcard/m2.png", m);
+//               }
+            if ( (psnr == 0) || (psnr > 32) )
+            {
+               duplicateTimestamps.add(ts2);
+               continue;
+            }
+            int[] shift = new int[2];
+            try
+            {
+               CV.SHIFT(w, h, grey, nextGrey, shift);
+               if (shift[0] < 0)
+               {
+//                  duplicateTimestamps.add(ts2);
+                  if (pw != null)
+                     pw.println("T   " + ts + " " + shift[0]);
+                  continue;
+               }
+            }
+            catch (NativeCVException ee)
+            {
+               Log.e(TAG, "", ee);
+            }
+         }
+         else if ( (psnr == 0) || (psnr > 32) )
+         {
+            duplicateTimestamps.add(ts2);
+            continue;
+         }
+         if (pw != null)
+            pw.println(ts);
+         newFrameBuffer.push(ts, frame);
+         if (! duplicateTimestamps.isEmpty())
+         {
+            for (long timestamp : duplicateTimestamps)
+            {
+               newFrameBuffer.push(timestamp, null);
+               if (pw != null)
+                  pw.println("D   " + timestamp);
+            }
+            duplicateTimestamps.clear();
+         }
+         frame = nextframe;
+         grey = nextGrey;
+         ts = ts2;
+      }
+      if (progress != null)
+      {
+         progress.setStatus("Frame Conversion", 100, false, 0);
+         publishProgress(progress);
+      }
+      if (pw != null)
+         pw.close();
+      newFrameBuffer.stop();
+      newFrameBuffer.closeFile();
+      return newFrameBuffer;
+   }
+
+   private byte[] convertRGBA(Previewable previewer, ByteBuffer frameData, int previewBufferSize, byte[] grey)
+   //---------------------------------------------------------------------------------------------------------
+   {
+      if (frameData == null)
+         throw new RuntimeException("frameData was null");
+      byte[] frame = new byte[previewBufferSize];
+      frameData.rewind();
+      frameData.get(frame);
+      return previewer.toRGBA(activity, frame, renderer.previewWidth, renderer.previewHeight, renderer.rgbaBufferSize, grey);
+   }
+
+   protected int orientationFilter(File dir, File orientationFile, float startBearing, ProgressParam progress,
+                                    int count, boolean isMonotonic, float rangeCheck, boolean isDebug)
+   //-----------------------------------------------------------------------------------------------------
+   {
+      return orientationFilter(dir, orientationFile, startBearing, progress, count, isMonotonic, rangeCheck, -1, isDebug);
+   }
+
+   protected int orientationFilter(File dir, File orientationFile, float startBearing, ProgressParam progress,
+                                    int count, boolean isMonotonic, float rangeCheck, int kernelSize, boolean isDebug)
+   //---------------------------------------------------------------------------------------------------------------
+   {
+      if (progress != null)
+      {
+         progress.setStatus("Filtering Orientation Readings (0)", 0, false, 0);
+         publishProgress(progress);
+      }
+      long N = 0;
+      boolean mustFilter = (kernelSize > 0);
+      int writecount = 0;
+      if ( (mustFilter) && ((kernelSize % 2) == 0) )
+         kernelSize++;
+      File f = new File(dir, orientationFile.getName() + ".smooth");
+      RingBuffer<OrientationData> buff = null;
+      List<OrientationData> L = null;
+      final int center = kernelSize / 2;
+      if (mustFilter)
+      {
+         OrientationData[] array = new OrientationData[kernelSize];
+         buff = new RingBuffer<>(array);
+         L = new ArrayList<>(kernelSize);
+      }
+      float previousBearing = -1;
+      PrintWriter pw = null;
+      try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 65535));
+           DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f), 65535)))
+      {
+         long[] recordLen = new long[1];
+         OrientationData data = OrientationData.read(dis, recordLen);
+         int n = 0;
+         if (startBearing >= 0)
+         {
+            while (data != null)
+            {
+               float bearing = data.bearing();
+               if (bearing >= startBearing)
+                  break;
+               data = OrientationData.read(dis, recordLen);
+               n++;
+            }
+         }
+         if (isDebug)
+            try { pw = new PrintWriter(new FileWriter(new File(dir, "bearingstamps.txt"))); } catch (Exception _e) { pw = null; Log.e(TAG, "", _e); }
+         int outOfRange = 0;
+         boolean isStarted = false;
+         while (data != null)
+         {
+            n++;
+            if ( (progress != null) && ((n % 20) == 0) )
+            {
+               progress.setStatus("Filtering Orientation Readings (" + n + "/" + count + ")", (n * 100)/count, false, 0);
+               publishProgress(progress);
+            }
+            float bearing = data.bearing();
+            if ( (! isStarted) &&  (previousBearing >= 0) && (Math.floor(bearing) != Math.floor(startBearing)) )
+               isStarted = true;
+            else if ( (isStarted) && (Math.floor(bearing) == Math.floor(startBearing)) )
+               break;
+
+            if ( (previousBearing >= 0) && ( (isMonotonic) || (rangeCheck > 0) ) )
+            {
+               float bearingDiff = bearing - previousBearing;
+               boolean isWrapped = isWrap(previousBearing, bearing);
+               if (isWrapped)
+                  bearingDiff += 360;
+               if ( (isMonotonic) && (! isWrapped) && (Math.floor(bearing) < Math.floor(previousBearing)) )
+               {
+                  if (pw != null)
+                     pw.println("-- " + bearing + " " + data.timestamp);
+                  data = OrientationData.read(dis, recordLen);
+                  continue;
+               }
+               if ( (rangeCheck > 0) && (Math.abs(bearingDiff) > rangeCheck) )
+               {
+                  if (pw != null)
+                     pw.println("++ " + bearing + " " + data.timestamp);
+                  if (outOfRange++ == 0)
+                     dis.mark(data.size()*8);
+                  else if (outOfRange > 3)
+                  {
+                     outOfRange = 0;
+                     dis.reset();
+                     data = OrientationData.read(dis, recordLen);
+                     if (data != null)
+                        previousBearing = data.bearing();
+                     else
+                        previousBearing = bearing;
+                  }
+                  data = OrientationData.read(dis, recordLen);
+                  continue;
+               }
+            }
+            previousBearing = bearing;
+
+            if (mustFilter)
+            {
+               N++;
+               if (N > kernelSize)
+               {
+                  buff.peekList(L);
+                  buff.push(data);
+                  data = L.get(center);
+                  float ave = 0;
+                  for (int i = 0; i < kernelSize; i++)
+                     ave += L.get(i).bearing();
+                  ave /= kernelSize;
+                  data.write(dos, ave);
+                  writecount++;
+               }
+               else
+               {
+                  buff.push(data);
+                  if (N < kernelSize / 2)
+                  {
+                     data.write(dos, data.bearing());
+                     writecount++;
+                  }
+               }
+            }
+            else
+            {
+               if (pw != null)
+                  pw.println(bearing + " " + data.timestamp);
+               data.write(dos, bearing);
+               writecount++;
+            }
+            data = OrientationData.read(dis, recordLen);
+         }
+         if (mustFilter)
+         {
+            int left = buff.peekList(L);
+            for (int i=center+1; i<left; i++)
+            {
+               data = L.get(i);
+               data.write(dos, data.bearing());
+               writecount++;
+            }
+         }
+      }
+      catch (IOException e)
+      {
+         StringBuilder sb = new StringBuilder();
+         sb.append(orientationFile);
+         Log.e(TAG, sb.toString(), e);
+         f.delete();
+         progress.setStatus("Error Filtering Orientation Readings", 0, false, 0);
+         publishProgress(progress);
+         return -1;
+      }
+      finally
+      {
+         if (pw != null)
+            pw.close();
+      }
+      if (progress != null)
+      {
+         progress.setStatus("Filtering Orientation Readings", 100, false, 0);
+         publishProgress(progress);
+      }
+      return writecount;
+   }
+
+   protected boolean isWrap(float previousBearing, float bearing)
+   //------------------------------------------------------------
+   {
+      return ( ((previousBearing >= 355) && (previousBearing <= 359.9999999)) &&
+               ((bearing >=0) && (bearing <=10)) );
+   }
+
+   static public class RingBuffer<T>
+   //===============================
+   {
+      T[] array;
+      int head, tail, length;
+      final int count;
+
+      public RingBuffer(T[] arr)
+      //---------------------------------
+      {
+         array = arr;
+         this.count = arr.length;
+         head = tail = length = 0;
+      }
+
+      public void clear() { head = tail = length = 0; }
+
+      public boolean isEmpty() { return (length == 0); }
+
+      public boolean isFull() { return (length >= count); }
+
+      public int push(T item)
+      //-------------------------------------------------------------
+      {
+         if (length >= count)
+         {
+            tail = indexIncrement(tail);
+            length--;
+         }
+         array[head] = item;
+         head = indexIncrement(head);
+         length++;
+         return count - length;
+      }
+
+      public T pop()
+      //-----------------------------------------
+      {
+         T popped = null;
+         if (length > 0)
+         {
+            popped = array[tail];
+            tail = indexIncrement(tail);
+            length--;
+         }
+         return popped;
+      }
+
+      public int peekList(List<T> contents)
+      //----------------------------------------------
+      {
+         contents.clear();
+         int c = 0;
+         if (length > 0)
+         {
+            int len = length;
+            int t = tail;
+            while (len > 0)
+            {
+               contents.add(array[t]);
+               t = indexIncrement(t);
+               len--;
+               c++;
+            }
+         }
+         return c;
+      }
+
+      private int indexIncrement(int i) { return (++i >= count) ? 0 : i; }
+      private int indexDecrement(int i) { return (0 == i) ? (length - 1) : (i - 1);  }
+   }
 
    @Override
    protected void onProgressUpdate(ProgressParam... values) { activity.onStatusUpdate(values[0]); }
@@ -184,69 +562,36 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    {
       if (renderer.isRecording)
          renderer.stopRecording(false);
+      activity.stoppedRecording(null, new File(recordingDir, recordingDir.getName() + ".head"),
+                                new File(recordingDir, recordingDir.getName() + ".frames"));
    }
 
-   public void pause(Bundle B)
-   //-------------------------
-   {
-      if (B == null) return;
-      try
-      {
-         B.putFloat("RecordingThread.recordingNextBearing", recordingNextBearing);
-         B.putFloat("RecordingThread.recordingCurrentBearing", recordingCurrentBearing);
-         B.putFloat("RecordingThread.recordingIncrement", recordingIncrement);
-         B.putInt("RecordingThread.recordingCount", recordingCount);
-         B.putBoolean("RecordingThread.isStartRecording", isStartRecording);
-         long[] al = new long[no];
-         for (int i=0; i<no; i++)
-            al[i] = completedBearings.get(i);
-         B.putLongArray("RecordingThread.completedBearings", al);
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-      }
 
+   static public float closeDistance(float bearing, float nextBearing)
+   //--------------------------------------------------------------
+   {
+      float bb = nextBearing - bearing;
+      if ( (bearing >= 350) && (nextBearing >= 0) && (nextBearing <= 10) )
+         return 360f + bb;
+      else if ( (nextBearing >= 350) && (bearing >= 0) && (bearing <= 10) )
+         return -(360f - bb);
+      return bb;
    }
 
-   public void restore(Bundle B)
-   //---------------------------
+   static public float difference(float startBearing, float nextBearing)
+   //-------------------------------------------------------------------
    {
-      if (B != null)
-      {
-         try
-         {
-            recordingNextBearing = B.getFloat("RecordingThread.recordingNextBearing", 0);
-            recordingCurrentBearing = B.getFloat("RecordingThread.recordingCurrentBearing", 0);
-            recordingIncrement = B.getFloat("RecordingThread.recordingIncrement", 0);
-            recordingCount = B.getInt("RecordingThread.recordingCount", 0);
-            isStartRecording = B.getBoolean("RecordingThread.isStartRecording", true);
-            no = (int) (Math.floor(360.0 / recordingIncrement));
-            long[] al = B.getLongArray("RecordingThread.completedBearings");
-            if (al == null)
-            {
-               al = new long[no];
-               Arrays.fill(al, -1);
-            }
-            completedBearings = new AtomicLongArray(al);
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-         }
-
-      }
+      float bearing = nextBearing - startBearing;
+      return (bearing < 0f) ? (bearing + 360f) : bearing;
    }
 
-   static public float distance(float bearing1, float bearing2)
-   //-----------------------------------------------------------
+   static public float addBearing(float bearing, float addend)
+   //--------------------------------------------------------
    {
-      if ((bearing1 >= 270) && (bearing2 <= 90))
-         return  (360 - bearing1) + bearing2;
-      else if ((bearing1 <= 90) && (bearing2 >= 270))
-         return  -((360 - bearing2) + bearing1);
-      else
-         return bearing2 - bearing1;
+      bearing += addend;
+      if (bearing >= 360.0f)
+         bearing -= 360.0f;
+      return bearing;
    }
 
    static public NavigableMap<Long, File> createFrameTimesList(File framesDirectory, NavigableMap<Long, File> frameFileMap)
@@ -282,253 +627,22 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          dir.delete();
    }
 
-   protected long nextCompleteOffset(float bearing)
-   //-----------------------------------------------
-   {
-      long offset = -1, contents;
-      for (float bb=bearing; bb<360.0f; bb+=recordingIncrement)
-      {
-         int off = (int) Math.floor(bb / recordingIncrement);
-         if (completedBearings.get(off) >= 0)
-         {
-            offset = off;
-            break;
-         }
-      }
-      if (offset < 0)
-      {
-         for (float bb=0.0f; bb<bearing; bb+=recordingIncrement)
-         {
-            int off = (int) Math.floor(bb / recordingIncrement);
-            if (completedBearings.get(off) >= 0)
-            {
-               offset = off;
-               break;
-            }
-         }
-      }
-      return offset;
-   }
-
-   protected long previousCompleteOffset(float bearing)
-   //---------------------------------------------------
-   {
-      long offset = -1, contents;
-      for (float bb=bearing; bb>=0; bb-=recordingIncrement)
-      {
-         int off = (int) Math.floor(bb / recordingIncrement);
-         if (completedBearings.get(off) >= 0)
-         {
-            offset = off;
-            break;
-         }
-      }
-      if (offset < 0)
-      {
-         for (float bb=(360.0f - recordingIncrement); bb>bearing; bb-=recordingIncrement)
-         {
-            int off = (int) Math.floor(bb / recordingIncrement);
-            if (completedBearings.get(off) >= 0)
-            {
-               offset = off;
-               break;
-            }
-         }
-      }
-      return offset;
-   }
-
-   protected long nextIncompleteOffset(final float nextBearing, final long[] completedBearings)
-   //------------------------------------------------------------------------------------------------------------
-   {
-      long offset = -1, contents;
-      for (float bb=nextBearing; bb<360.0f; bb+=recordingIncrement)
-      {
-         int off = (int) Math.floor(bb / recordingIncrement);
-         if (completedBearings[off] < 0)
-         {
-            offset = off;
-            break;
-         }
-      }
-      if (offset < 0)
-      {
-         for (float bb=0.0f; bb<nextBearing; bb+=recordingIncrement)
-         {
-            int off = (int) Math.floor(bb / recordingIncrement);
-            if (completedBearings[off] < 0)
-            {
-               offset = off;
-               break;
-            }
-         }
-      }
-      return offset;
-   }
-
-   protected long nextIncompleteOffset(final float nextBearing)
-   //----------------------------------------------------------
-   {
-      long offset = -1;
-      for (float bb=nextBearing; bb<360.0f; bb+=recordingIncrement)
-      {
-         int off = (int) Math.floor(bb / recordingIncrement);
-         if (completedBearings.get(off) < 0)
-         {
-            offset = off;
-            break;
-         }
-      }
-      if (offset < 0)
-      {
-         for (float bb=0.0f; bb<nextBearing; bb+=recordingIncrement)
-         {
-            int off = (int) Math.floor(bb / recordingIncrement);
-            if (completedBearings.get(off) < 0)
-            {
-               offset = off;
-               break;
-            }
-         }
-      }
-      return offset;
-   }
-
-//   protected long previousIncompleteOffset(final float bearing, final long[] completedBearings)
-//   //------------------------------------------------------------------------------------------
-//   {
-//      long offset = -1, contents;
-//      for (float bb=bearing; bb>=0; bb-=recordingIncrement)
-//      {
-//         int off = (int) Math.floor(bb / recordingIncrement);
-//         if (completedBearings[off] < 0)
-//         {
-//            offset = off;
-//            break;
-//         }
-//      }
-//      if (offset < 0)
-//      {
-//         for (float bb=360.0f; bb>bearing; bb-=recordingIncrement)
-//         {
-//            int off = (int) Math.floor(bb / recordingIncrement);
-//            if (completedBearings[off] < 0)
-//            {
-//               offset = off;
-//               break;
-//            }
-//         }
-//      }
-//      return offset;
-//   }
-//
-//   protected double filePSNR(File f, ByteBuffer frame, ByteBuffer emptyframe)
-//   //------------------------------------------------------------------------
-//   {
-//      FileInputStream fis = null;
-//      FileChannel channel = null;
-//      try
-//      {
-//         fis = new FileInputStream(f);
-//         channel = fis.getChannel();
-//         emptyframe.rewind();
-//         int n = channel.read(emptyframe);
-//         if (n <= 0)
-//            throw new IOException("0 bytes read");
-//         return CV.PSNR(renderer.previewWidth, renderer.previewHeight, frame, emptyframe);
-//      }
-//      catch (Exception e)
-//      {
-//         Log.e(TAG, "", e);
-//         return -1;
-//      }
-//      finally
-//      {
-//         if (channel != null)
-//            try { channel.close(); } catch (Exception _e) {}
-//         if (fis != null)
-//            try { fis.close(); } catch (Exception _e) {}
-//      }
-//   }
-//
-//   protected double fileMSSIM(File f, ByteBuffer frame, ByteBuffer emptyframe)
-//   //-------------------------------------------------------------------
-//   {
-//      FileInputStream fis = null;
-//      FileChannel channel = null;
-//      try
-//      {
-//         fis = new FileInputStream(f);
-//         channel = fis.getChannel();
-//         emptyframe.rewind();
-//         int n = channel.read(emptyframe);
-//         if (n <= 0)
-//            throw new IOException("0 bytes read");
-//         return CV.MSSIM(renderer.previewWidth, renderer.previewHeight, frame, emptyframe);
-//      }
-//      catch (Exception e)
-//      {
-//         Log.e(TAG, "", e);
-//         return -1;
-//      }
-//      finally
-//      {
-//         if (channel != null)
-//            try { channel.close(); } catch (Exception _e) {}
-//         if (fis != null)
-//            try { fis.close(); } catch (Exception _e) {}
-//      }
-//   }
-
-   protected int fileShift(File f, ByteBuffer frame, ByteBuffer emptyframe)
-   //------------------------------------------------------------------------
-   {
-      FileInputStream fis = null;
-      FileChannel channel = null;
-      int[] result = new int[2];
-      try
-      {
-         fis = new FileInputStream(f);
-         channel = fis.getChannel();
-         emptyframe.rewind();
-         int n = channel.read(emptyframe);
-         if (n <= 0)
-            throw new IOException("0 bytes read");
-         CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame, emptyframe, result);
-         return result[0];
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-         return -1;
-      }
-      finally
-      {
-         if (channel != null)
-            try { channel.close(); } catch (Exception _e) {}
-         if (fis != null)
-            try { fis.close(); } catch (Exception _e) {}
-      }
-   }
-
    protected void logException(String errm, Exception e)
    //---------------------------------------------------
    {
-      if (logWriter == null)
-         return;
       try
       {
          if ( (errm != null) && (! errm.isEmpty()) )
          {
-            logWriter.write(errm);
-            logWriter.newLine();
+            logWriter.println(errm);
          }
          if (e != null)
          {
             StringBuilder sb = new StringBuilder();
+            sb.append(e.getMessage()).append(System.getProperty("line.separator"));
             for (StackTraceElement el : e.getStackTrace())
                sb.append(el.toString()).append(System.getProperty("line.separator"));
-            logWriter.write(sb.toString());
+            logWriter.println(sb.toString());
          }
       }
       catch (Exception ee)
@@ -541,606 +655,4 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          try { logWriter.flush(); } catch (Exception _e) {}
       }
    }
-
-   public interface Stoppable
-   //========================
-   {
-      void stop();
-   }
-
-   protected void startBearingProcessor(Runnable thread)
-   //-------------------------------------------------
-   {
-      if (processBearingFuture != null)
-         stopBearingProcessor((Stoppable) thread);
-      processBearingExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
-      {
-         @Override
-         public Thread newThread(Runnable r)
-         //-------------------------------------------
-         {
-            Thread t = new Thread(r);
-            t.setDaemon(true);
-            t.setName("ProcessBearing");
-            return t;
-         }
-      });
-      processBearingFuture = processBearingExecutor.submit(thread);
-   }
-
-   protected void stopBearingProcessor(Stoppable thread)
-   //---------------------------------------------------
-   {
-      if ( (processBearingFuture != null) && (! processBearingFuture.isDone()))
-      {  // @formatter:off
-         thread.stop();
-         if (processBearingQueue != null)
-            try { processBearingQueue.put(bearingBuffer.createContent()); } catch (InterruptedException _e) { Log.e(TAG, "", _e); }
-         if (! processBearingFuture.isDone())
-         {
-            try
-            {
-               processBearingFuture.get(60, TimeUnit.MILLISECONDS);
-            }
-            catch (Exception e)
-            {
-               processBearingFuture.cancel(true);
-               try { processBearingExecutor.shutdownNow(); } catch (Exception _e) { }
-            }
-         }
-      } // @formatter:on
-      processBearingFuture = null;
-   }
-
-
-   protected boolean startFrameWriter()
-   //-----------------------------------
-   {
-      if (frameWriterFuture != null)
-         stopFrameWriter();
-      try
-      {
-         frameWriterThread = new SimpleFrameWriterThread();
-//         frameCheckerThread = new FrameCheckThread();
-      }
-      catch (IOException _e)
-      {
-         Log.e(TAG, "Frame file permission error ? (" + renderer.recordFramesFile.getAbsolutePath() + ")", _e);
-         ProgressParam params = new ProgressParam();
-         params.setStatus("Frame file permission error ? (" + renderer.recordFramesFile.getAbsolutePath() + ")",
-                          100, true, Toast.LENGTH_LONG);
-         publishProgress(params);
-         return false;
-      }
-      frameWriterExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
-      {
-         @Override
-         public Thread newThread(Runnable r)
-         //-------------------------------------------
-         {
-            Thread t = new Thread(r);
-            t.setDaemon(true);
-            t.setName("FrameWriter");
-            return t;
-         }
-      });
-      frameWriterFuture = frameWriterExecutor.submit(frameWriterThread);
-
-//      frameCheckExecutor = Executors.newSingleThreadExecutor(new ThreadFactory()
-//      {
-//         @Override
-//         public Thread newThread(Runnable r)
-//         //-------------------------------------------
-//         {
-//            Thread t = new Thread(r);
-//            t.setDaemon(true);
-//            t.setName("FrameChecker");
-//            return t;
-//         }
-//      });
-//      frameCheckFuture = frameCheckExecutor.submit(frameCheckerThread);
-      return true;
-   }
-
-   protected void stopFrameWriter()
-   //--------------------------
-   {
-      if ( (frameWriterThread != null) && (frameWriterFuture != null) && (! frameWriterFuture.isDone()))
-      {
-         frameWriterThread.stop();
-         if (bufferQueue != null)
-         {
-            try { bufferQueue.put(new FrameAndOffset()); } catch (InterruptedException _e) { Log.e(TAG, "", _e); }
-            while (bufferQueue.size() > 0)
-               try { Thread.sleep(20); } catch (Exception _e) {}
-         }
-         if (! frameWriterFuture.isDone())
-         {
-            try
-            {
-               frameWriterFuture.get(60, TimeUnit.MILLISECONDS);
-            }
-            catch (Exception e)
-            {
-               frameWriterFuture.cancel(true);
-               try { frameWriterExecutor.shutdownNow(); } catch (Exception _e) { }
-               if (frameWriterThread.getFile() != null)
-                  try { frameWriterThread.getFile().close(); } catch (Exception _e) { }
-            }
-         }
-      }
-      if ( (frameWriterThread != null) && (frameWriterThread.getFile() != null) )
-         try { frameWriterThread.getFile().close(); } catch (Exception _e) { }
-      frameWriterThread = null;
-      frameWriterFuture = null;
-
-//      if ( (frameCheckerThread != null) && (frameCheckFuture != null) && (! frameCheckFuture.isDone()))
-//      {  // @formatter:off
-//         frameCheckerThread.mustStop = true;
-//         if (offsetQueue != null)
-//            try { offsetQueue.put(-1L); } catch (InterruptedException _e) { Log.e(TAG, "", _e); }
-//         if (! frameCheckFuture.isDone())
-//         {
-//            try
-//            {
-//               frameCheckFuture.get(100, TimeUnit.MILLISECONDS);
-//            }
-//            catch (Exception e)
-//            {
-//               frameCheckFuture.cancel(true);
-//               try { frameCheckExecutor.shutdownNow(); } catch (Exception _e) { }
-//            }
-//         }
-//      } // @formatter:on
-//      frameCheckerThread = null;
-//      frameCheckFuture = null;
-   }
-
-   public float getNextBearing() { return recordingNextBearing; }
-
-   protected class FrameAndOffset
-   //=============================
-   {
-      long timestamp = -1;
-      long offset =-1;
-      byte[] buffer = null;
-
-      public FrameAndOffset() {}
-
-      public FrameAndOffset(long offset, long timestamp, byte [] data)
-      //--------------------------------------------------------------
-      {
-         this.offset = offset;
-         this.timestamp = timestamp;
-         this.buffer = data;
-      }
-   }
-
-   protected final ArrayBlockingQueue<FrameAndOffset> bufferQueue = new ArrayBlockingQueue(FRAMEWRITE_QUEUE_SIZE);
-
-//   protected final ArrayBlockingQueue<Long> offsetQueue = new ArrayBlockingQueue(100);
-
-
-   protected boolean addFrameToWriteBuffer(FrameAndOffset item)
-   //----------------------------------------------------------
-   {
-      boolean isAdded = bufferQueue.offer(item);
-      if (! isAdded)
-      {
-         int retry = 0;
-         while ( (bufferQueue.remainingCapacity() <= 0) && (retry++ < WRITE_BUFFER_ADD_RETRIES) )
-            try { Thread.sleep(WRITE_BUFFER_DRAIN_TIMEOUT); } catch (Exception _e) { break; }
-         isAdded = bufferQueue.offer(item);
-      }
-      return isAdded;
-   }
-
-   protected boolean addFrameToWriteBufferNoWait(FrameAndOffset item) { return bufferQueue.offer(item); }
-
-   static public boolean read(final RandomAccessFile framesRAF, final long bufferSize, final long offset, byte[] buf)
-   //-----------------------------------------------------------------------------------------------------------------
-   {
-      try
-      {
-         framesRAF.seek(offset * bufferSize);
-         framesRAF.read(buf);
-         return true;
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-         return false;
-      }
-   }
-
-   static public boolean read(final RandomAccessFile framesRAF, final long bufferSize, final long offset, ByteBuffer buf)
-   //-----------------------------------------------------------------------------------------------------------------
-   {
-      try
-      {
-         FileChannel channel = framesRAF.getChannel();
-         framesRAF.seek(offset * bufferSize);
-         buf.rewind();
-         channel.read(buf);
-         return true;
-      }
-      catch (Exception e)
-      {
-         Log.e(TAG, "", e);
-         return false;
-      }
-   }
-
-   final static private boolean WRITE_FRAME_FILES = false;
-
-   public interface FrameWriteable extends Runnable
-   //==============================================
-   {
-      int getCount();
-
-      void incrementCount();
-
-      RandomAccessFile getFile();
-
-      void stop();
-   }
-
-   class SimpleFrameWriterThread implements FrameWriteable
-   //=====================================================
-   {
-      private final RandomAccessFile framesRAF;
-
-      @Override public RandomAccessFile getFile() { return framesRAF; }
-
-      final int bufferSize = renderer.nv21BufferSize;
-      boolean mustStop = false;
-      public void stop() { mustStop = true; }
-//      long cachedOffset = -1;
-      int count = 0;
-      public int getCount() { return count; }
-      public void incrementCount() { count++; }
-
-      public SimpleFrameWriterThread() throws IOException
-      //----------------------------------------------------
-      {
-         final String name;
-         name = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
-         renderer.recordFramesFile = new File(renderer.recordDir, name + ".frames.part");
-         framesRAF = new RandomAccessFile(renderer.recordFramesFile, "rws");
-      }
-
-//      public boolean flush()
-//      //-----------------
-//      {
-//         try { framesRAF.getFD().sync(); return true; } catch (Exception _ee) { Log.e(TAG, "", _ee); return false; }
-//      }
-
-      private boolean read(long offset, byte[] buf)
-      //-------------------------------------------------------
-      {
-         try
-         {
-            framesRAF.seek(offset * bufferSize);
-            framesRAF.read(buf);
-            return true;
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-            return false;
-         }
-      }
-
-      @Override
-      public void run()
-      //--------------
-      {
-         Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
-         FrameAndOffset frameBuffer;
-         long contents;
-         try
-         {
-            while (true)
-            {
-               if ( (mustStop) && (bufferQueue.isEmpty()) )
-                  break;
-               try { frameBuffer = bufferQueue.take(); } catch (InterruptedException e) { break; }
-               if ( (frameBuffer == null) || (frameBuffer.buffer == null) || (frameBuffer.offset < 0) ) continue;
-
-               if (completedBearings.get((int)frameBuffer.offset) >= 0) continue;
-               try
-               {
-                  framesRAF.seek(frameBuffer.offset * bufferSize);
-                  framesRAF.write(frameBuffer.buffer);
-                  count++;
-                  completedBearings.set((int)frameBuffer.offset, frameBuffer.timestamp);
-                  frameBuffer.buffer = null;
-
-//                  logWriter.write("Wrote " + frameBuffer.offset + " timestamp " + frameBuffer.timestamp); logWriter.newLine();
-//                  timestampWriter.printf("%d=%d\n", frameBuffer.offset, frameBuffer.timestamp);
-                  if (WRITE_FRAME_FILES)
-                  {
-                     BufferedOutputStream bos = null;
-                     try
-                     {
-                        bos = new BufferedOutputStream(new FileOutputStream(new File(renderer.recordDir,
-                                                                                     Long.toString(frameBuffer.offset))), 32768);
-                        bos.write(frameBuffer.buffer);
-                     }
-                     catch (Exception _e)
-                     {
-                        Log.e(TAG, "", _e);
-                     }
-                     finally
-                     {
-                        if (bos != null)
-                           try { bos.close(); } catch (Exception _e) {}
-                     }
-                  }
-               }
-               catch (IOException e)
-               {
-                  Log.e(TAG, "Error seeking/writing frame", e);
-                  throw (new RuntimeException("Error seeking/writing frame", e));
-               }
-            }
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-         }
-         finally
-         {
-            try { framesRAF.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
-//            try { timestampWriter.close();} catch (Exception _e) { Log.e(TAG, "", _e); }
-         }
-      }
-   }
-
-//   class FrameCheckThread implements Runnable
-//   //========================================
-//   {
-//      private final RandomAccessFile framesRAF;
-//      int minShift = 2, maxShift = 20;
-//      long cachedOffset = -1;
-//      final int bufferSize = renderer.nv21BufferSize;
-//      public volatile boolean mustStop = false;
-//      //int cacheHits = 0;
-//
-//      public FrameCheckThread()throws FileNotFoundException { this(2, 22); }
-//
-//      public FrameCheckThread(int minshift, int maxshift) throws FileNotFoundException
-//      //-------------------------------------------------------------------------------
-//      {
-//         framesRAF = new RandomAccessFile(renderer.recordFramesFile, "r");
-//         minShift = minshift;
-//         maxShift = maxshift;
-//      }
-//
-//      @Override
-//      public void run()
-//      //---------------
-//      {
-//         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-//         Long offset = null;
-//         final Set<Long> checkedOffsets = new HashSet<>();
-//         int[] shiftResult = new int[2];
-//         ByteBuffer frame = ByteBuffer.allocateDirect(bufferSize), cachedFrame = ByteBuffer.allocateDirect(bufferSize);
-//         while (true)
-//         {
-//            if (mustStop)
-//            {
-//               if (offsetQueue.isEmpty())
-//                  break;
-//               Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
-//            }
-//            try { offset = offsetQueue.take(); } catch (InterruptedException e) { break; }
-//            if ( (offset == null) || (offset < 0) ) continue;
-//            if (! completedBearings.containsKey(offset)) continue;
-//
-//            boolean isPrevious = false, isNext = false;
-//            long previousOffset = offset - 1;
-//            if (previousOffset < 0)
-//               previousOffset = largestBearing;
-//            if (completedBearings.containsKey(previousOffset))
-//            {
-//               if (previousOffset == cachedOffset)
-//               {
-//                  //Log.i(TAG, "Cache hits " + ++cacheHits);
-//                  cachedFrame.rewind();
-//                  frame.rewind();
-//                  frame.put(cachedFrame);
-//                  cachedFrame.rewind();
-//                  isPrevious = read(framesRAF, bufferSize, offset, cachedFrame);
-//                  if (isPrevious)
-//                     cachedOffset = offset;
-//                  else
-//                     cachedOffset = -1;
-//               }
-//               else
-//               {
-//                  isPrevious = read(framesRAF, bufferSize, previousOffset, frame);
-//                  if (offset != cachedOffset)
-//                  {
-//                     isPrevious = read(framesRAF, bufferSize, offset, cachedFrame);
-//                     if (isPrevious)
-//                        cachedOffset = offset;
-//                     else
-//                        cachedOffset = -1;
-//                  }
-////                  else
-////                     Log.i(TAG, "Cache hits " + ++cacheHits);
-//               }
-//               if (isPrevious)
-//               {
-//                  CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame, cachedFrame, shiftResult);
-//                  final int shift = shiftResult[0];
-//                  if ((shift < minShift) || (shift > maxShift))
-//                  {
-//                     Log.w(TAG, "Rejected " + offset + " shift = " + shift);
-//                     completedBearings.remove(offset);
-//                  }
-//               }
-//            }
-//            long nextOffset = (offset + 1) % 360;
-//            if (completedBearings.containsKey(nextOffset))
-//            {
-//               if (nextOffset == cachedOffset)
-//               {
-//                  isNext = read(framesRAF, bufferSize, offset, frame);
-//                  //Log.i(TAG, "Cache hits " + ++cacheHits);
-//               }
-//               else
-//               {
-//                  if (offset == cachedOffset)
-//                  {
-////                     Log.i(TAG, "Cache hits " + ++cacheHits);
-//                     cachedFrame.rewind();
-//                     frame.rewind();
-//                     frame.put(cachedFrame);
-//                     cachedFrame.rewind();
-//                  }
-//                  else
-//                     read(framesRAF, bufferSize, offset, frame);
-//                  isNext = read(framesRAF, bufferSize, nextOffset, cachedFrame);
-//                  if (isNext)
-//                     cachedOffset = nextOffset;
-//                  else
-//                     cachedOffset = -1;
-//
-//               }
-//               if (isNext)
-//               {
-//                  CV.SHIFT(renderer.previewWidth, renderer.previewHeight, frame, cachedFrame, shiftResult);
-//                  final int shift = shiftResult[0];
-//                  if ((shift < minShift) || (shift > maxShift))
-//                  {
-//                     Log.w(TAG, "Rejected " + nextOffset + " shift = " + shift);
-//                     completedBearings.remove(nextOffset);
-//                  }
-//               }
-//            }
-//         }
-//      }
-//   }
-//
-//   class ShiftCheckFrameWriterThread implements FrameWriteable
-//   //=========================================================
-//   {
-//      private final RandomAccessFile framesRAF;
-//      @Override public RandomAccessFile getFile() { return framesRAF; }
-//      final int bufferSize = renderer.nv21BufferSize;
-//      boolean mustStop = false;
-//      public void stop() { mustStop = true; }
-//      long cachedOffset = -1;
-//      int minShift = 2, maxShift = 20;
-//      volatile int count = 0;
-//      public int getCount() { return count; }
-//      public void incrementCount() { count++; }
-//
-//      public ShiftCheckFrameWriterThread(int minshift, int maxshift) throws IOException
-//      //----------------------------------------------------
-//      {
-//         final String name;
-//         name = (renderer.recordFileName == null) ? "Unknown" : renderer.recordFileName;
-//         renderer.recordFramesFile = new File(renderer.recordDir, name + ".frames.part");
-//         framesRAF = new RandomAccessFile(renderer.recordFramesFile, "rw");
-//         minShift = minshift;
-//         maxShift = maxshift;
-//      }
-//
-//      public boolean flush()
-//      //-----------------
-//      {
-//         try { framesRAF.getFD().sync(); return true; } catch (Exception _ee) { Log.e(TAG, "", _ee); return false; }
-//      }
-//
-//      @Override
-//      public void run()
-//      //--------------
-//      {
-//         Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
-//         FrameAndOffset frameBuffer;
-//         int[] shiftResult = new int[2];
-//         try
-//         {
-//            while (true)
-//            {
-//               if ( (mustStop) && (bufferQueue.isEmpty()) )
-//                  break;
-//               try { frameBuffer = bufferQueue.take(); } catch (InterruptedException e) { break; }
-//               if ( (frameBuffer == null) || (frameBuffer.buffer == null) || (frameBuffer.offset < 0) ) continue;
-//               if (completedBearings.containsKey(frameBuffer.offset)) continue;
-//               try
-//               {
-//                  long off = frameBuffer.offset - 1;
-//                  if (off < 0)
-//                     off = largestBearing;
-//                  if (completedBearings.containsKey(off))
-//                  {
-//                     if (off != cachedOffset)
-//                     {
-//                        if (read(framesRAF, bufferSize, off, previousBuffer))
-//                           cachedOffset = off;
-//                     }
-//                     if (off == cachedOffset)
-//                     {
-//                        CV.shifted(renderer.previewWidth, renderer.previewHeight, previousBuffer, previewBuffer,
-//                                   shiftResult);
-//                        int shift = shiftResult[0];
-//                        if ((shift < minShift) || (shift > maxShift))
-//                        {
-//                           Log.d(TAG, "Rejected " + frameBuffer.offset + " shift = " + shift);
-//                           continue;
-//                        }
-//                     }
-//                  }
-//                  System.arraycopy(previewBuffer, 0, previousBuffer, 0, previewBuffer.length);
-//                  cachedOffset = frameBuffer.offset;
-//
-//                  framesRAF.seek(frameBuffer.offset * bufferSize);
-//                  framesRAF.write(frameBuffer.buffer);
-//                  count++;
-//                  completedBearings.put(frameBuffer.offset, frameBuffer.timestamp);
-//
-////                  logWriter.write("Wrote " + frameBuffer.offset + " timestamp " + frameBuffer.timestamp); logWriter.newLine();
-////                  timestampWriter.printf("%d=%d\n", frameBuffer.offset, frameBuffer.timestamp);
-//                  if (WRITE_FRAME_FILES)
-//                  {
-//                     BufferedOutputStream bos = null;
-//                     try
-//                     {
-//                        bos = new BufferedOutputStream(new FileOutputStream(new File(renderer.recordDir,
-//                                                                                     Long.toString(frameBuffer.offset))), 32768);
-//                        bos.write(frameBuffer.buffer);
-//                     }
-//                     catch (Exception _e)
-//                     {
-//                        Log.e(TAG, "", _e);
-//                     }
-//                     finally
-//                     {
-//                        if (bos != null)
-//                           try { bos.close(); } catch (Exception _e) {}
-//                     }
-//                  }
-//               }
-//               catch (IOException e)
-//               {
-//                  Log.e(TAG, "Error seeking/writing frame", e);
-//                  throw (new RuntimeException("Error seeking/writing frame", e));
-//               }
-//            }
-//         }
-//         catch (Exception e)
-//         {
-//            Log.e(TAG, "", e);
-//         }
-//         finally
-//         {
-//            try { framesRAF.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
-////            try { timestampWriter.close();} catch (Exception _e) { Log.e(TAG, "", _e); }
-//         }
-//      }
-//   }
 }

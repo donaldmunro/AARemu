@@ -26,6 +26,7 @@ import android.os.Bundle;
 import android.util.AttributeSet;
 
 import java.io.File;
+import java.util.List;
 
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
 
@@ -110,8 +111,6 @@ public class ARSurfaceView extends GLSurfaceView
    //-------------------
    {
       super.onResume();
-      if (renderer != null)
-         renderer.resume();
    }
 
    public void onRestoreInstanceState(Bundle B)
@@ -131,45 +130,54 @@ public class ARSurfaceView extends GLSurfaceView
 //      return bb;
 //   }
 
-   public Renderer getRenderer() { return renderer; }
+   public GLRecorderRenderer getRenderer() { return renderer; }
 
-   public void startPreview(int width, int height)
-   //------------------------------------------
+   public void startPreview(int width, int height, boolean isFlashOn, boolean useCamera2Api)
+   //-----------------------------------------------------------------------------------------
    {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+      {
+         if (! activity.hasPermissions(RecorderActivity.ESSENTIAL_PERMISSIONS))
+         {
+            activity.requestPermissions(RecorderActivity.ESSENTIAL_PERMISSIONS, 1);
+            return;
+         }
+         if (! activity.hasPermissions(RecorderActivity.OPTIONAL_PERMISSIONS))
+            activity.requestPermissions(RecorderActivity.OPTIONAL_PERMISSIONS, 2);
+      }
       if (renderer != null)
-         renderer.startPreview(width, height);
+         renderer.startPreview(width, height, isFlashOn, useCamera2Api);
    }
 
    public boolean isPreviewing() { return (renderer != null) && renderer.isPreviewing(); }
+
+   public boolean hasFlash() { return (renderer != null) && renderer.hasFlash(); }
 
    public boolean isRecording() { return (renderer != null) && renderer.isRecording; }
 
    public boolean isStoppingRecording() { return (renderer != null) && renderer.isStopRecording; }
 
-   public boolean startRecording(File dir, String name, float increment, GLRecorderRenderer.RecordMode mode,
-                                 boolean isPostProcess)
-   //-------------------------------------------------------------------------------------------------------
+   public boolean startRecording(File dir, int width, int height, String name, float increment, long maxsize,
+                                 RecordingThread.RecordingType recordingType, ORIENTATION_PROVIDER orientationType,
+                                 List<Integer> xtraSensorList, boolean isDebug, boolean isFlashOn, boolean useCamera2Api)
+   //-----------------------------------------------------------------------------------------------
    {
-      return renderer.startRecording(dir, name, increment, mode, isPostProcess);
+      return renderer.startRecording(dir, width, height, name, increment, maxsize, recordingType, orientationType,
+                                     xtraSensorList, isDebug, isFlashOn, useCamera2Api);
    }
 
-   public void stopRecording(final boolean isCancelled)
-   //---------------------------------------------------
-   {
-      renderer.stopRecording(isCancelled);
-   }
+   public void stopRecording(final boolean isCancelled) { renderer.stopRecording(isCancelled); }
 
-   public boolean initOrientationSensor(String orientationType)
-   //-------------------------------------------------------
+   void stopRecordingFlag() { renderer.stopRecordingFlag(); }
+
+   public void pauseRecording() { renderer.pauseRecording(); }
+
+   public void resumeRecording() { renderer.resumeRecording(); }
+
+   public boolean initOrientationSensor(String orientationType, StringBuilder errbuf)
+   //--------------------------------------------------------------------------------
    {
       ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.valueOf(orientationType);
-      return renderer.initOrientationSensor(orientationProviderType);
-   }
-
-   public void setRecordFileFormat(String format)
-   //--------------------------------------------
-   {
-      GLRecorderRenderer.RecordFileFormat recordFileFormat = GLRecorderRenderer.RecordFileFormat.valueOf(format);
-      renderer.setRecordFileFormat(recordFileFormat);
+      return renderer.initOrientationSensor(orientationProviderType, errbuf);
    }
 }

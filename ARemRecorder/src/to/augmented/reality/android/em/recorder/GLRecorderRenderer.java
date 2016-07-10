@@ -16,13 +16,18 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
+import android.hardware.Camera;
 import android.hardware.SensorManager;
-import android.location.Location;
-import android.location.LocationListener;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.location.LocationManager;
 import android.opengl.GLES11Ext;
 import android.opengl.GLSurfaceView;
@@ -31,43 +36,33 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.Debug;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.PowerManager;
 import android.os.Process;
-import android.os.SystemClock;
-import android.support.v8.renderscript.Allocation;
-import android.support.v8.renderscript.Element;
-import android.support.v8.renderscript.RenderScript;
-import android.support.v8.renderscript.ScriptIntrinsicYuvToRGB;
-import android.support.v8.renderscript.Type;
 import android.util.Log;
+import android.view.Surface;
 import android.widget.Toast;
 import to.augmented.reality.android.common.gl.GLHelper;
-import to.augmented.reality.android.common.math.Quaternion;
 import to.augmented.reality.android.common.sensor.orientation.AccelerometerCompassProvider;
 import to.augmented.reality.android.common.sensor.orientation.FastFusedGyroscopeRotationVector;
 import to.augmented.reality.android.common.sensor.orientation.FusedGyroAccelMagnetic;
-import to.augmented.reality.android.common.sensor.orientation.OrientationListenable;
 import to.augmented.reality.android.common.sensor.orientation.OrientationProvider;
 import to.augmented.reality.android.common.sensor.orientation.RotationVectorProvider;
 import to.augmented.reality.android.common.sensor.orientation.StableFusedGyroscopeRotationVector;
-import to.augmented.reality.em.recorder.ScriptC_RGBAtoRGB565;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
-import java.io.EOFException;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.PrintWriter;
-import java.io.RandomAccessFile;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Locale;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -78,62 +73,73 @@ import static to.augmented.reality.android.common.sensor.orientation.Orientation
 public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener
 //========================================================================================================
 {
-   public enum RecordFileFormat { RGBA, RGB, RGB565, NV21 }
-   public enum RecordMode { TRAVERSE, MOSAIC, MERGE }
-
    private static final String TAG = GLRecorderRenderer.class.getSimpleName();
    private static final String VERTEX_SHADER = "vertex.glsl";
    private static final String FRAGMENT_SHADER = "fragment.glsl";
    static final int SIZEOF_FLOAT = Float.SIZE / 8;
    static final int SIZEOF_SHORT = Short.SIZE / 8;
+   final static int MAX_BUFFERED_FRAMES = 10;
    final private static int GL_TEXTURE_EXTERNAL_OES = GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
    final static boolean DEBUG_TRACE = false;
 
    RecorderActivity activity;
    private ARSurfaceView view;
-   private boolean isInitialised = false;
+   private boolean isInitialised = false, isUseCamera2Api = true;
 
-   private int uIndex =-1, vIndex;
+   public boolean isInitialised() { return isInitialised; }
+
+   private int uIndex = -1, vIndex;
 
    private int displayWidth, displayHeight;
+   private Surface displaySurface;
 
    private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
    OrientationProvider orientationProvider = null;
-   BearingRingBuffer bearingBuffer = new BearingRingBuffer(300);
+   OrientationHandler orientationListener;
    volatile float currentBearing = 0, lastBearing = -1;
-   long currentBearingTimestamp =-1L, lastBearingTimestamp = -1L;
+   long currentBearingTimestamp = -1L, lastBearingTimestamp = -1L;
    volatile boolean isRecording = false, isStopRecording = false, mustStopNow = false;
    SurfaceTexture previewSurfaceTexture = null;
-   //ByteBuffer previewByteBuffer = null; TODO: Delete me
+   private String cameraID = null;
+   boolean isLegacyCamera = true;
+   private HandlerThread cameraThread;
+   private Handler cameraHandler = null;
+
+   private NativeFrameBuffer frameBuffer;
+   public NativeFrameBuffer getFrameBuffer() { return frameBuffer; }
+
+   private ConditionVariable frameAvailCondVar = new ConditionVariable(false);
+   public ConditionVariable getFrameAvailCondVar() { return frameAvailCondVar; }
+
    final Object lockSurface = new Object();
    volatile boolean isUpdateSurface = false, isUpdateTexture = false;
 
-   boolean isWaitingGPS = true, isWaitingNetLoc = true;
-   Location recordLocation = null;
-
    int previewTexture = -1;
-   private int yComponent =-1;
-   private int uComponent =-1;
-   private int vComponent =-1;
+   private int yComponent = -1;
+   private int uComponent = -1;
+   private int vComponent = -1;
+
    public int getPreviewTexture() { return previewTexture; }
 
    protected int rgbaBufferSize = 0;
    private int rgbBufferSize = 0;
-   int nv21BufferSize = 0;
+   int nv21BufferSize = 0, yuvBufferSize = 0;
    private int rgb565BufferSize = 0;
-   boolean isAwaitingTextureFix = false;
 
-   private int previewMVPLocation = -1, cameraTextureUniform = -1, yComponentUniform =-1, uComponentUniform =-1,
-               vComponentUniform; //, previewSTMLocation = -1
+   private float lastSaveBearing = 0;
+   private int previewMVPLocation = -1, cameraTextureUniform = -1, yComponentUniform = -1, uComponentUniform = -1,
+         vComponentUniform; //, previewSTMLocation = -1
    private float[] previewMVP = new float[16]; //, previewSTM = new float[16];
 
    private int recordMVPLocation = -1, recordColorUniform = -1;
    private float[] recordMVP = new float[16];
 
    int screenWidth = -1;
+
    public int getScreenWidth() { return screenWidth; }
 
    int screenHeight = -1;
+
    public int getScreenHeight()
    {
       return screenHeight;
@@ -150,13 +156,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                0, 0.8f, -10.0f, // top-left
 
                // Arrow head
-               4, 0,    -10,   //   4
+               4, 0, -10,   //   4
                5, 0.5f, -10,   //   5
-               4, 1,    -10    //   6
+               4, 1, -10    //   6
          };
 
-   static final short[] arrowFaces = {2, 3, 1, 0, 2, 1,
-                                      5, 6, 4};
+   static final short[] arrowFaces = {2, 3, 1, 0, 2, 1, 5, 6, 4};
 
    final static private float PAUSE_WIDTH = 3;
    final static private float PAUSE_HEIGHT = 1;
@@ -174,8 +179,23 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                1.8f, 0.0f, -10.0f,  // 7
          };
 
-   static final short[] pauseFaces = { 2, 3, 1, 0, 2, 1,
-                                       6, 7, 5, 4, 6, 5 };
+   static final short[] pauseFaces = {2, 3, 1, 0, 2, 1,
+                                      6, 7, 5, 4, 6, 5};
+
+   static final float[] recordVertices =
+         {
+//               -1.0f,  1.0f, -10.0f,  // 0, Top Left
+//               -1.0f, -1.0f, -10.0f,  // 1, Bottom Left
+//                1.0f, -1.0f, -10.0f,  // 2, Bottom Right
+//                1.0f,  1.0f, -10.0f  // 3, Top Right
+
+               0.0f,  1.0f, -10.0f,  // 0, Top Left
+               0.0f, 0.0f, -10.0f,  // 1, Bottom Left
+               1.0f, 0.0f, -10.0f,  // 2, Bottom Right
+               1.0f, 1.0f, -10.0f  // 3, Top Right
+         };
+
+   static final short[] recordFaces = { 0, 1, 2, 0, 2, 3 };
 
    final private ByteBuffer previewPlaneVertices =
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 12).order(ByteOrder.nativeOrder());
@@ -191,57 +211,60 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          ByteBuffer.allocateDirect(SIZEOF_FLOAT * 24).order(ByteOrder.nativeOrder());
    final private ByteBuffer pauseFacesBuffer =
          ByteBuffer.allocateDirect(SIZEOF_SHORT * 12).order(ByteOrder.nativeOrder());
+   final private ByteBuffer recordVerticesBuffer =
+         ByteBuffer.allocateDirect(SIZEOF_FLOAT * recordVertices.length).order(ByteOrder.nativeOrder());
+   final private ByteBuffer recordFacesBuffer =
+         ByteBuffer.allocateDirect(SIZEOF_SHORT * recordFaces.length).order(ByteOrder.nativeOrder());
 
    float[] projectionM = new float[16], viewM = new float[16];
 
-   public int previewWidth;
-   public int previewHeight;
+   public int previewWidth = -1;
+   public int previewHeight = -1;
 
    GLSLAttributes previewShaderGlsl, recordShaderGlsl;
 
-   CameraPreviewThread previewer;
+   Previewable previewer;
 
    byte[] cameraBuffer = null;
 
    String lastError = null;
 
-   private RecordMode recordingMode = null;
-   private RecordFileFormat recordFileFormat = RecordFileFormat.RGBA;
-   public void setRecordFileFormat(RecordFileFormat recordFileFormat) { this.recordFileFormat = recordFileFormat; }
-   public RecordFileFormat getRecordFileFormat() { return recordFileFormat; }
    private ConditionVariable recordingCondVar = null;
    private ExecutorService recordingPool = createSingleThreadPool("Recording"),
-                           stopRecordingPool = createSingleThreadPool("StopRecording");
+         stopRecordingPool = createSingleThreadPool("StopRecording");
+   private AsyncTask<Void, ProgressParam, Boolean> stopRecordingFuture;
 
 
    private ExecutorService createSingleThreadPool(final String name)
    //---------------------------------------------------------
    {
       return Executors.newSingleThreadExecutor(
-      new ThreadFactory()
-      //=================
-      {
-         @Override
-         public Thread newThread(Runnable r)
-         //---------------------------------
-         {
-            Thread t = new Thread(r);
-            t.setDaemon(true);
-            t.setName(name);
-            return t;
-         }
-      });
+            new ThreadFactory()
+            //=================
+            {
+               @Override
+               public Thread newThread(Runnable r)
+               //---------------------------------
+               {
+                  Thread t = new Thread(r);
+                  t.setDaemon(true);
+                  t.setName(name);
+                  return t;
+               }
+            });
    }
 
-   private RecordingThread recordingThread;
-   static final public float[] GREEN = { 0, 1, 0 }, RED = { 1, 0, 0 }, BLUE = { 0, 0, 0.75f }, PURPLE = { 0.855f, 0.439f, 0.839f };
+   private RecordingThread recordingThread = null;
+   private RecordingThread.RecordingType recordingType = null;
+   static final public float[] GREEN = {0, 1, 0}, RED = {1, 0, 0}, BLUE = {0, 0, 0.75f}, PURPLE = {0.855f, 0.439f, 0.839f};
    float[] recordColor = GREEN;
    float arrowRotation = 0.0f;
-   boolean isPause = false;
+   boolean isPause = false, isShowRecording = false;
 
    public GLRecorderRenderer() {}
 
-   public GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView, ORIENTATION_PROVIDER orientationProviderType)
+   public GLRecorderRenderer(RecorderActivity activity, ARSurfaceView surfaceView,
+                             ORIENTATION_PROVIDER orientationProviderType)
    //------------------------------------------------------------------------------------------------------------
    {
       this.activity = activity;
@@ -255,7 +278,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 //                  0, 0, 1, 0,
 //                  1, 0, 0, 1,
 //            };
-      initOrientationSensor(orientationProviderType);
    }
 
    @Override
@@ -288,13 +310,17 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       xTranslatePause = screenWidth / 2.0f - (xScalePause * PAUSE_WIDTH) / 2.0f;
       yTranslatePause = screenHeight / 2.0f - (yScalePause * PAUSE_HEIGHT) / 2.0f;
 
+      xScaleRecord = screenWidth / 30;
+      yScaleRecord = screenHeight / 30;
+      xTranslateRecord = (screenWidth - xScaleRecord)/ 2.0f;
+      yTranslateRecord = screenHeight - yScaleRecord;
+
       try
       {
          initRender();
-         if ( (previewer == null) || (previewer.camera == null) )
-            initPreviewer(true);
-         else
-            previewer.initCamera();
+         previewSurfaceTexture = new SurfaceTexture(previewTexture);
+         displaySurface = new Surface(previewSurfaceTexture);
+         previewSurfaceTexture.setOnFrameAvailableListener(this);
          isInitialised = true;
       }
       catch (Exception e)
@@ -304,98 +330,163 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
    }
 
-   boolean isLocationSensorInititialised = false;
-//   SensorEventListener rotationListener = null;
-   LocationListener gpsListener = null, netListener = null;
+   public boolean isSurfaceReady() { return activity.isSurfaceInitialised.get(); }
 
-   public void initLocationSensor()
-   //-------------------------------
+   @SuppressLint("NewApi")
+   protected Previewable openCamera(int width, int height, boolean isForceCamera1)
+   //-----------------------------------------------------------------------------
    {
-      if (isLocationSensorInititialised)
+      Previewable camera = null;
+      final StringBuilder errbuf = new StringBuilder();
+      boolean isNV21 = true, isYUV = false;
+      try
+      {
+         //this check occurs previously when the application starts and requests permission so here we only return
+         if (! activity.hasPermissions(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE))
+            return null;
+
+         if ( (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) && (! isForceCamera1) )
+         {
+            CameraManager manager = (CameraManager) view.getContext().getSystemService(Context.CAMERA_SERVICE);
+            String camList[] = manager.getCameraIdList();
+            if (camList.length == 0)
+            {
+               Log.e(TAG, "Error: camera isn't detected.");
+               return null;
+            }
+            for (String cameraID : camList)
+            {
+               CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+               Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+               if (facing == null) continue;
+               if (facing == CameraCharacteristics.LENS_FACING_BACK)
+               {
+                  this.cameraID = cameraID;
+                  break;
+               }
+            }
+
+            if (cameraID != null)
+            {
+               CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+               Integer level = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+//               isLegacyCamera = (level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY); //TODO: Uncomment
+               isLegacyCamera = false;
+               StreamConfigurationMap streamConfig =
+                     characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//               if (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null)
+//                  isLegacyCamera = false;
+               isNV21 = (streamConfig.getOutputSizes(ImageFormat.NV21) != null);
+               isYUV = (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null);
+
+               //if ( (Build.VERSION.SDK_INT == Build.VERSION_CODES.LOLLIPOP) || (isForceCamera1) )
+               //   isLegacyCamera = true; //TODO: Uncomment
+            }
+            else
+            {
+               Log.e(TAG, "Could not find matching camera");
+               toast("Could not find matching camera");
+               return null;
+            }
+         }
+         else
+            isLegacyCamera = true;
+
+         ActivityManager activityManager = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+         ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+         activityManager.getMemoryInfo(memoryInfo);
+         long availSize = memoryInfo.availMem / 3;
+         if (! NativeFrameBuffer.isNativeLoaded)
+         {
+            Log.e(TAG, "Error loading libframebuffer.so");
+            toast("Error loading libframebuffer.so");
+            return null;
+         }
+         if (isLegacyCamera)
+         {
+            int n = MAX_BUFFERED_FRAMES;
+            for (; n >= 2; n--)
+            {
+               long totalsize = n * nv21BufferSize;
+               if (totalsize <= availSize)
+                  break;
+            }
+            frameBuffer = new NativeFrameBuffer(n, nv21BufferSize, false);
+            Log.i(TAG, "Buffer size " + n + " x " + nv21BufferSize + " = " + n * nv21BufferSize);
+
+            camera = new LegacyPreviewCamera(this, view, nv21BufferSize, frameBuffer, frameAvailCondVar);
+            if (! camera.open(Camera.CameraInfo.CAMERA_FACING_BACK, width, height, errbuf))
+            {
+               toast(errbuf.toString());
+               return null;
+            }
+         }
+         else
+         {
+            int n = MAX_BUFFERED_FRAMES;
+            for (; n >= 2; n--)
+            {
+               long totalsize = n * yuvBufferSize;
+               if (totalsize <= availSize)
+                  break;
+            }
+            frameBuffer = new NativeFrameBuffer(n, yuvBufferSize, false);
+            Log.i(TAG, "Buffer size " + n + " x " + yuvBufferSize + " = " + n * yuvBufferSize);
+            cameraThread = new HandlerThread("CameraPreview");
+            cameraThread.start();
+            cameraHandler = new Handler(cameraThread.getLooper());
+            camera = new PreviewCamera(this, view, displaySurface, frameBuffer, frameAvailCondVar, cameraHandler);
+            if (! camera.open(CameraCharacteristics.LENS_FACING_BACK, width, height, errbuf))
+            {
+               toast(errbuf.toString());
+               return null;
+            }
+         }
+         return camera;
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "Open camera Exception", e);
+         throw new RuntimeException(e);
+      }
+
+   }
+
+   boolean isLocationSensorInititialised = false;
+
+   LocationHandler locationHandler = null;
+
+   @SuppressLint("NewApi")
+   public void initLocationSensor(File recordDir) throws FileNotFoundException
+   //-------------------------------------------------------------------------
+   {
+      if ( (isLocationSensorInititialised) || (! activity.isLocationRecorded()) )
          return;
       isLocationSensorInititialised = true;
-      recordLocation = null;
-      LocationManager locationManager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
-      netListener = new LocationListener()
-      {
-         @Override
-         public void onLocationChanged(Location location)
-         //--------------------------------------------------------
-         {
-            if (! isWaitingGPS) return;
-            if (isWaitingNetLoc)
-            {
-               recordLocation = location;
-               toast("Updated location using Network to " + String.format("%12.7f,%12.7f", location.getLatitude(),
-                                                                          location.getLongitude()));
-               GLRecorderRenderer.this.activity.onNetLocationConnected(true);
-               isWaitingNetLoc = false;
-            }
-            GLRecorderRenderer.this.activity.onLocationChanged(location);
-         }
-
-         // @formatter:off
-         @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
-
-         @Override public void onProviderEnabled(String provider) { }
-
-         @Override public void onProviderDisabled(String provider)
-         {
-            GLRecorderRenderer.this.activity.onNetLocationConnected(false);
-         }
-         // @formatter:on
-      };
-      gpsListener = new LocationListener()
-      {
-         @Override
-         public void onLocationChanged(Location location)
-         //--------------------------------------------------------
-         {
-            recordLocation = location;
-            GLRecorderRenderer.this.activity.onGpsConnected(true);
-            isWaitingNetLoc = isWaitingGPS = false;
-            GLRecorderRenderer.this.activity.onLocationChanged(location);
-            toast("Updated location using GPS to " + String.format("%12.7f,%12.7f", location.getLatitude(),
-                                                                   location.getLongitude()));
-
-         }
-
-         // @formatter:off
-         @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
-
-         @Override public void onProviderEnabled(String provider) { }
-
-         @Override public void onProviderDisabled(String provider) { GLRecorderRenderer.this.activity.onGpsConnected(false); }
-         // @formatter:on
-      };
-      if (locationManager != null)
-      {
-         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
-            locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, netListener, null);
-         if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))
-            locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, gpsListener, null);
-
-      }
+      final LocationManager locationManager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
+      //M permissions previously checked and queried in onResume
+      if ( (! activity.hasPermissions(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)) ||
+            ( (! (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))) &&
+                  (! (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))) )
+         )
+         return;
+      locationHandler = new LocationHandler(activity, recordDir);
    }
 
    private void stopSensors()
    //------------------------
    {
       SensorManager sensorManager = (SensorManager) activity.getSystemService(Activity.SENSOR_SERVICE);
-      if (sensorManager != null)
-      {
-//         sensorManager.unregisterListener(rotationListener);
-         if (orientationProvider.isStarted())
-            orientationProvider.halt();
-      }
-      LocationManager locationManager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
-      if (locationManager != null)
-      {
-         if (netListener != null)
-            locationManager.removeUpdates(netListener);
-         if (gpsListener != null)
-            locationManager.removeUpdates(gpsListener);
-      }
+//      if ( (sensorManager != null) && (orientationProvider != null) )
+//      {
+////         sensorManager.unregisterListener(rotationListener);
+//         if (orientationProvider.isStarted())
+//            orientationProvider.halt();
+//      }
+      if (orientationListener != null)
+         orientationListener.stop();
+      if (locationHandler != null)
+         locationHandler.stop();
    }
 
    Bundle lastInstanceState = new Bundle();
@@ -404,29 +495,22 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //----------------------------------------------
    {
       if (previewer != null)
-         previewer.pause(B);
+         previewer.freeze(B);
       B.putBoolean("isRecording", isRecording);
       B.putBoolean("isStopRecording", isStopRecording);
-      if ( (isRecording) && (recordingMode != null) )
-         B.putString("recordingMode", recordingMode.name());
       B.putInt("displayWidth", displayWidth);
       B.putInt("displayHeight", displayHeight);
-      if (recordingThread != null)
-         recordingThread.pause(B);
       B.putInt("rgbaBufferSize", rgbaBufferSize);
       B.putInt("rgbBufferSize", rgbBufferSize);
       B.putInt("rgb565BufferSize", rgb565BufferSize);
       B.putInt("nv21BufferSize", nv21BufferSize);
-      B.putBoolean("isWaitingGPS", isWaitingGPS);
-      B.putBoolean("isWaitingNetLoc", isWaitingNetLoc);
-      if (recordLocation != null)
+      B.putInt("yuvBufferSize", yuvBufferSize);
+      if (locationHandler != null)
       {
-         B.putDouble("latitude", recordLocation.getLatitude());
-         B.putDouble("longitude", recordLocation.getLongitude());
-         B.putDouble("altitude", recordLocation.getAltitude());
+         B.putBoolean("locationWriter", true);
+         locationHandler.freeze(B);
       }
       B.putString("orientationProviderType", orientationProviderType.name());
-      B.putString("recordFileFormat", recordFileFormat.name());
       if (recordDir != null)
          B.putString("recordDir", recordDir.getAbsolutePath());
       if (recordFramesFile != null)
@@ -437,6 +521,48 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       lastInstanceState = new Bundle(B);
    }
 
+   public void onRestoreInstanceState(Bundle B)
+   //------------------------------------------
+   {
+      if (previewer != null)
+         previewer.thaw(B);
+      isRecording = B.getBoolean("isRecording");
+      isStopRecording = B.getBoolean("isStopRecording");
+      displayWidth = B.getInt("displayWidth");
+      displayHeight = B.getInt("displayHeight");
+      rgbaBufferSize = B.getInt("rgbaBufferSize");
+      rgbBufferSize = B.getInt("rgbBufferSize");
+      rgb565BufferSize = B.getInt("rgb565BufferSize");
+      nv21BufferSize = B.getInt("nv21BufferSize");
+      orientationProviderType = ORIENTATION_PROVIDER.valueOf(B.getString("orientationProviderType",
+                                                                         ORIENTATION_PROVIDER.DEFAULT.name()));
+      String recordDirName = B.getString("recordDir", null);
+      if (recordDirName != null)
+      {
+         recordDir = new File(recordDirName);
+         if (B.getBoolean("locationWriter"))
+         {
+            try
+            {
+               locationHandler = new LocationHandler(activity, recordDir);
+               locationHandler.thaw(B);
+            }
+            catch (Exception _e)
+            {
+               locationHandler = null;
+               Log.e(TAG, "", _e);
+            }
+
+         }
+      }
+      String recordFramesFileName = B.getString("recordFramesFile", null);
+      if (recordFramesFileName != null)
+         recordFramesFile = new File(recordFramesFileName);
+      recordFileName = B.getString("recordFileName", null);
+      lastSaveBearing = B.getFloat("lastSaveBearing", 0);
+      lastInstanceState = B;
+   }
+
    public void pause()
    //-----------------
    {
@@ -444,10 +570,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       {  // @formatter:off
          mustStopNow = true;
          try { Thread.sleep(70); } catch (Exception _e) {}
-         if (NV21toRGBInputRAF != null)
-            try { NV21toRGBInputRAF.close(); } catch (Exception _e) {}
-         if (NV21toRGBOutputRAF != null)
-            try { NV21toRGBOutputRAF.close(); } catch (Exception _e) {}
       }  // @formatter:on
       else if (isRecording)
       {  // @formatter:off
@@ -464,34 +586,33 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       isLocationSensorInititialised = false;
    }
 
-   public void startPreview(int width, int height)
-   //---------------------------------------------
+   boolean startPreview(int width, int height, boolean isFlashOn, boolean useCamera2Api)
+   //------------------------------------------------------------------------------------
    {
-      if (previewer != null)
-      {
-         if (previewer.isPreviewing())
-         {
-            if ((previewer.getPreviewWidth() == width) && (previewer.getPreviewHeight() == height))
-               return;
-            if (previewSurfaceTexture != null)
-               previewSurfaceTexture.setOnFrameAvailableListener(null);
-         }
-         rgbaBufferSize = width * height * 4; // RGBA buffer size
-         rgbBufferSize = width * height * 3; // RGB buffer size
-         rgb565BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8;
-         // or nv21BufferSize = Width * Height + ((Width + 1) / 2) * ((Height + 1) / 2) * 2
-         nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
-         vIndex = width * height;
-         uIndex = (int) (vIndex * 1.25);
-         //previewByteBuffer = ByteBuffer.allocateDirect(nv21BufferSize); TODO: Delete me
-         cameraBuffer = new byte[nv21BufferSize];
-         previewer.startPreview(width, height);
-         this.previewWidth = width;
-         this.previewHeight  = height;
-      }
+      rgbaBufferSize = width * height * 4; // RGBA buffer size
+      rgbBufferSize = width * height * 3; // RGB buffer size
+      rgb565BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8;
+      // or nv21BufferSize = Width * Height + ((Width + 1) / 2) * ((Height + 1) / 2) * 2
+      nv21BufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
+      yuvBufferSize = width * height * ImageFormat.getBitsPerPixel(ImageFormat.YUV_420_888) / 8;
+      vIndex = width * height;
+      uIndex = (int) (vIndex * 1.25);
+      cameraBuffer = new byte[nv21BufferSize];
+      isUseCamera2Api = useCamera2Api;
+      previewer = openCamera(width, height, (! useCamera2Api));
+      if (previewer == null)
+         return false;
+      if (previewer.availableResolutions().length > 0)
+         activity.onResolutionChange(previewer.availableResolutions());
+      previewer.startPreview(isFlashOn);
+      this.previewWidth = width;
+      this.previewHeight  = height;
+      return true;
    }
 
-   public boolean isPreviewing() { return (previewer != null) ? previewer.isPreviewing() : false; }
+   public boolean isPreviewing() { return (previewer != null) && previewer.isPreviewing(); }
+
+   public boolean hasFlash() { return (previewer != null) && previewer.hasFlash(); }
 
    private void stopCamera()
    //----------------------
@@ -499,91 +620,18 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       if (previewSurfaceTexture != null)
          previewSurfaceTexture.setOnFrameAvailableListener(null);
       if ( (previewer != null) && (previewer.isPreviewing()) )
-         previewer.stopCamera();
+         previewer.stopPreview();
    }
 
-   public void onRestoreInstanceState(Bundle B)
-   //------------------------------------------
-   {
-      if (previewer != null)
-         previewer.restore(B);
-      isRecording = B.getBoolean("isRecording");
-      isStopRecording = B.getBoolean("isStopRecording");
-      displayWidth = B.getInt("displayWidth");
-      displayHeight = B.getInt("displayHeight");
-      rgbaBufferSize = B.getInt("rgbaBufferSize");
-      rgbBufferSize = B.getInt("rgbBufferSize");
-      rgb565BufferSize = B.getInt("rgb565BufferSize");
-      nv21BufferSize = B.getInt("nv21BufferSize");
-      isWaitingGPS = B.getBoolean("isWaitingGPS");
-      isWaitingNetLoc = B.getBoolean("isWaitingNetLoc");
-      double latitude = B.getDouble("latitude", Double.MAX_VALUE);
-      if (latitude < Double.MAX_VALUE)
-      {
-         double longitude = B.getDouble("longitude");
-         double altitude = B.getDouble("altitude");
-         recordLocation = new Location( (isWaitingGPS) ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER);
-         recordLocation.setTime(System.currentTimeMillis());
-         recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-         recordLocation.setLatitude(latitude);
-         recordLocation.setLongitude(longitude);
-         recordLocation.setAltitude(altitude);
-         recordLocation.setAccuracy(1.0f);
-      }
-      orientationProviderType = ORIENTATION_PROVIDER.valueOf(B.getString("orientationProviderType",
-                                                                         ORIENTATION_PROVIDER.DEFAULT.name()));
-      recordFileFormat = RecordFileFormat.valueOf(B.getString("recordFileFormat", RecordFileFormat.RGB.name()));
-      String recordDirName = B.getString("recordDir", null);
-      if (recordDirName != null)
-         recordDir = new File(recordDirName);
-      String recordFramesFileName = B.getString("recordFramesFile", null);
-      if (recordFramesFileName != null)
-         recordFramesFile = new File(recordFramesFileName);
-      recordFileName = B.getString("recordFileName", null);
-      lastSaveBearing = B.getFloat("lastSaveBearing", 0);
-      if (isRecording)
-      {
-         try { recordingMode = RecordMode.valueOf(B.getString("recordingMode")); } catch (Exception _e) { recordingMode = null; }
-            if ( (recordingThread == null) && (recordingMode != null) )
-         {
-            recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
-            recordingThread.restore(B);
-         }
-      }
-      lastInstanceState = B;
-   }
 
-   protected void resume()
-   //-----------------------
+   protected void resume() throws FileNotFoundException
+   //--------------------------------------------------
    {
 //      initCamera();
 //      initRender();
       mustStopNow = false;
-      initOrientationSensor(orientationProviderType);
-      if (isStopRecording)
-      {
-         if (recordingThread == null)
-            recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
-         else
-         recordingThread.restore(lastInstanceState);
-         isRecording = true;
-         ExecutorService stopRecordingPool =  Executors.newSingleThreadExecutor();
-         stopRecordingPool.submit(new Runnable()
-         //=====================================
-         {
-            @Override public void run() { stopRecording(false); }
-         });
-      }
-      else if (isRecording)
-         resumeRecording(lastInstanceState);
+      initOrientationSensor(orientationProviderType, null);
       lastSaveBearing = 0;
-   }
-
-   private void initPreviewer(boolean isInitCamera)
-    //---------------------------------------------
-   {
-      previewer = new CameraPreviewThread(this, isInitCamera);
-      previewer.start();
    }
 
    @Override
@@ -711,6 +759,13 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       sb = pauseFacesBuffer.asShortBuffer();
       sb.put(pauseFaces);
 
+      recordVerticesBuffer.clear();
+      fb = recordVerticesBuffer.asFloatBuffer();
+      fb.put(recordVertices);
+      recordFacesBuffer.clear();
+      sb = recordFacesBuffer.asShortBuffer();
+      sb.put(recordFaces);
+
       return true;
    }
 
@@ -749,7 +804,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    }
 
    private float xScaleArrow = 1, yScaleArrow = 1, xTranslateArrow = 0, yTranslateArrow = 0,
-                 xScalePause = 1, yScalePause = 1, xTranslatePause = 0, yTranslatePause = 0;
+                 xScalePause = 1, yScalePause = 1, xTranslatePause = 0, yTranslatePause = 0,
+                 xScaleRecord = 1, yScaleRecord = 1, xTranslateRecord = 0, yTranslateRecord = 0;
 
    private float[] recordModelView = new float[16], scaleM = new float[16], translateM = new float[16],
          rotateM = new float[16], modelM = new float[16];
@@ -768,12 +824,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
          glUseProgram(previewShaderGlsl.shaderProgram);
          if ( (previewTexture < 0) || (! glIsTexture(previewTexture)) )
-         {
             initTextures(previewShaderGlsl, null);
-            if (isAwaitingTextureFix)
-               previewer.startFixedPreview();
-         }
-
 
          glActiveTexture(GL_TEXTURE0);
          glUniform1i(cameraTextureUniform, 0);
@@ -814,25 +865,25 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
          if (isRecording)
          {
-            if (isPause)
+            if (isShowRecording)
             {
                Matrix.setIdentityM(scaleM, 0);
-               Matrix.scaleM(scaleM, 0, yScalePause, xScalePause,  1);
+               Matrix.scaleM(scaleM, 0, xScaleRecord, yScaleRecord,  1);
                Matrix.setIdentityM(translateM, 0);
-               Matrix.translateM(translateM, 0, xTranslatePause, yTranslatePause, 0);
+               Matrix.translateM(translateM, 0, xTranslateRecord, yTranslateRecord, 0);
                Matrix.multiplyMM(modelM, 0, translateM, 0, scaleM, 0);
                Matrix.multiplyMM(recordModelView, 0, viewM, 0, modelM, 0);
                Matrix.multiplyMM(recordMVP, 0, projectionM, 0, recordModelView, 0);
                glUseProgram(recordShaderGlsl.shaderProgram);
                glUniformMatrix4fv(recordMVPLocation, 1, false, recordMVP, 0);
-               glUniform3f(recordColorUniform, recordColor[0], recordColor[1], recordColor[2]);
-               pauseVerticesBuffer.rewind();
-               glVertexAttribPointer(recordShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, pauseVerticesBuffer);
+               glUniform3f(recordColorUniform, RED[0], RED[1], RED[2]);
+               recordVerticesBuffer.rewind();
+               glVertexAttribPointer(recordShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, recordVerticesBuffer);
                glEnableVertexAttribArray(recordShaderGlsl.vertexAttr);
-               pauseFacesBuffer.rewind();
-               glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, pauseFacesBuffer.asShortBuffer());
+               recordFacesBuffer.rewind();
+               glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, recordFacesBuffer.asShortBuffer());
             }
-            else
+            else if (! isPause)
             {
                Matrix.setIdentityM(scaleM, 0);
                Matrix.scaleM(scaleM, 0, xScaleArrow, yScaleArrow, 1);
@@ -852,6 +903,24 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
                arrowFacesBuffer.rewind();
                glDrawElements(GL_TRIANGLES, 9, GL_UNSIGNED_SHORT, arrowFacesBuffer.asShortBuffer());
             }
+            else
+            {
+               Matrix.setIdentityM(scaleM, 0);
+               Matrix.scaleM(scaleM, 0, yScalePause, xScalePause,  1);
+               Matrix.setIdentityM(translateM, 0);
+               Matrix.translateM(translateM, 0, xTranslatePause, yTranslatePause, 0);
+               Matrix.multiplyMM(modelM, 0, translateM, 0, scaleM, 0);
+               Matrix.multiplyMM(recordModelView, 0, viewM, 0, modelM, 0);
+               Matrix.multiplyMM(recordMVP, 0, projectionM, 0, recordModelView, 0);
+               glUseProgram(recordShaderGlsl.shaderProgram);
+               glUniformMatrix4fv(recordMVPLocation, 1, false, recordMVP, 0);
+               glUniform3f(recordColorUniform, recordColor[0], recordColor[1], recordColor[2]);
+               pauseVerticesBuffer.rewind();
+               glVertexAttribPointer(recordShaderGlsl.vertexAttr, 3, GL_FLOAT, false, 0, pauseVerticesBuffer);
+               glEnableVertexAttribArray(recordShaderGlsl.vertexAttr);
+               pauseFacesBuffer.rewind();
+               glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, pauseFacesBuffer.asShortBuffer());
+            }
          }
          if (GLHelper.isGLError(glerrbuf))
             throw new RuntimeException(glerrbuf.toString());
@@ -863,8 +932,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
       finally
       {
-         if ((previewer.camera != null) && (isPreviewed))
-            previewer.camera.addCallbackBuffer(cameraBuffer);
+         if ((previewer != null) && (isPreviewed))
+            previewer.releaseFrame();
       }
    }
 
@@ -994,20 +1063,52 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    String recordFileName;
    final Map<String, Object> recordHeader = new HashMap<String, Object>();
 
-   public boolean startRecording(File dir, String name, float increment, RecordMode mode, boolean isPostProcess)
-   //------------------------------------------------------------------------------------------------------------
+   public boolean startRecording(File dir, int width, int height, String name, float increment, long maxsize,
+                                 RecordingThread.RecordingType recordingType, ORIENTATION_PROVIDER orientationType,
+                                 List<Integer> xtraSensorList, boolean isDebug, boolean isFlashOn,
+                                 boolean useCamera2Api)
+   //---------------------------------------------------------------------------------------------------------------
    {
-      if (isRecording) return false;
+      if ( (isRecording) || (dir == null) ) return false;
+      boolean isStopped = false;
+      if ( (previewer != null) &&
+           ( ( (height > 0) && (height != previewer.getPreviewHeight()) ) ||
+             ( (width > 0 ) && (width != previewer.getPreviewWidth()) ) ||
+             (isFlashOn != previewer.isFlashOn()) ||
+             (useCamera2Api != isUseCamera2Api)
+           )
+         )
+      {
+         if (previewer.isPreviewing())
+         {
+            if (previewSurfaceTexture != null)
+               previewSurfaceTexture.setOnFrameAvailableListener(null);
+            previewer.stopPreview();
+         }
+         try { previewer.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
+         isStopped = true;
+         previewer = null;
+      }
+      if ( (width > 0 ) && (width != previewWidth) )
+         previewWidth = width;
+      if ( (height > 0) && (height != previewHeight) )
+         previewHeight = height;
+      isUseCamera2Api = useCamera2Api;
+
+      if ( ( (isStopped) || (previewer == null) ) && ( (previewWidth > 0) && (previewHeight > 0) ) )
+         startPreview(previewWidth, previewHeight, isFlashOn, useCamera2Api);
       if (previewer == null)
-         initPreviewer(false);
-      if (previewer == null)
+      {
+         recordingThread = null;
          return false;
+      }
       if (! dir.isDirectory())
          dir.mkdirs();
       if ((! dir.isDirectory()) || (! dir.canWrite()))
       {
          Log.e(TAG, dir.getAbsolutePath() + " not a writable directory");
          toast("Error: Could not create directory " + dir.getAbsolutePath());
+         recordingThread = null;
          return false;
       }
       stopRecordingThread();
@@ -1017,52 +1118,107 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       else
          recordFileName = name;
       dir = new File(dir, recordFileName);
-      if (dir.exists())
+      if ( (dir.exists()) && (! RecorderActivity.NO_OVERWRITE_CHECK) )
          RecordingThread.delDirContents(dir);
       if (! dir.mkdirs())
       {
-         toast("Error: Could not create directory " + dir.getAbsolutePath());
-         return false;
+         if (! RecorderActivity.NO_OVERWRITE_CHECK)
+         {
+            toast("Error: Could not create directory " + dir.getAbsolutePath());
+            recordingThread = null;
+            return false;
+         }
       }
       isPause = true;
       recordColor = GLRecorderRenderer.GREEN;
       recordDir = dir;
+      StringBuilder errbuf = new StringBuilder();
+      boolean isOrientationSensors = false;
+      try
+      {
+         isOrientationSensors = initOrientationSensor(orientationType, errbuf);
+         if (isOrientationSensors)
+            initLocationSensor(recordDir);
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "Exception initializing Location/Orientation Sensors", e);
+         isOrientationSensors = false;
+         errbuf.append("Exception initializing Location/Orientation Sensors: ").append(e.getMessage());
+         recordingThread = null;
+      }
+      if (! isOrientationSensors)
+      {
+         toast(errbuf.toString());
+         return false;
+      }
+      if ( (! xtraSensorList.isEmpty()) && (orientationProvider != null) && (orientationListener != null) )
+      {
+         if (orientationListener.initExtra(xtraSensorList))
+         {
+            orientationProvider.setRawSensorListener(orientationListener);
+            int[] sensors = new int[xtraSensorList.size()];
+            for (int i=0; i<xtraSensorList.size(); i++)
+               sensors[i] = xtraSensorList.get(i);
+            orientationProvider.rawSensors(sensors);
+            orientationProvider.activateRawSensors(false);
+         }
+      }
 
-      recordLocation = new Location(LocationManager.GPS_PROVIDER);
-      recordLocation.setTime(System.currentTimeMillis());
-      recordLocation.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
-      recordLocation.setLatitude(0);
-      recordLocation.setLongitude(0);
-      recordLocation.setAltitude(0);
-      recordLocation.setAccuracy(1.0f);
-      initLocationSensor();
+      recordingCondVar = new ConditionVariable(false);
+      recordingThread = null;
+      try
+      {
+         switch (recordingType)
+         {
+            case THREE60:
+               recordingThread = new Three60RecordingThread(this, previewer, recordDir, increment, maxsize,
+                                                            frameAvailCondVar, orientationListener, locationHandler,
+                                                            isDebug);
+               break;
+            case FREE:
+               recordingThread = new FreeRecordingThread(this, previewer, recordDir, maxsize, frameAvailCondVar,
+                                                         orientationListener, locationHandler, isDebug);
+               break;
+         }
+      }
+      catch (Exception ee)
+      {
+         Log.e(TAG, "", ee);
+         toast("Exception Creating Recording Thread: " + ee.getMessage());
+      }
+      if (recordingThread == null)
+      {
+         orientationListener.stop();
+         return false;
+      }
 
       isRecording = true;
-      recordingCondVar = new ConditionVariable(false);
-      this.recordingMode = mode;
-      recordingThread = RecordingThread.createRecordingThread(mode, this, increment, recordingCondVar,
-                                                              previewer.getFrameBuffer(),
-                                                              previewer.getFrameAvailCondVar());
-      recordingThread.setPostProcess(isPostProcess);
-      previewer.bufferOn();
+      this.recordingType = recordingType;
       recordingThread.executeOnExecutor(recordingPool);
       if (DEBUG_TRACE) Debug.startMethodTracing("recorder");
       return true;
    }
 
-   protected void resumeRecording(Bundle B)
-   //---------------------------------
+   public void pauseRecording()
+   //-------------------------
    {
-      recordingCondVar = new ConditionVariable(false);
-      previewer.bufferOn();
-      arrowRotation = 0;
-      recordColor = GREEN;
-      recordingThread = RecordingThread.createRecordingThread(recordingMode, this, previewer.getFrameBuffer());
-      recordingThread.restore(B);
-      recordingThread.setBearingBuffer(bearingBuffer).setBearingCondVar(recordingCondVar).
-                      setFrameCondVar(previewer.getFrameAvailCondVar()).setPreviewer(previewer);
-      recordingPool = createSingleThreadPool("Recording");
-      recordingThread.executeOnExecutor(recordingPool);
+      if ( (isRecording) && (recordingThread != null) )
+         recordingThread.pauseRecording();
+   }
+
+   public void resumeRecording()
+   //-------------------------
+   {
+      if ( (isRecording) && (recordingThread != null) )
+         recordingThread.resumeRecording();
+   }
+
+   void stopRecordingFlag()
+   //----------------------
+   {
+      if ( (recordingThread != null) && (recordingThread.getStatus() == AsyncTask.Status.RUNNING) )
+         isRecording = false;
    }
 
    private void stopRecordingThread()
@@ -1092,94 +1248,29 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       if (DEBUG_TRACE) Debug.stopMethodTracing();
       if ( (recordingThread == null) || (isStoppingRecording) ) return false;
       isStoppingRecording = true;
+      if (locationHandler != null) try { locationHandler.stop(); } catch (Exception _e) { Log.e(TAG, "", _e); }
       stopRecordingThread();
       if ( (isCancelled) || (recordFramesFile == null) || (! recordFramesFile.exists()) && (recordFramesFile.length() == 0) )
       {
          if (recordFramesFile != null)
             recordFramesFile.delete();
-         activity.stoppedRecording(null, null);
+         activity.stoppedRecording(recordingType, null, null);
          return true;
+      }
+      if (! stopRecordingThread.isComplete)
+      {
+         stopRecordingThread.cancel(true);
+         if (stopRecordingPool != null)
+            stopRecordingPool.shutdownNow();
       }
       stopRecordingPool = createSingleThreadPool("Stop Recording");
       stopRecordingThread = new StopRecordingThread();
-      stopRecordingThread.executeOnExecutor(stopRecordingPool);
+      stopRecordingFuture = stopRecordingThread.executeOnExecutor(stopRecordingPool);
       return true;
    }
 
-   RandomAccessFile NV21toRGBInputRAF = null, NV21toRGBOutputRAF = null;
-   float lastSaveBearing = 0;
-
-   final static int REMAP_X = SensorManager.AXIS_X,  REMAP_Y = SensorManager.AXIS_Z;
-   final static float MAX_BEARING_DELTA = 3;
-
-
-   public interface BearingListenable { void onBearing(float bearing, long timestamp); }
-
-   public class OrientationListener implements OrientationListenable
-   //=========================================================
-   {
-      final float[] RM = new float[16];
-      //         boolean isSettling = false;
-//         int settleCount = 0;
-      ProgressParam param = new ProgressParam();
-      float lastUIBearing = -1000, lastUpdateBearing = -1000;
-      BearingListenable bearingListener = null;
-      public void setBearingListener(BearingListenable bearingListener) { this.bearingListener = bearingListener; }
-      public BearingListenable getBearingListener() { return bearingListener; }
-
-      @Override
-      public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
-      //-----------------------------------------------------------------------------
-      {
-         lastBearing = currentBearing;
-         lastBearingTimestamp = currentBearingTimestamp;
-         SensorManager.remapCoordinateSystem(R, REMAP_X, REMAP_Y, RM);
-         currentBearing = (float) Math.toDegrees(Math.atan2(RM[1], RM[5]));
-         if (currentBearing < 0)
-            currentBearing += 360;
-         currentBearingTimestamp = timestamp;
-//            if (isSettling)
-//            {
-//               settleCount--;
-//               if (settleCount <= 0)
-//                  isSettling = false;
-//               else
-//               {
-////                  param.set(currentBearing, -1, recordColor);
-////                  activity.onBackgroundStatusUpdate(param);
-//                  isSettling = (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA);
-//                  return;
-//               }
-//            }
-         if ( (! isRecording) && (Math.abs(currentBearing - lastUIBearing) >= 0.5f) )
-         {
-            lastUIBearing = currentBearing;
-            param.set(currentBearing, -1, null, -1);
-            activity.onBackgroundStatusUpdate(param);
-         }
-         else if (isRecording)
-         {
-//               if (Math.abs(currentBearing - lastBearing) >= MAX_BEARING_DELTA)
-//               {
-//                  isSettling = true;
-//                  settleCount = 3;
-//                  return;
-//               }
-            lastUpdateBearing = currentBearing;
-            bearingBuffer.push(timestamp, currentBearing);
-            if (recordingCondVar != null)
-               recordingCondVar.open();
-            if (bearingListener != null)
-               bearingListener.onBearing(currentBearing, timestamp);
-
-         }
-      }
-   }
-
-   OrientationListener orientationListener;
-
-   public boolean initOrientationSensor(ORIENTATION_PROVIDER orientationProviderType)
-   //-----------------------------------------------------------------------------
+   public boolean initOrientationSensor(ORIENTATION_PROVIDER orientationProviderType, StringBuilder errbuf)
+   //------------------------------------------------------------------------------------------------------
    {
       if ( (orientationProvider != null) && (orientationProvider.isStarted()) )
          orientationProvider.halt();
@@ -1187,6 +1278,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          orientationProviderType = this.orientationProviderType;
       else
          this.orientationProviderType = orientationProviderType;
+      if (orientationProviderType == null)
+         return false;
       SensorManager sensorManager = (SensorManager) activity.getSystemService(Activity.SENSOR_SERVICE);
       if (orientationProviderType == ORIENTATION_PROVIDER.DEFAULT)
       {
@@ -1199,7 +1292,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          else if (OrientationProvider.supportsOrientationProvider(activity, ORIENTATION_PROVIDER.ACCELLO_MAGNETIC))
             orientationProviderType = ORIENTATION_PROVIDER.ACCELLO_MAGNETIC;
          else
+         {
+            if (errbuf != null)
+               errbuf.append("ERROR: Device does not appear to have required orientation sensors");
             return false;
+         }
       }
       switch (orientationProviderType)
       {
@@ -1219,7 +1316,17 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             orientationProvider = new AccelerometerCompassProvider(sensorManager);
             break;
       }
-      orientationListener = new OrientationListener();
+
+      try
+      {
+         orientationListener = new OrientationHandler(recordDir, 20, orientationProviderType);
+      }
+      catch (IOException e)
+      {
+         if (errbuf != null)
+            errbuf.append("ERROR: Could not access recording directory ").append(recordDir);
+         return false;
+      }
       orientationProvider.setOrientationListener(orientationListener);
       orientationProvider.initiate();
       if (! orientationProvider.isStarted())
@@ -1255,6 +1362,17 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          activity.finish();
       }
       */
+   }
+
+   public Surface newDisplaySurface()
+   //-------------------------------
+   {
+      previewSurfaceTexture.setOnFrameAvailableListener(null);
+      displaySurface.release();
+      previewSurfaceTexture = new SurfaceTexture(previewTexture);
+      displaySurface = new Surface(previewSurfaceTexture);
+      previewSurfaceTexture.setOnFrameAvailableListener(this);
+      return displaySurface;
    }
 
    static class GLSLAttributes
@@ -1301,11 +1419,12 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       }
    }
 
-   final static private boolean USE_RGB565_RS = false;
    class StopRecordingThread extends AsyncTask<Void, ProgressParam, Boolean>
    //=========================================================================
    {
       File recordHeaderFile = null;
+
+      public boolean isComplete = false;
 
       @Override
       protected Boolean doInBackground(Void... params)
@@ -1315,129 +1434,25 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
          wakeLock.acquire();
          Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-         final float increment = recordingThread.recordingIncrement;
          isRecording = false;
          isStopRecording = true;
-         previewer.bufferOff();
-         try
+         ((Bufferable) previewer).bufferOff();
+         previewer.stopPreview();
+         orientationListener.bufferOff();
+         orientationListener.stop();
+         orientationProvider.deactivateRawSensors();
+         if (locationHandler != null)
          {
-
-            if ((recordFileName == null) || (recordFileName.trim().isEmpty()))
-            {
-               String name = recordFramesFile.getName();
-               int p = name.indexOf('.');
-               if (p > 0)
-                  recordFileName = name.substring(0, p);
-               else
-                  recordFileName = name;
-            }
-            File recordFramesFileOld = recordFramesFile;
-            File recordFramesFileKeep = recordFramesFile;
-            recordFramesFile = new File(recordDir, recordFileName + ".frames");
-            if (! recordFramesFileOld.getName().endsWith(".part"))
-            {
-               File f = new File(recordDir, recordFileName + ".frames.tmp");
-               recordFramesFileOld.renameTo(f);
-               recordFramesFileKeep = recordFramesFileOld = f;
-            }
-            StringBuilder errbuf = new StringBuilder();
-            if (recordFileFormat == RecordFileFormat.NV21)
-               recordFramesFileOld.renameTo(recordFramesFile);
-            else
-            {
-               if (! YUVtoRGB(recordFramesFileOld, recordFramesFile, increment, errbuf))
-               {
-                  if (mustStopNow)
-                  {
-                     recordFramesFileOld.renameTo(recordFramesFileKeep);
-                     recordFramesFile.delete();
-                  } else
-                  {
-                     toast("Error converting NV21 to RGB(A): " + errbuf.toString());
-                     recordFramesFile.delete();
-                     recordFramesFileOld.delete();
-                  }
-                  return false;
-               }
-               else
-                  recordFramesFileOld.delete();
-            }
-
-            if (recordLocation != null)
-               recordHeader.put("Location", String.format("%12.7f,%12.7f,%12.7f", recordLocation.getLatitude(),
-                                                          recordLocation.getLongitude(), recordLocation.getAltitude()));
-            if (recordFileFormat == null)
-               recordFileFormat = RecordFileFormat.RGBA;
-            switch (recordFileFormat)
-            {
-               case RGB:
-                  recordHeader.put("BufferSize", Integer.toString(rgbBufferSize));
-                  break;
-               case RGBA:
-                  recordHeader.put("BufferSize", Integer.toString(rgbaBufferSize));
-                  break;
-               case RGB565:
-                  recordHeader.put("BufferSize", Integer.toString(rgb565BufferSize));
-                  break;
-               case NV21:
-                  recordHeader.put("BufferSize", Integer.toString(nv21BufferSize));
-                  break;
-            }
-            recordHeader.put("Increment", String.format("%6.2f", increment));
-            recordHeader.put("PreviewWidth", Integer.toString(previewWidth));
-            recordHeader.put("PreviewHeight", Integer.toString(previewHeight));
-            if ( (recordingThread != null) && (recordingThread.startBearing <= 360) )
-               recordHeader.put("StartBearing", Float.toString(recordingThread.startBearing));
-            recordHeader.put("FocalLength", Float.toString(previewer.focalLen));
-            recordHeader.put("fovx", Float.toString(previewer.fovx));
-            recordHeader.put("fovy", Float.toString(previewer.fovy));
-            recordHeader.put("FileFormat", recordFileFormat.name());
-            recordHeader.put("OrientationProvider",
-                             (orientationProviderType == null) ? ORIENTATION_PROVIDER.DEFAULT.name()
-                                                               : orientationProviderType.name());
-            recordHeader.put("FramesFile", recordFramesFile.getName());
-
-            recordHeaderFile = new File(recordDir, recordFileName + ".head");
-            if (recordHeaderFile.exists())
-               recordHeaderFile.delete();
-            PrintWriter headerWriter = null;
-            try
-            {
-               headerWriter = new PrintWriter(recordHeaderFile);
-               Set<Map.Entry<String, Object>> headerSet = recordHeader.entrySet();
-               for (Map.Entry<String, Object> entry : headerSet)
-                  headerWriter.printf(Locale.US, "%s=%s\n", entry.getKey(), entry.getValue());
-            }
-            catch (Exception _e)
-            {
-               Log.e(TAG, "Error writing recording header file " + recordHeaderFile.getAbsolutePath(), _e);
-               toast("Error writing recording header file " + recordHeaderFile.getAbsolutePath() + ": " +
-                           _e.getMessage());
-               return false;
-            }
-            finally
-            {
-               if (headerWriter != null)
-                  try { headerWriter.close(); } catch (Exception _e) { }
-            }
-            isStopRecording = false;
-
+            locationHandler.bufferOff();
+            locationHandler.stop();
          }
-         catch (Exception e)
-         {
-            Log.e(TAG, "Error saving recording", e);
-            toast("Error saving recording: " + e.getMessage());
-         }
-         finally
-         {
-            wakeLock.release();
-            recordColor = GREEN;
-            arrowRotation = 0;
-            recordFramesFile = null;
-            recordFileName = null;
-            arrowRotation = 0;
-            isRecording = isStoppingRecording = false;
-         }
+         recordColor = GREEN;
+         arrowRotation = 0;
+         recordFramesFile = null;
+         recordFileName = null;
+         arrowRotation = 0;
+         isRecording = isStoppingRecording = isStopRecording = false;
+         isComplete = true;
          return true;
       }
 
@@ -1450,260 +1465,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       @Override
       protected void onPostExecute(Boolean aBoolean)
       {
-         activity.stoppedRecording(recordHeaderFile, recordFramesFile);
+         activity.stoppedRecording(recordingType, recordHeaderFile, recordFramesFile);
       }
 
-      @Override
-      protected void onCancelled(Boolean B)
-      {
-         activity.stoppedRecording(recordHeaderFile, recordFramesFile);
-      }
-
-      public boolean YUVtoRGB(File src, File dest, float recordingIncrement, StringBuilder errbuf)
-      //-------------------------------------------------------------------------------------------
-      {
-         RenderScript rsYUVtoRGBA = null, rsRGBAtoRGB565 = null;
-         ScriptIntrinsicYuvToRGB YUVToRGB = null;
-         ScriptC_RGBAtoRGB565 RGBAtoRGB565script = null;
-         Type.Builder rstypRGBA = null;
-         Type.Builder rstypRGB565 =  null;
-         Allocation rgbaIn = null, rgb565Out = null;
-
-         byte[] frameBuffer = new byte[nv21BufferSize], rgbaBuffer = null, rgbBuffer = null, rgb565Buffer = null;
-//      short[] rgb565Buffer = null;
-         //ByteBuffer rgb565ByteBuffer = null;
-         ProgressParam params = new ProgressParam();
-         try
-         {
-            rsYUVtoRGBA = RenderScript.create(activity);
-            Type.Builder yuvType = new Type.Builder(rsYUVtoRGBA, Element.U8(rsYUVtoRGBA)).setX(previewWidth).
-                  setY(previewHeight).setMipmaps(false);
-            yuvType.setYuvFormat(ImageFormat.NV21);
-            Allocation ain = Allocation.createTyped(rsYUVtoRGBA, yuvType.create(), Allocation.USAGE_SCRIPT);
-
-            Type.Builder rgbType = null;
-            switch (recordFileFormat)
-            {
-               case RGBA:
-                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-                  rgbaBuffer = new byte[rgbaBufferSize];
-                  break;
-               case RGB:
-                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-//               Below does not work as Renderscript only works with evenly aligned data. The below does not give
-//               an error but generates 4 bytes per pixel with the 4th byte being 255 (same as Element.U8_4)
-//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_3(rsYUVtoRGBA));
-//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_888(rsYUVtoRGBA));
-                  rgbaBuffer = new byte[rgbaBufferSize];
-                  rgbBuffer = new byte[rgbBufferSize];
-                  break;
-               case RGB565:
-//               Should work as its aligned on 2 bytes but gives invalid format exception
-//               YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_2(rsYUVtoRGBA));
-//               rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGB_565(rsYUVtoRGBA));
-                  YUVToRGB = ScriptIntrinsicYuvToRGB.create(rsYUVtoRGBA, Element.U8_4(rsYUVtoRGBA));
-                  rgbType = new Type.Builder(rsYUVtoRGBA, Element.RGBA_8888(rsYUVtoRGBA));
-                  rgbaBuffer = new byte[rgbaBufferSize];
-                  rgb565Buffer = new byte[rgb565BufferSize];
-
-                  if (USE_RGB565_RS)
-                  {
-                     rsRGBAtoRGB565 = RenderScript.create(activity);
-                     RGBAtoRGB565script = new ScriptC_RGBAtoRGB565(rsRGBAtoRGB565);
-                     rstypRGBA = new Type.Builder(rsRGBAtoRGB565, Element.RGBA_8888(rsRGBAtoRGB565)).setX(previewWidth).
-                           setY(previewHeight).setMipmaps(false);
-//                rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U16(rsRGBAtoRGB565)).setX(previewWidth).
-//                              setY(previewHeight).setMipmaps(false);
-                     rstypRGB565 = new Type.Builder(rsRGBAtoRGB565, Element.U8_2(rsRGBAtoRGB565)).setX(previewWidth).
-                           setY(previewHeight).setMipmaps(false);
-                     rgbaIn = Allocation.createTyped(rsRGBAtoRGB565, rstypRGBA.create(), Allocation.USAGE_SCRIPT);
-                     rgb565Out = Allocation.createTyped(rsRGBAtoRGB565, rstypRGB565.create(), Allocation.USAGE_SCRIPT);
-                  }
-                  break;
-            }
-            rgbType.setX(previewWidth).setY(previewHeight).setMipmaps(false);
-            Allocation aOut = Allocation.createTyped(rsYUVtoRGBA, rgbType.create(), Allocation.USAGE_SCRIPT);
-
-            NV21toRGBInputRAF = new RandomAccessFile(src, "r");
-            NV21toRGBOutputRAF = new RandomAccessFile(dest, "rw");
-            float bearing = lastSaveBearing;
-            long frameCount = 0;
-            while ( (bearing < 360) && (! mustStopNow) )
-            {
-               lastSaveBearing = bearing;
-               File kludgeFile = new File(recordDir, String.format("%.1f.rgba", bearing));
-               if (kludgeFile.exists())
-               {
-                  FileInputStream fis = null;
-                  try
-                  {
-                     fis = new FileInputStream(kludgeFile);
-                     fis.read(rgbaBuffer);
-                  }
-                  catch (Exception _e)
-                  {
-                     Log.e(TAG, "Error reading kludge file " + kludgeFile, _e);
-                     Arrays.fill(rgbaBuffer, (byte) 0);
-                  }
-                  finally
-                  {
-                     if (fis != null)
-                        try { fis.close(); } catch (Exception _e) {}
-                  }
-               }
-               else
-               {
-                  float offset = (float) (Math.floor(bearing / recordingIncrement) * recordingIncrement);
-                  int fileOffset = (int) (Math.floor(offset / recordingIncrement) * nv21BufferSize);
-                  try
-                  {
-                     NV21toRGBInputRAF.seek(fileOffset);
-                     NV21toRGBInputRAF.readFully(frameBuffer);
-                  }
-                  catch (EOFException _e)
-                  {
-                     Arrays.fill(frameBuffer, (byte) 0);
-                     Log.e(TAG, "Offset out of range: " + fileOffset + ", bearing was " + bearing, _e);
-                  }
-
-                  ain.copyFrom(frameBuffer);
-                  YUVToRGB.setInput(ain);
-                  YUVToRGB.forEach(aOut);
-                  aOut.copyTo(rgbaBuffer);
-               }
-               if (mustStopNow)
-                  return false;
-               switch (recordFileFormat)
-               {
-                  case RGBA:
-                     NV21toRGBOutputRAF.seek(frameCount++ * rgbaBufferSize);
-                     NV21toRGBOutputRAF.write(rgbaBuffer);
-                     break;
-                  case RGB:
-//                  aOut.copyTo(rgbBuffer);
-                     RGBAtoRGB.RGBAtoRGB(rgbaBuffer, rgbBuffer);
-                     NV21toRGBOutputRAF.seek(frameCount++ * rgbBufferSize);
-                     NV21toRGBOutputRAF.write(rgbBuffer);
-                     break;
-                  case RGB565:
-////                  aOut.copyTo(rgb565Buffer);
-                     if (USE_RGB565_RS)
-                     {
-                        rgbaIn.copyFrom(rgbaBuffer);
-                        RGBAtoRGB565script.forEach_root(rgbaIn, rgb565Out);
-                        rgb565Out.copyTo(rgb565Buffer);
-                     }
-                     else
-                        RGBAtoRGB.RGBAtoRGB565(rgbaBuffer, rgb565Buffer);
-                     NV21toRGBOutputRAF.seek(frameCount++ * rgb565BufferSize);
-                     NV21toRGBOutputRAF.write(rgb565Buffer);
-                     break;
-               }
-               bearing = (float) (Math.rint((bearing + recordingIncrement) * 10.0f) / 10.0);
-               float progress = (bearing/360.0f) * 100f;
-               params.setStatus(String.format(Locale.US, "Converting to %s: %.2f%%", recordFileFormat.name(), progress),
-                                (int) progress, true, Toast.LENGTH_SHORT);
-               publishProgress(params);
-            }
-            return (! mustStopNow);
-         }
-         catch (Exception e)
-         {
-            if (errbuf != null)
-               errbuf.append(e.getMessage());
-            Log.e(TAG, "YUVtoRGB", e);
-            params.setStatus(String.format(Locale.US, "Error converting to %s: %s", recordFileFormat.name(), e.getMessage()),
-                             100, true, Toast.LENGTH_LONG);
-            publishProgress(params);
-            return false;
-         }
-         finally
-         {
-            if (NV21toRGBInputRAF != null)
-               try { NV21toRGBInputRAF.close(); NV21toRGBInputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
-            if (NV21toRGBOutputRAF != null)
-               try { NV21toRGBOutputRAF.close(); NV21toRGBOutputRAF = null; } catch (Exception _e) { Log.e(TAG, "", _e); }
-         }
-      }
+      @Override protected void onCancelled(Boolean B) { }
    }
-
-   //   public void toRGB565(byte[] yuvs, int screenWidth, int screenHeight, byte[] rgbs)
-//   //-------------------------------------------------------------------
-//   {
-//      // the end of the luminance data
-//      final int lumEnd = screenWidth * screenHeight;
-//      // points to the next luminance value pair
-//      int lumPtr = 0;
-//      // points to the next chromiance value pair
-//      int chrPtr = lumEnd;
-//      // points to the next byte output pair of RGB565 value
-//      int outPtr = 0;
-//      // the end of the current luminance scanline
-//      int lineEnd = screenWidth;
-//
-//      while (true)
-//      {
-//         // skip back to the start of the chromiance values when necessary
-//         if (lumPtr == lineEnd)
-//         {
-//            if (lumPtr == lumEnd)
-//               break; // we've reached the end
-//            // division here is a bit expensive, but's only done once per
-//            // scanline
-//            chrPtr = lumEnd + ((lumPtr >> 1) / screenWidth) * screenWidth;
-//            lineEnd += screenWidth;
-//         }
-//
-//         // read the luminance and chromiance values
-//         final int Y1 = yuvs[lumPtr++] & 0xff;
-//         final int Y2 = yuvs[lumPtr++] & 0xff;
-//         final int Cr = (yuvs[chrPtr++] & 0xff) - 128;
-//         final int Cb = (yuvs[chrPtr++] & 0xff) - 128;
-//         int R, G, B;
-//
-//         // generate first RGB components
-//         B = Y1 + ((454 * Cb) >> 8);
-//         if (B < 0)
-//            B = 0;
-//         else if (B > 255)
-//            B = 255;
-//         G = Y1 - ((88 * Cb + 183 * Cr) >> 8);
-//         if (G < 0)
-//            G = 0;
-//         else if (G > 255)
-//            G = 255;
-//         R = Y1 + ((359 * Cr) >> 8);
-//         if (R < 0)
-//            R = 0;
-//         else if (R > 255)
-//            R = 255;
-//         // NOTE: this assume little-endian encoding
-//         rgbs[outPtr++] = (byte) (((G & 0x3c) << 3) | (B >> 3));
-//         rgbs[outPtr++] = (byte) ((R & 0xf8) | (G >> 5));
-//
-//         // generate second RGB components
-//         B = Y2 + ((454 * Cb) >> 8);
-//         if (B < 0)
-//            B = 0;
-//         else if (B > 255)
-//            B = 255;
-//         G = Y2 - ((88 * Cb + 183 * Cr) >> 8);
-//         if (G < 0)
-//            G = 0;
-//         else if (G > 255)
-//            G = 255;
-//         R = Y2 + ((359 * Cr) >> 8);
-//         if (R < 0)
-//            R = 0;
-//         else if (R > 255)
-//            R = 255;
-//         // NOTE: this assume little-endian encoding
-//         rgbs[outPtr++] = (byte) (((G & 0x3c) << 3) | (B >> 3));
-//         rgbs[outPtr++] = (byte) ((R & 0xf8) | (G >> 5));
-//      }
-//   }
 
 //   private void setDisplayOrientation()
 //   //----------------------------------

@@ -163,11 +163,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          Toast.makeText(MainActivity.this, "Open a valid recording first.", Toast.LENGTH_LONG).show();
          return;
       }
-      if ( (framesFile == null) || (! framesFile.exists()) || (! framesFile.canRead()) )
-      {
-         Toast.makeText(MainActivity.this, "Open a valid recording first.", Toast.LENGTH_LONG).show();
-         return;
-      }
+
 //      cameraView.setRecordingFiles(headerFile, framesFile);
       ARCamera camera = cameraView.getArEmCamera();
       camera.setLocationListener(new LocationListener()
@@ -309,11 +305,6 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
             return;
          }
          framesFile = new File(dir, basename + ".frames");
-         if ( (framesFile == null) || (! framesFile.exists()) || (! framesFile.canRead()) )
-         {
-            Toast.makeText(MainActivity.this, framesFile.getAbsolutePath() + " not found or not readable", Toast.LENGTH_LONG).show();
-            return;
-         }
          cameraView.setRecordingFiles(headerFile, framesFile);
          ARCamera camera = cameraView.getArEmCamera();
          if (camera == null)

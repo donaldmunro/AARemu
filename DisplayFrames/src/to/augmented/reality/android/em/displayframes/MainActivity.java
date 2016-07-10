@@ -26,6 +26,7 @@ import android.widget.Toast;
 import com.doubleTwist.drawerlib.ADrawerLayout;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.BearingListener;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -238,7 +239,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
                startPreview();
             try { Thread.sleep(100); } catch (Exception _e) { }
             buttonReview.setText("Stop");
-            previewSurface.review(0, 360, 15, false, new ARCamera.Reviewable()
+            previewSurface.review(0, 360, 15, false, new ReviewListenable()
             {
                @Override public void onReviewStart() { }
                @Override public void onReview(float bearing) { }

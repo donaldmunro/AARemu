@@ -19,19 +19,26 @@ import android.os.*;
 public class RotationVectorProvider extends OrientationProvider
 //=============================================================
 {
+   static final protected int[] SENSORS = { Sensor.TYPE_ROTATION_VECTOR };
+
+   @Override protected int[] fusedSensors() { return SENSORS; }
+
+   public RotationVectorProvider(SensorManager sensorManager) { this(sensorManager, null, null); }
 
    /**
     * Initialises a new RotationVectorProvider
     *
     * @param sensorManager The android sensor manager
     */
-   public RotationVectorProvider(SensorManager sensorManager)
-   //--------------------------------------------------------
+   public RotationVectorProvider(SensorManager sensorManager, int[] extraSensors, int[] extraSensorSpeeds)
+   //-----------------------------------------------------------------------------------------------------
    {
       super(sensorManager);
 
       //The rotation vector sensor that is being used for this provider to get device orientation
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR));
+      if ( (extraSensors != null) && (extraSensors.length > 0) )
+         super.rawSensors(extraSensors, extraSensorSpeeds);
    }
 
    @Override
@@ -39,11 +46,13 @@ public class RotationVectorProvider extends OrientationProvider
    //---------------------------------------------
    {
       if (isSuspended) return;
-      // we received a sensor event. it is a good practice to check
-      // that we received the proper event
-      if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
+      else
+         super.timestampNS = System.nanoTime();
+      final int eventType = event.sensor.getType();
+      if (eventType == Sensor.TYPE_ROTATION_VECTOR)
       {
-         System.arraycopy(event.values, 0, lastRotationVec, 0, ROTATION_VEC_SIZE);
          // convert the rotation-vector to a 4x4 matrix. the matrix
          // is interpreted by Open GL as the inverse of the
          // rotation-vector, which is what we want.
@@ -51,18 +60,15 @@ public class RotationVectorProvider extends OrientationProvider
 
          // Get Quaternion
          float[] q = new float[4];
-         // Calculate angle. Starting with API_18, Android will provide this value as event.values[3], but if not, we have to calculate it manually.
          SensorManager.getQuaternionFromVector(q, event.values);
          currentOrientationQuaternion.setXYZW(q[1], q[2], q[3], -q[0]);
 
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-            super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
-         else
-            super.timestampNS = System.nanoTime(); //event.timestamp;
          if (orientationListener != null)
             orientationListener.onOrientationListenerUpdate(currentOrientationRotationMatrix, currentOrientationQuaternion,
                                                             super.timestampNS);
          notifyObservers();
       }
+      onHandleEvent(eventType, event);
+      return;
    }
 }

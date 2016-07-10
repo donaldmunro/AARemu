@@ -26,5 +26,5 @@ public interface BearingListener
     * Called when the bearing changes.
     * @param bearing
     */
-   public void onBearingChanged(float bearing);
+   void onBearingChanged(float bearing);
 }

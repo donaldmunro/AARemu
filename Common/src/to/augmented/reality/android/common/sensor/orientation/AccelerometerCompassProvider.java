@@ -21,6 +21,9 @@ import android.os.SystemClock;
 public class AccelerometerCompassProvider extends OrientationProvider
 //===================================================================
 {
+   static final protected int[] SENSORS = { Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_MAGNETIC_FIELD };
+
+   @Override protected int[] fusedSensors() { return SENSORS; }
 
    /**
     * Compass values
@@ -37,13 +40,28 @@ public class AccelerometerCompassProvider extends OrientationProvider
     *
     * @param sensorManager The android sensor manager
     */
-   public AccelerometerCompassProvider(SensorManager sensorManager)
+   public AccelerometerCompassProvider(SensorManager sensorManager) { this(sensorManager, null, null); }
+
+   /**
+    * Initialises a new AccelerometerCompassProvider
+    *
+    * @param sensorManager The android sensor manager
+    * @param extraSensors Extra sensors for raw event callback
+    * @param extraSensorSpeeds the corresponding sensor update speeds which can be SensorManager.SENSOR_DELAY_FASTEST,
+    *                     SENSOR_DELAY_GAME, SENSOR_DELAY_NORMAL or SENSOR_DELAY_UI. If null or empty then
+    *                     SENSOR_DELAY_FASTEST is assumed.
+    */
+   public AccelerometerCompassProvider(SensorManager sensorManager, int[] extraSensors, int[] extraSensorSpeeds)
+   //------------------------------------------------------------------------------------------------------------
    {
       super(sensorManager);
 
       //Add the compass and the accelerometer
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER));
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD));
+
+      if ( (extraSensors != null) && (extraSensors.length > 0) )
+         super.rawSensors(extraSensors, extraSensorSpeeds);
    }
 
    private float[] I = new float[16];
@@ -53,17 +71,20 @@ public class AccelerometerCompassProvider extends OrientationProvider
    //---------------------------------------------
    {
       if (isSuspended) return;
-      switch (event.sensor.getType())
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
+      else
+         super.timestampNS = System.nanoTime();
+      final int eventType = event.sensor.getType();
+      switch (eventType)
       {
          case Sensor.TYPE_MAGNETIC_FIELD:
 //            magnitudeValues = event.values.clone();
             System.arraycopy(event.values, 0, magnitudeValues, 0, magnitudeValues.length);
-            System.arraycopy(event.values, 0, lastMagVec, 0, MAG_VEC_SIZE);
             break;
          case Sensor.TYPE_ACCELEROMETER:
 //            accelerometerValues = event.values.clone();
             System.arraycopy(event.values, 0, accelerometerValues, 0, accelerometerValues.length);
-            System.arraycopy(event.values, 0, lastAccelVec, 0, ACCEL_VEC_SIZE);
             break;
       }
 
@@ -74,14 +95,11 @@ public class AccelerometerCompassProvider extends OrientationProvider
          // Transform rotation matrix to quaternion
          currentOrientationQuaternion.setFromMatrix(currentOrientationRotationMatrix);
 
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-            super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
-         else
-            super.timestampNS = System.nanoTime();
          if (orientationListener != null)
             orientationListener.onOrientationListenerUpdate(currentOrientationRotationMatrix,
                                                             currentOrientationQuaternion, super.timestampNS);
          notifyObservers();
       }
+      onHandleEvent(eventType, event);
    }
 }

@@ -1,17 +1,17 @@
 apply plugin: 'com.android.application'
 
 android {
-   compileSdkVersion 22
+   compileSdkVersion 23
    buildToolsVersion '23.0.2'
 
    defaultConfig {
       applicationId "to.augmented.reality.android.em.sample"
-      minSdkVersion 14
-      targetSdkVersion 22
+      minSdkVersion 19
+      targetSdkVersion 23
       renderscriptTargetApi 18
       renderscriptSupportModeEnabled true
-      versionCode 7
-      versionName '1.0.7'
+      versionCode 8
+      versionName '2.0'
    }
    android {
       sourceSets {

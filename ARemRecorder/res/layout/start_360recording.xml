@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:layout_margin="3dp"
+>
+   <RelativeLayout
+         android:id="@+id/layout_name"
+         android:layout_height="32sp"
+         android:layout_width="match_parent"
+         >
+      <TextView
+            android:id="@+id/label_recording_name"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Name"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <EditText
+            android:id="@+id/text_recording_name"
+            android:layout_height="29sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_recording_name"
+            android:background="@android:color/holo_blue_dark"
+            android:maxLines="1"/>
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_resolutions"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_name"
+
+    >
+      <TextView
+            android:id="@+id/label_camera_resolutions"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Resolution"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <Spinner
+            android:id="@+id/spinner_camera_resolutions"
+            android:layout_height="36sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_camera_resolutions"
+            android:prompt="@string/resolution"
+            android:contentDescription="@string/resolution"
+            android:spinnerStyle="@android:style/Widget.Spinner.DropDown"
+            android:drawSelectorOnTop="true"
+            android:background="@android:color/holo_blue_dark"
+            android:entries="@array/empty_values"
+            />
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_increments"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_resolutions"
+
+         >
+      <TextView
+            android:id="@+id/label_increments"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Start"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <TextView
+            android:id="@+id/label_increments_2"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:layout_below="@+id/label_increments"
+            android:text="Increment"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <Spinner
+            android:id="@+id/spinner_increments"
+            android:layout_height="36sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_increments"
+            android:prompt="@string/resolution"
+            android:contentDescription="@string/resolution"
+            android:spinnerStyle="@android:style/Widget.Spinner.DropDown"
+            android:drawSelectorOnTop="true"
+            android:background="@android:color/holo_blue_dark"
+            android:entries="@array/increment_values"
+            />
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_sensor"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_increments"
+         >
+      <TextView
+            android:id="@+id/label_sensor"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Rotation"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <TextView
+            android:id="@+id/label_sensor2"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:layout_below="@+id/label_sensor"
+            android:text="Sensor"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <Spinner
+            android:id="@+id/spinner_sensors"
+            android:layout_height="36sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_sensor"
+            android:prompt="@string/sensors"
+            android:contentDescription="@string/sensors"
+            android:spinnerStyle="@android:style/Widget.Spinner.DropDown"
+            android:drawSelectorOnTop="true"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:background="@android:color/holo_blue_dark"
+            android:entries="@array/empty_values"
+            />
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_maxsize"
+         android:layout_height="32sp"
+         android:layout_width="match_parent"
+         android:layout_below="@id/layout_sensor"
+         >
+      <TextView
+            android:id="@+id/label_maxsize"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Max Size (Append"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <TextView
+            android:id="@+id/label_maxsize2"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:layout_below="@id/label_maxsize"
+            android:text="G=Gb,M=Mb"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <EditText
+            android:id="@+id/text_maxsize"
+            android:layout_height="29sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_maxsize"
+            android:background="@android:color/holo_blue_dark"
+            android:maxLines="1"/>
+   </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_sensors"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_maxsize"
+   >
+      <TextView
+            android:id="@+id/label_xsensor"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:text="Record"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <TextView
+            android:id="@+id/label_xsensor2"
+            android:layout_width="70sp"
+            android:layout_height="16sp"
+            android:layout_below="@+id/label_xsensor"
+            android:text="Sensors"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+      <com.thomashaertel.widget.MultiSpinner
+            android:id="@+id/spinner_xsensors"
+            android:layout_height="36sp"
+            android:layout_width="match_parent"
+            android:layout_toRightOf="@+id/label_xsensor"
+            android:prompt="@string/xsensors"
+            android:contentDescription="@string/xsensors"
+            android:drawSelectorOnTop="true"
+            android:textAppearance="@android:style/TextAppearance.Medium"
+            android:background="@android:color/holo_blue_dark"
+            android:entries="@array/empty_values"
+            />
+      </RelativeLayout>
+
+   <RelativeLayout
+         android:id="@+id/layout_onoff"
+         android:layout_height="38sp"
+         android:layout_width="match_parent"
+         android:layout_below="@+id/layout_sensors"
+
+         >
+      <TextView
+            android:id="@+id/label_debug"
+            android:layout_width="45sp"
+            android:layout_height="16sp"
+            android:text="Debug"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            />
+
+      <CheckBox
+            android:id="@+id/checkbox_debug"
+            android:layout_height="36sp"
+            android:layout_width="37sp"
+            android:layout_toRightOf="@+id/label_debug"
+            />
+
+      <TextView
+            android:id="@+id/label_flash"
+            android:layout_width="55sp"
+            android:layout_height="16sp"
+            android:layout_toRightOf="@id/checkbox_debug"
+            android:text="Flash On"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            android:visibility="gone"
+            />
+
+      <CheckBox
+            android:id="@+id/checkbox_flash"
+            android:layout_height="36sp"
+            android:layout_width="37sp"
+            android:layout_toRightOf="@+id/label_flash"
+            android:visibility="gone"
+            />
+
+      <TextView
+            android:id="@+id/label_api"
+            android:layout_width="85sp"
+            android:layout_height="16sp"
+            android:layout_toRightOf="@+id/checkbox_flash"
+            android:text="Camera2 API"
+            android:textColor="@android:color/white"
+            android:textAppearance="@android:style/TextAppearance.Small"
+            android:visibility="gone"
+            />
+
+      <CheckBox
+            android:id="@+id/checkbox_api"
+            android:layout_height="36sp"
+            android:layout_width="30sp"
+            android:layout_toRightOf="@+id/label_api"
+            android:visibility="gone"
+            />
+   </RelativeLayout>
+
+</RelativeLayout>

@@ -16,7 +16,6 @@
 
 package to.augmented.reality.android.em.sample;
 
-import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.pm.ConfigurationInfo;
@@ -25,8 +24,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.AttributeSet;
 import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.ARCameraDevice;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import java.io.File;
+import java.util.concurrent.CountDownLatch;
 
 public class ARSurfaceView extends GLSurfaceView
 //==============================================
@@ -34,7 +36,7 @@ public class ARSurfaceView extends GLSurfaceView
    private static final String TAG = ARSurfaceView.class.getSimpleName();
 
    private GLRenderer renderer = null;
-   Activity activity = null;
+   MainActivity activity = null;
 
    boolean isES2 = false, isES3 = false;
 
@@ -48,7 +50,7 @@ public class ARSurfaceView extends GLSurfaceView
       super(activity, attrs);
       if (! isInEditMode())
       {
-         this.activity = (Activity) activity;
+         this.activity = (MainActivity) activity;
          final ActivityManager activityManager = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
          final ConfigurationInfo configurationInfo = activityManager.getDeviceConfigurationInfo();
          isES2 = configurationInfo.reqGlEsVersion >= 0x20000
@@ -77,15 +79,25 @@ public class ARSurfaceView extends GLSurfaceView
 
          setEGLConfigChooser(8, 8, 8, 8, 16, 0);
 //         setDebugFlags(GLSurfaceView.DEBUG_CHECK_GL_ERROR | GLSurfaceView.DEBUG_LOG_GL_CALLS);
-         renderer = new GLRenderer(this.activity, this);
-         setRenderer(renderer);
-         setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
       }
    }
 
-   public void setPreviewFiles(File headerFile, File framesFile) { renderer.setPreviewFiles(headerFile, framesFile); }
+   public void createRenderer()
+   //--------------------------
+   {
+      if (EmulationControls.USE_CAMERA2_API)
+         renderer = new Camera2CameraRenderer(this.activity, this);
+      else
+         renderer = new LegacyCameraRenderer(this.activity, this);
+      setRenderer(renderer);
+      setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+   }
 
-   public ARCamera getCamera() { return renderer.getCamera(); }
+   public void setPreviewFiles(File headerFile, File framesFile, StringBuilder errbuf) { renderer.setPreviewFiles(headerFile, framesFile, errbuf); }
+
+   public ARCamera getLegacyCamera() { return renderer.getLegacyCamera(); }
+
+   public ARCameraDevice getCamera2Camera() { return renderer.getCamera2Camera(); }
 
    @Override
    public void onPause()
@@ -126,20 +138,27 @@ public class ARSurfaceView extends GLSurfaceView
 
    public Renderer getRenderer() { return renderer; }
 
-   public void startPreview()
+   public void startPreview(CountDownLatch latch)
    //------------------------------------------
    {
       if (renderer != null)
-         renderer.startPreview();
+         renderer.startPreview(latch);
    }
 
-   public boolean isPreviewing() { return (renderer != null) && renderer.isPreviewing; }
+   public void stopPreview()
+   //------------------------------------------
+   {
+      if (renderer != null)
+         renderer.stopCamera();
+   }
 
-   public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat, ARCamera.Reviewable reviewable)
+   public boolean isPreviewing() { return ( (renderer != null) && (renderer.isPreviewing) ); }
+
+   public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat, ReviewListenable reviewListenable)
    //---------------------------------------------------------------------------------------------------------------------
    {
       if (renderer != null)
-         renderer.review(startBearing, endBearing, pauseMs, isRepeat, reviewable);
+         renderer.review(startBearing, endBearing, pauseMs, isRepeat, reviewListenable);
    }
 
    public boolean isReviewing()

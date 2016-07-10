@@ -16,43 +16,43 @@
 
 package to.augmented.reality.android.em.recorder;
 
-import android.app.*;
-import android.content.*;
-import android.graphics.*;
+import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
-import android.os.*;
+import android.os.Bundle;
+import android.os.ConditionVariable;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Message;
 import android.os.Process;
+import android.os.SystemClock;
 import android.util.Log;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
-public class CameraPreviewThread extends HandlerThread implements Camera.PreviewCallback, Freezeable
-//====================================================================================================
+class CameraPreviewThread extends HandlerThread implements Camera.PreviewCallback, Freezeable
+//===========================================================================================
 {
    final static private String TAG = CameraPreviewThread.class.getSimpleName();
    public static final int MSG_START_CAMERA = 1;
-   public static final int MSG_STOP_CAMERA = 2;
+   public static final int MSG_STOP_PREVIEW = 2;
    public static final int MSG_START_PREVIEW = 3;
    public static final int MSG_START_PREVIEW2 = 4;
-   private boolean isInitCamera = true;
-   private int bufferSize = -1;
+
+   private int bufferSize = -1, format;
 
    private Handler handler;
 //   private final int previewWidth, previewHeight;
-   long timestamp =-1;
-   private RecorderRingBuffer frameBuffer;
-   public RecorderRingBuffer getFrameBuffer() { return frameBuffer; }
+   private NativeFrameBuffer frameBuffer;
 
    private Semaphore startMutex = new Semaphore(1);
 
    private volatile boolean mustBuffer = false;
-   protected void bufferOn() { mustBuffer = true; }
-   protected void bufferOff() { mustBuffer = false; }
-
-   private volatile ConditionVariable frameAvailCondVar = new ConditionVariable(false);
-   public ConditionVariable getFrameAvailCondVar() { return frameAvailCondVar;  }
-
+   public void bufferOn() { frameBuffer.bufferOn(); mustBuffer = true; }
+   public void bufferOff() { frameBuffer.bufferOff(); mustBuffer = false; }
+   public void bufferClear() { frameBuffer.bufferClear(); }
+   public boolean bufferEmpty() { return frameBuffer.bufferEmpty(); }
+   ConditionVariable frameAvailCondVar;
    boolean isPreviewing = false;
    public boolean isPreviewing() { return isPreviewing; }
 
@@ -65,11 +65,6 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
 //   ScriptIntrinsicYuvToRGB yuvToRgb = null;
 
    Camera camera = null;
-   int cameraId = -1;
-
-   float focalLen = 0;
-   float fovx = 0;
-   float fovy = 0;
 
    public interface FrameListenable
    {
@@ -80,31 +75,20 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    public void setFrameListener(FrameListenable listener) { frameListener = listener; }
    public FrameListenable getFrameListener() { return frameListener; }
 
-   public CameraPreviewThread(GLRecorderRenderer renderer, boolean isInitCamera)
+   public CameraPreviewThread(GLRecorderRenderer renderer, Camera camera, int width, int height, int bufferSize,
+                              int format, NativeFrameBuffer frameBuffer, ConditionVariable frameAvailCondVar)
    //-------------------------------------------------------------------------------
    {
       super("CameraPreview", Process.THREAD_PRIORITY_MORE_FAVORABLE);
       try { startMutex.acquire(); } catch (InterruptedException e) { return; }
       this.renderer = renderer;
-      this.isInitCamera = isInitCamera;
-//      this.previewWidth = previewWidth;
-//      this.previewHeight = previewHeight;
-//      this.bufferSize = bufferSize;
-//      rs = RenderScript.create(context);
-//      yuvToRgb = ScriptIntrinsicYuvToRGB.create(rs, Element.U8_4(rs));
-//         Type.Builder tb = new Type.Builder(rs, Element.createPixel(rs, Element.DataType.UNSIGNED_8,
-//                                                                    Element.DataKind.PIXEL_YUV));
-//         tb.setX(previewWidth);
-//         tb.setY(previewHeight);
-//         tb.setMipmaps(false);
-//         tb.setYuvFormat(ImageFormat.NV21);
-//         Allocation ain = Allocation.createTyped(rs, tb.create(), Allocation.USAGE_SCRIPT);
-//         Type.Builder tb2 = new Type.Builder(rs, Element.RGBA_8888(rs));
-////            Type.Builder tb2 = new Type.Builder(rs, Element.RGB_888(rs));
-//         tb2.setX(previewWidth);
-//         tb2.setY(previewHeight);
-//         tb2.setMipmaps(false);
-//         Allocation aOut = Allocation.createTyped(rs, tb2.create(), Allocation.USAGE_SCRIPT);
+      this.camera = camera;
+      this.previewWidth = width;
+      this.previewHeight = height;
+      this.bufferSize = bufferSize;
+      this.frameBuffer = frameBuffer;
+      this.frameAvailCondVar = frameAvailCondVar;
+      this.format = format;
    }
 
    @Override
@@ -112,8 +96,6 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    //-------------------------------
    {
       super.onLooperPrepared();
-      if (isInitCamera)
-         startCamera();
       handler = new Handler(getLooper())
       {
          @Override
@@ -125,16 +107,10 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
                switch (msg.what)
                {
                   case MSG_START_PREVIEW:
-                     initPreview(msg.arg1, msg.arg2);
+                     initPreview();
                      break;
-                  case MSG_START_PREVIEW2:
-                     initPreview2();
-                     break;
-                  case MSG_START_CAMERA:
-                     startCamera();
-                     break;
-                  case MSG_STOP_CAMERA:
-                     _stopCamera();
+                  case MSG_STOP_PREVIEW:
+                     _stopPreview();
                      break;
                }
             }
@@ -147,7 +123,7 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
       startMutex.release();
    }
 
-   public void initCamera()
+   public void stopPreview()
    //----------------------
    {
       if (handler == null)
@@ -164,102 +140,10 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
             return;
          }
       }
-      handler.dispatchMessage(Message.obtain(handler, MSG_START_CAMERA));
+      handler.dispatchMessage(Message.obtain(handler, MSG_STOP_PREVIEW));
    }
 
-   private void startCamera()
-   //----------------------------
-   {
-      try
-      {
-         _stopCamera();
-         Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
-         for (int i = 0; i < Camera.getNumberOfCameras(); i++)
-         {
-            Camera.getCameraInfo(i, cameraInfo);
-            if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_BACK)
-            {
-               cameraId = i;
-               try { camera = Camera.open(cameraId); } catch (Exception _e) { camera = null; }
-               break;
-            }
-         }
-         if (camera == null)
-         {
-            renderer.toast("Error acquiring camera");
-            return;
-         }
-//         setDisplayOrientation();
-//         camera.setDisplayOrientation(0);
-         Camera.Parameters cameraParameters = camera.getParameters();
-         if (cameraParameters.isVideoStabilizationSupported())
-            cameraParameters.setVideoStabilization(true);
-         List<String> focusModes = cameraParameters.getSupportedFocusModes();
-//         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
-//            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-//         else
-         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
-            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
-         if (cameraParameters.isZoomSupported())
-            cameraParameters.setZoom(0);
-         camera.setParameters(cameraParameters);
-         focalLen = cameraParameters.getFocalLength();
-         fovx = cameraParameters.getHorizontalViewAngle();
-         fovy = cameraParameters.getVerticalViewAngle();
-
-         List<Camera.Size> resolutions = cameraParameters.getSupportedPreviewSizes();
-         Collections.sort(resolutions, new Comparator<Camera.Size>()
-         {
-            @Override
-            public int compare(Camera.Size lhs, Camera.Size rhs)
-            //--------------------------------------------------
-            {
-               return (lhs.width > rhs.width) ? -1 : (lhs.width < rhs.width) ? 1 : 0;
-            }
-         });
-         final String[] availResolutions = new String[resolutions.size()];
-         int i = 0;
-         for (Camera.Size resolution : resolutions)
-         {
-//            if ((resolution.width <= renderer.screenWidth) && (resolution.height <= renderer.screenHeight))
-               availResolutions[i++] = String.format(Locale.UK, "%dx%d", resolution.width, resolution.height);
-         }
-         renderer.activity.runOnUiThread(new Runnable()
-         {
-            @Override public void run() { renderer.activity.onResolutionChange(availResolutions); }
-         });
-
-      }
-      catch (Exception e)
-      {
-         camera = null;
-         renderer.toast(String.format("Could not obtain rear facing camera (%s). Check if it is in use by another application.",
-                        e.getMessage()));
-         Log.e(TAG, "Camera.open()", e);
-      }
-   }
-
-   public void stopCamera()
-   //----------------------
-   {
-      if (handler == null)
-      {
-         try
-         {
-            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
-               startMutex.release();
-            else
-               return;
-         }
-         catch (InterruptedException e)
-         {
-            return;
-         }
-      }
-      handler.dispatchMessage(Message.obtain(handler, MSG_STOP_CAMERA));
-   }
-
-   private void _stopCamera()
+   private void _stopPreview()
    //----------------------
    {
       if (camera != null)
@@ -289,8 +173,8 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
       camera = null;
    }
 
-   public void startPreview(int width, int height)
-   //-----------------------------------------------------------------
+   public void startPreview()
+   //------------------------
    {
       if (handler == null)
       {
@@ -306,88 +190,30 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
             return;
          }
       }
-      handler.dispatchMessage(Message.obtain(handler, MSG_START_PREVIEW, width, height));
+      handler.dispatchMessage(Message.obtain(handler, MSG_START_PREVIEW));
    }
 
-   public void startFixedPreview()
-   //-----------------------------------------------------------------
+   private void initPreview()
+   //------------------------
    {
-      if (handler == null)
-      {
-         try
-         {
-            if (startMutex.tryAcquire(5, TimeUnit.SECONDS))
-               startMutex.release();
-            else
-               return;
-         }
-         catch (InterruptedException e)
-         {
-            return;
-         }
-      }
-      handler.dispatchMessage(Message.obtain(handler, MSG_START_PREVIEW2));
-   }
-
-   private void initPreview(int width, int height)
-   //------------------------------------------------
-   {
-      if (camera == null) return;
-      if (isPreviewing)
-      {
-         if ((previewWidth == width) && (previewHeight == height))
-            return;
-         try
-         {
-            camera.setPreviewCallbackWithBuffer(null);
-            camera.stopPreview();
-            isPreviewing = false;
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-         }
-      }
-      renderer.previewWidth =  previewWidth = width;
-      renderer.previewHeight = previewHeight = height;
-
-
-      ActivityManager activityManager = (ActivityManager) renderer.activity.getSystemService(Context.ACTIVITY_SERVICE);
-      ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-      activityManager.getMemoryInfo(memoryInfo);
-      long availSize = memoryInfo.availMem/2;
-      //int totalsize = RINGBUFFER_SIZE * bufferSize;
-      int n = 20;
-      for (; n>=3; n--)
-      {
-         long totalsize = n * renderer.nv21BufferSize;
-         if (totalsize <= availSize)
-            break;
-      }
-      n = 3;
-      frameBuffer = new RecorderRingBuffer(n, renderer.nv21BufferSize);
-      Log.i(TAG, "Buffer size " + n + " x " + renderer.nv21BufferSize + " = " + n * renderer.nv21BufferSize);
-      this.bufferSize = renderer.nv21BufferSize;
-      initPreview2();
-   }
-
-   private void initPreview2()
-   //-----------------------------
-   {
+//      if (renderer.previewTexture < 0)
+//      {
+//         Log.e(TAG, "Preview texture has not been initialised by OpenGL glGenTextures. (" + renderer.previewTexture + ")");
+//         renderer.isAwaitingTextureFix = true;
+//         renderer.requestRender();
+//         return; // try again from render thread
+//      }
+//      else if (renderer.isAwaitingTextureFix)
+//         renderer.isAwaitingTextureFix = false;
       if (renderer.previewTexture < 0)
-      {
-         Log.e(TAG, "Preview texture has not been initialised by OpenGL glGenTextures. (" + renderer.previewTexture + ")");
-         renderer.isAwaitingTextureFix = true;
-         renderer.requestRender();
-         return; // try again from render thread
-      }
+         throw new RuntimeException("Preview texture not initialized");
       renderer.previewSurfaceTexture = new SurfaceTexture(renderer.previewTexture);
       try
       {
          Camera.Parameters cameraParameters = camera.getParameters();
          cameraParameters.setPreviewSize(previewWidth, previewHeight);
 
-         cameraParameters.setPreviewFormat(ImageFormat.NV21);
+         cameraParameters.setPreviewFormat(format);
          camera.setParameters(cameraParameters);
          camera.setPreviewCallbackWithBuffer(this);
          renderer.previewSurfaceTexture.setOnFrameAvailableListener(renderer);
@@ -395,7 +221,6 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
          camera.setPreviewTexture(renderer.previewSurfaceTexture);
          camera.startPreview();
          isPreviewing = true;
-         renderer.isAwaitingTextureFix = false;
       }
       catch (final Exception e)
       {
@@ -404,7 +229,26 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
       }
    }
 
-   public void clearBuffer() { frameBuffer.clear(); }
+   public void suspendPreview()
+   //--------------------------
+   {
+      if (camera != null)
+         camera.setPreviewCallbackWithBuffer(null);
+   }
+
+   public void restartPreview()
+   //--------------------------
+   {
+      if (camera != null)
+         camera.setPreviewCallbackWithBuffer(this);
+   }
+
+   public void releaseFrame()
+   //------------------------
+   {
+      if (camera != null)
+         camera.addCallbackBuffer(renderer.cameraBuffer);
+   }
 
 //   long lastTimestamp = SystemClock.elapsedRealtimeNanos();
 //   long timestampCount  = 0, timestampTot;
@@ -419,54 +263,42 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
             camera.addCallbackBuffer(renderer.cameraBuffer);
          return;
       }
-      timestamp = SystemClock.elapsedRealtimeNanos();
+      long timestamp = SystemClock.elapsedRealtimeNanos();
+      frameBuffer.push(timestamp, data);
+      frameAvailCondVar.open();
 
+//      try (FileOutputStream fw = new FileOutputStream(new File("/sdcard/Documents/ARRecorder/t/frame.nv21"))
+//      {
+//         fw.write(data);
+//         fw.close();
+//      }
+//      catch (Exception e)
+//      {
+//
+//      }
 //      timestampTot += (timestamp - lastTimestamp);
 //      timestampCount++;
 //      lastTimestamp = timestamp;
 //      if ( (timestampCount % 100) == 0)
 //         Log.i(TAG, "Frame update speed average: " + timestampTot/timestampCount);
 
-      try
-      {
-//         ain.copyFrom(data);
-//         yuvToRgb.setInput(ain);
-//         yuvToRgb.forEach(aOut);
-//         synchronized (this) { aOut.copyTo(previewBuffer); }
-//         Log.i(TAG, "NV21 to RGBA Time = " + (SystemClock.elapsedRealtimeNanos() - timestamp) + " NS");
-         if (frameListener != null)
-            frameListener.onFrameAvailable(data, timestamp);
-         if (mustBuffer)
-            frameBuffer.push(timestamp, data);
-         frameAvailCondVar.open();
-      }
-      catch (Throwable e)
-      {
-         Log.e(TAG, "", e);
-      }
-   }
-
-   public long awaitFrame(long frameBlockTimeMs, byte[] previewBuffer)
-   //-----------------------------------------------------------------
-   {
-      frameAvailCondVar.close();
-      if (frameAvailCondVar.block(frameBlockTimeMs))
-         return frameBuffer.peek(previewBuffer);
-//         return findFirstBufferAtTimestamp(targetTimeStamp, EPSILON, previewBuffer);
-      return -1;
-   }
-
-   public long awaitFrameTime(long frameBlockTimeMs)
-   //-----------------------------------------------
-   {
-      frameAvailCondVar.close();
-      if (frameAvailCondVar.block(frameBlockTimeMs))
-         return frameBuffer.peekTime();
-      return -1;
+//      try
+//      {
+//         if (frameListener != null)
+//            frameListener.onFrameAvailable(data, timestamp);
+//         if (mustBuffer)
+//            frameBuffer.push(timestamp, data);
+//         frameAvailCondVar.open();
+//      }
+//      catch (Throwable e)
+//      {
+//         Log.e(TAG, "", e);
+//      }
    }
 
    @Override
-   public void pause(Bundle B)
+   public void freeze(Bundle B)
+   //--------------------------
    {
       B.putBoolean("isPreviewing", isPreviewing);
       B.putBoolean("mustBuffer", mustBuffer);
@@ -476,7 +308,8 @@ public class CameraPreviewThread extends HandlerThread implements Camera.Preview
    }
 
    @Override
-   public void restore(Bundle B)
+   public void thaw(Bundle B)
+   //------------------------
    {
       isPreviewing = B.getBoolean("isPreviewing");
       mustBuffer = B.getBoolean("mustBuffer");

@@ -1737,7 +1737,7 @@ public class ADrawerLayout extends ViewGroup {
 
         if (ss.scrollState >= 0) mDrawerState.mScrollState = ss.scrollState;
         if (ss.activeDrawer >= 0) mDrawerState.mActiveDrawer = ss.activeDrawer;
-        // Do not restore this, use setDraggingEnabled explicitly from activity/fragment code
+        // Do not thaw this, use setDraggingEnabled explicitly from activity/fragment code
         // mDrawerState.mDraggingEnabled = ss.draggingEnabled;
 
         boolean doNotRestore = (mDrawerState.mActiveDrawer == LEFT_DRAWER && mLeft == null)

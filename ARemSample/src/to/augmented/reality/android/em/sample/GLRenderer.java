@@ -16,19 +16,20 @@
 
 package to.augmented.reality.android.em.sample;
 
-import android.app.Activity;
 import android.content.res.AssetManager;
-import android.graphics.ImageFormat;
-import android.graphics.SurfaceTexture;
-import android.hardware.Camera;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
-import android.os.*;
-import android.support.v8.renderscript.*;
-import android.util.*;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.util.Log;
+import android.util.Pair;
 import android.widget.Toast;
-import to.augmented.reality.android.common.gl.*;
+import to.augmented.reality.android.common.gl.GLHelper;
+import to.augmented.reality.android.common.gl.GLTexture;
 import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.ARCameraDevice;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -40,11 +41,11 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
-import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 import static android.opengl.GLES20.*;
 
-public class GLRenderer implements GLSurfaceView.Renderer
+public abstract class GLRenderer implements GLSurfaceView.Renderer
 //=======================================================
 {
    private static final String TAG = GLRenderer.class.getSimpleName();
@@ -53,20 +54,13 @@ public class GLRenderer implements GLSurfaceView.Renderer
    static final int SIZEOF_FLOAT = Float.SIZE/8;
    static final int SIZEOF_SHORT = Short.SIZE/8;
 
-   private Activity activity;
-   private ARSurfaceView view;
+   protected MainActivity activity;
+   protected ARSurfaceView view;
 
-   private ARCamera camera = null;
-   public ARCamera getCamera() { return camera; }
 
-   private int cameraId = -1;
-   private Camera.PreviewCallback previewCallback;
-
-   private boolean isUseOwnBuffers = true;
-
-   private int previewWidth = -1, previewHeight =-1;
-   private SurfaceTexture previewSurfaceTexture = null;
-   private File headerFile = null, framesFile = null;
+   protected int previewWidth = -1, previewHeight =-1;
+   protected File headerFile = null, framesFile = null;
+   protected CountDownLatch latch;
 
    int getPreviewWidth() { return previewWidth;}
    int getPreviewHeight() { return previewHeight;}
@@ -78,7 +72,6 @@ public class GLRenderer implements GLSurfaceView.Renderer
    volatile boolean isUpdateSurface = false;
 
    private GLTexture previewTexture;
-   private int bufferSize = 0, nv21BufferSize = 0;
    private int previewMVPLocation =-1, cameraTextureUniform =-1;
    private float[] previewMVP = new float[16];
 
@@ -97,26 +90,49 @@ public class GLRenderer implements GLSurfaceView.Renderer
 
    float[] projectionM = new float[16], viewM = new float[16];
 
+   GLTexture.TextureFormat textureFormat = null;
+
    GLSLAttributes previewShaderGlsl;
 
    String lastError = null;
 
-   GLRenderer(Activity activity, ARSurfaceView surfaceView)
-   //------------------------------------------------------
+   public GLRenderer(MainActivity activity, ARSurfaceView surfaceView)
+   //----------------------------------------------------------------
    {
       this.activity = activity;
       this.view = surfaceView;
       Matrix.setIdentityM(previewMVP, 0);
    }
 
-   GLTexture.TextureFormat textureFormat = null;
+   abstract protected boolean initCamera(StringBuilder errbuf) throws Exception;
 
-   public void setPreviewFiles(File headerFile, File framesFile)
-   //----------------------------------------------------------
+   abstract public boolean startPreview(CountDownLatch latch);
+
+   abstract protected void stopCamera();
+
+   abstract protected void releaseCameraFrame(boolean isPreviewed);
+
+   abstract public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat,
+                               ReviewListenable reviewListenable);
+
+   abstract public boolean isReviewing();
+
+   abstract public void stopReviewing();
+
+   abstract public float getReviewCurrentBearing();
+
+   abstract public void setReviewBearing(float bearing);
+
+   public ARCamera getLegacyCamera() { return null; }
+
+   public ARCameraDevice getCamera2Camera() { return null; }
+
+   public void setPreviewFiles(File headerFile, File framesFile, StringBuilder errbuf)
+   //---------------------------------------------------------------------------------
    {
       this.headerFile = headerFile;
       this.framesFile = framesFile;
-      try { initCamera(); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); throw new RuntimeException("Camera initialization", e); }
+      try { initCamera(errbuf); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); throw new RuntimeException("Camera initialization", e); }
    }
 
    @Override public void onSurfaceCreated(GL10 gl, EGLConfig config)
@@ -142,225 +158,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
       initRender();
    }
 
-   public boolean startPreview()
-   //---------------------------
-   {
-      if (camera == null) return false;
-      if (isPreviewing)
-      {
-         try
-         {
-            camera.setPreviewCallbackWithBuffer(null);
-            camera.stopPreview();
-            isPreviewing = false;
-            previewCallback = null;
-         }
-         catch (Exception e)
-         {
-            Log.e(TAG, "", e);
-         }
-      }
-      Camera.Size cameraSize = camera.getParameters().getPreviewSize();
-      previewWidth = cameraSize.width;
-      previewHeight = cameraSize.height;
-
-      if ( (previewWidth < 0) || (previewHeight < 0) )
-         throw new RuntimeException("Invalid resolution " + previewWidth + "x" + previewHeight);
-
-      bufferSize = camera.getHeaderInt("BufferSize", -1);
-      if (bufferSize == -1)
-      {
-         switch (camera.getFileFormat())
-         {
-            case RGB:      bufferSize = previewWidth * previewHeight * 3;
-                           bufferSize += bufferSize % 4;
-                           break;
-            case RGBA:     bufferSize = previewWidth * previewHeight * 4; break;
-            case RGB565:   bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8; break;
-            case NV21:     bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;    break;
-            default: throw new RuntimeException("Cannot determine buffer size. (BufferSize and FileFormat are missing from the header file");
-         }
-      }
-      switch (camera.getFileFormat())// == ARCamera.RecordFileFormat.NV21)
-      {
-         case NV21:
-            nv21BufferSize = bufferSize;
-            bufferSize = previewWidth * previewHeight * 4;
-            if (isUseOwnBuffers)
-               cameraBuffer  = new byte[nv21BufferSize];
-            break;
-         case RGB:
-            bufferSize += bufferSize % 4;
-         case RGBA:
-         case RGB565:
-            if (isUseOwnBuffers)
-               cameraBuffer  = new byte[bufferSize];
-      }
-      previewBuffer = null;
-      if (previewByteBuffer != null)
-         previewByteBuffer.clear();
-      previewByteBuffer = null;
-      previewBuffer = new byte[bufferSize];
-
-      previewByteBuffer = ByteBuffer.allocateDirect(bufferSize);
-      previewByteBuffer.put(previewBuffer);
-      previewByteBuffer.rewind();
-      previewSurfaceTexture = new SurfaceTexture(10);
-      try
-      {
-         Camera.Parameters cameraParameters = camera.getParameters();
-         cameraParameters.setPreviewSize(previewWidth, previewHeight);
-         cameraParameters.setPreviewFormat(ImageFormat.NV21);
-         camera.setParameters(cameraParameters);
-         previewCallback = new CameraPreviewCallback();
-         if (isUseOwnBuffers)
-         {
-            camera.setPreviewCallbackWithBuffer(previewCallback);
-            camera.addCallbackBuffer(cameraBuffer);
-         }
-         else
-            camera.setPreviewCallback(previewCallback);
-         camera.setPreviewTexture(previewSurfaceTexture);
-         camera.startPreview();
-         isPreviewing = true;
-      }
-      catch (final Exception e)
-      {
-         Log.e(TAG, "Initialising camera preview", e);
-         toast("Error initialising camera preview: " + e.getMessage());
-         return false;
-      }
-      return true;
-   }
-
-   private void stopCamera()
-   //----------------------
-   {
-      if (camera != null)
-      {
-         if (isPreviewing)
-         {
-            try
-            {
-               if (previewSurfaceTexture != null)
-                  previewSurfaceTexture.setOnFrameAvailableListener(null);
-               camera.setPreviewCallbackWithBuffer(null);
-               camera.stopPreview();
-            }
-            catch (Exception e)
-            {
-               Log.e(TAG, "", e);
-            }
-         }
-         try { camera.release(); } catch (Exception _e) { Log.e(TAG, _e.getMessage()); }
-      }
-      camera = null;
-      if (realCamera != null)
-         try { realCamera.release(); } catch (Exception e) {}
-      realCamera = null;
-   }
-
-   Camera realCamera = null;
-
-   protected boolean initCamera() throws Exception
-   //-----------------------------------------------
-   {
-      if ( (headerFile == null) || (! headerFile.exists()) || (! headerFile.canRead()) )
-         throw new RuntimeException("Invalid or non-existent replay header file (" +
-                                          ((headerFile == null) ? "null" : headerFile.getAbsolutePath()));
-      if ( (framesFile == null) || (! framesFile.exists()) || (! framesFile.canRead()) )
-         throw new RuntimeException("Invalid or non-existent replay header file (" +
-                                          ((framesFile == null) ? "null" : framesFile.getAbsolutePath()));
-      try
-      {
-         stopCamera();
-         Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
-         int frontId = -1, backId = -1;
-         for (int i = 0; i < Camera.getNumberOfCameras(); i++)
-         {
-            Camera.getCameraInfo(i, cameraInfo);
-            if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_BACK)
-               backId = i;
-            else if (cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
-               frontId = i;
-         }
-         if (backId >= 0)
-         {
-            cameraId = backId;
-            try { realCamera = Camera.open(cameraId); } catch (Exception _e) { realCamera = null; }
-            if (realCamera != null)
-            {
-               camera = new ARCamera(activity, cameraId, realCamera);
-               camera = (ARCamera) ARCamera.open(cameraId);
-            }
-         }
-         if ( (camera == null) && (frontId >= 0) )
-         {
-            cameraId = frontId;
-            try { realCamera = Camera.open(cameraId); } catch (Exception _e) { realCamera = null; }
-            if (realCamera != null)
-            {
-               camera = new ARCamera(activity, cameraId, realCamera);
-               camera = (ARCamera) ARCamera.open(cameraId);
-            }
-         }
-         if (camera == null)
-         {
-            camera = new ARCamera(activity, -1);
-            cameraId = camera.getId();
-            camera = (ARCamera) ARCamera.open(cameraId);
-         }
-         if (camera != null)
-            camera.setFiles(headerFile, framesFile);
-         else
-            return false;
-         camera.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
-//         setDisplayOrientation();
-         camera.setDisplayOrientation(180);
-         Camera.Parameters cameraParameters = camera.getParameters();
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
-            if (cameraParameters.isVideoStabilizationSupported())
-               cameraParameters.setVideoStabilization(true);
-         List<Camera.Size> L = cameraParameters.getSupportedPreviewSizes();
-         Camera.Size sz = cameraParameters.getPreviewSize();
-         List<String> focusModes = cameraParameters.getSupportedFocusModes();
-//         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
-//            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-//         else
-         if  (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
-            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
-         if (cameraParameters.isZoomSupported())
-            cameraParameters.setZoom(0);
-         cameraParameters.setPreviewFrameRate(30000);
-         camera.setParameters(cameraParameters);
-         ARCamera.RecordFileFormat fileFormat = camera.getFileFormat();
-         switch (fileFormat)
-         {
-            case NV21:
-            case RGBA:
-               textureFormat = GLTexture.TextureFormat.RGBA;
-               break;
-            case RGB:  // Not always a safe option, see http://www.opengl.org/wiki/Common_Mistakes#Texture_upload_and_pixel_reads
-               textureFormat = GLTexture.TextureFormat.RGB;
-               break;
-            case RGB565:
-               textureFormat = GLTexture.TextureFormat.RGB565;
-               break;
-            default: throw new RuntimeException(fileFormat.name() + ": Unknown recording file format");
-         }
-         return true;
-      }
-      catch (Exception e)
-      {
-         camera = null;
-         toast(String.format("Could not obtain rear facing camera (%s). Check if it is in use by another application.",
-                             e.getMessage()));
-         Log.e(TAG, "Camera.open()", e);
-         return false;
-      }
-   }
-
-   private void toast(final String s)
+   protected void toast(final String s)
    //--------------------------------
    {
       activity.runOnUiThread(new Runnable()
@@ -445,9 +243,9 @@ public class GLRenderer implements GLSurfaceView.Renderer
    {
       StringBuilder errbuf = new StringBuilder();
       boolean isPreviewed = false;
-      if ( (textureFormat != null) && ( (previewTexture == null) || (! previewTexture.isValid()) ) )
+      if ( ( (previewTexture == null) || (! previewTexture.isValid()) ) )
       {
-         previewTexture = GLTexture.create(GL_TEXTURE0, GL_TEXTURE_2D, textureFormat, cameraTextureUniform);
+         previewTexture = GLTexture.create(GL_TEXTURE0, GL_TEXTURE_2D, GLTexture.TextureFormat.RGBA, cameraTextureUniform);
          if (! previewTexture.setIntParameters(Pair.create(GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE),
                                                Pair.create(GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE),
                                                Pair.create(GL_TEXTURE_MIN_FILTER, GL_LINEAR),
@@ -469,9 +267,11 @@ public class GLRenderer implements GLSurfaceView.Renderer
             {
                isPreviewed = true;
                isUpdateSurface = false;
+               previewByteBuffer.rewind();
                if (! previewTexture.load(previewByteBuffer, previewWidth, previewHeight, (!isReloadTexture)))
                   throw new RuntimeException("Texture error: " + previewTexture.lastError() + ": " +
                                              previewTexture.lastErrorMessage());
+               isReloadTexture = false;
             }
          }
 
@@ -496,8 +296,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
       }
       finally
       {
-         if ( (camera != null) && (isPreviewed) && (isUseOwnBuffers) )
-            camera.addCallbackBuffer(cameraBuffer);
+         releaseCameraFrame(isPreviewed);
       }
    }
 
@@ -700,23 +499,18 @@ public class GLRenderer implements GLSurfaceView.Renderer
       }
    }
 
-   public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat, ARCamera.Reviewable reviewable)
-   //---------------------------------------------------------------------------------------------------------------------
-   {
-      if ( (camera == null) || (camera.isReviewing()) ) return;
-      if ( (camera != null) && (isPreviewing) )
-         camera.startReview(startBearing, endBearing, pauseMs, isRepeat, reviewable);
-   }
-
    public void pause() { stopCamera(); }
 
    protected void resume()
    //-----------------------
    {
       if ( (headerFile != null) && (headerFile.exists()) && (framesFile != null) && (framesFile.exists()) )
-         try { initCamera(); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); throw new RuntimeException("Camera initialization", e); }
+      {
+         StringBuilder errbuf = new StringBuilder();
+         try { initCamera(errbuf); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); activity.toast(errbuf.toString()); }
+      }
       if (isPreviewing)
-         startPreview();
+         startPreview(latch);
    }
 
    public void onSaveInstanceState(Bundle B)
@@ -740,88 +534,6 @@ public class GLRenderer implements GLSurfaceView.Renderer
       s = B.getString("framesFile");
       if (s != null)
          framesFile = new File(s);
-   }
-
-   public boolean isReviewing()
-   //--------------------------
-   {
-      if (camera != null)
-         return camera.isReviewing();
-      return false;
-   }
-
-   public void stopReviewing()
-   //-------------------------
-   {
-      if (camera != null)
-         camera.stopReview();
-   }
-
-   public float getReviewCurrentBearing()
-   {
-      if (camera != null)
-         return camera.getReviewCurrentBearing();
-      return -1;
-   }
-
-   public void setReviewBearing(float bearing) { if (camera != null) camera.setReviewCurrentBearing(bearing); }
-
-   class CameraPreviewCallback implements Camera.PreviewCallback
-   //==================================================================
-   {
-      RenderScript rsNv21toRGBA;
-      ScriptIntrinsicYuvToRGB YUVToRGBA;
-      Allocation ain, aOut;
-
-      public CameraPreviewCallback()
-      //-----------------------------
-      {
-         if (GLRenderer.this.camera.getFileFormat() == ARCamera.RecordFileFormat.NV21)
-         {
-            rsNv21toRGBA = RenderScript.create(activity);
-            YUVToRGBA = ScriptIntrinsicYuvToRGB.create(rsNv21toRGBA, Element.U8_4(rsNv21toRGBA));
-            Type.Builder yuvType = new Type.Builder(rsNv21toRGBA, Element.U8(rsNv21toRGBA)).setX(previewWidth).
-                  setY(previewHeight).setMipmaps(false).setYuvFormat(ImageFormat.NV21);
-            Type.Builder rgbaType = new Type.Builder(rsNv21toRGBA, Element.RGBA_8888(rsNv21toRGBA)).setX(previewWidth).
-                  setY(previewHeight).setMipmaps(false);
-            ain = Allocation.createTyped(rsNv21toRGBA, yuvType.create(), Allocation.USAGE_SCRIPT);
-            aOut = Allocation.createTyped(rsNv21toRGBA, rgbaType.create(), Allocation.USAGE_SCRIPT);
-         }
-      }
-
-      @Override
-      public void onPreviewFrame(byte[] data, Camera camera)
-      //----------------------------------------------------
-      {
-         if (data == null)
-         {
-            if ( (isUseOwnBuffers) && (camera != null) )
-               camera.addCallbackBuffer(cameraBuffer);
-            return;
-         }
-         if (GLRenderer.this.camera.getFileFormat() == ARCamera.RecordFileFormat.NV21)
-         {
-            ain.copyFrom(data);
-            YUVToRGBA.setInput(ain);
-            YUVToRGBA.forEach(aOut);
-            aOut.copyTo(previewBuffer);
-            synchronized (this)
-            {
-               previewByteBuffer.clear();
-               previewByteBuffer.put(previewBuffer);
-            }
-         }
-         else
-         {
-            synchronized (this)
-            {
-               previewByteBuffer.clear();
-               previewByteBuffer.put(data);
-            }
-         }
-         isUpdateSurface = true;
-         view.requestRender();
-      }
    }
 
    static class GLSLAttributes
@@ -863,5 +575,13 @@ public class GLRenderer implements GLSurfaceView.Renderer
             textureAttr = currentAttribute++;
          return textureAttr;
       }
+   }
+
+   protected Handler createHandler(String name)
+   //----------------------------------------
+   {
+      HandlerThread t = new HandlerThread(name);
+      t.start();
+      return new Handler(t.getLooper());
    }
 }

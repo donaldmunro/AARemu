@@ -8,6 +8,7 @@ import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.util.AttributeSet;
 import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import java.io.File;
 
@@ -113,11 +114,11 @@ public class ARSurfaceView extends GLSurfaceView
 
    public void review(int pauseMs, boolean isRepeat) { review(0, 360, pauseMs, isRepeat, null);}
 
-   public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat, ARCamera.Reviewable reviewable)
+   public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat, ReviewListenable reviewListenable)
    //-------------------------------------------------------------------------------------
    {
       if (renderer == null) return;
-         renderer.review(startBearing, endBearing, pauseMs, isRepeat, reviewable);
+         renderer.review(startBearing, endBearing, pauseMs, isRepeat, reviewListenable);
    }
 
    public void stopReview()

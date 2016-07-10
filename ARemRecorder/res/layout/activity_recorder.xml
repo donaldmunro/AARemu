@@ -29,21 +29,57 @@
    >
 
       <ImageButton
-            android:id="@+id/button_start"
+            android:id="@+id/button_start_360"
             style="?metaButtonBarButtonStyle"
             android:layout_height="50dip"
             android:layout_width="match_parent"
             android:layout_gravity="center"
             android:layout_alignParentTop="true"
-            android:src="@drawable/record_green"
-            android:layout_marginBottom="5dp"
+            android:src="@drawable/three60"
+            android:layout_marginBottom="20dp"
+            android:tag="360"
       />
+
+      <ImageButton
+            android:id="@+id/button_start_free"
+            style="?metaButtonBarButtonStyle"
+            android:layout_height="50dip"
+            android:layout_width="match_parent"
+            android:layout_below="@id/button_start_360"
+            android:layout_gravity="center"
+            android:src="@drawable/frame"
+            android:tag="free"
+            android:layout_marginBottom="15dp"
+            />
+
+      <ImageButton
+            android:id="@+id/button_pause"
+            style="?metaButtonBarButtonStyle"
+            android:layout_height="50dip"
+            android:layout_width="match_parent"
+            android:layout_below="@id/button_start_free"
+            android:layout_gravity="center"
+            android:src="@drawable/pause"
+            android:visibility="gone"
+            android:layout_marginBottom="5dp"
+            />
+
+      <ImageButton
+            android:id="@+id/button_exit"
+            style="?metaButtonBarButtonStyle"
+            android:layout_height="50dip"
+            android:layout_width="match_parent"
+            android:layout_below="@id/button_pause"
+            android:layout_gravity="center"
+            android:src="@drawable/exit"
+            android:layout_marginBottom="5dp"
+            />
 
       <RelativeLayout
             android:id="@+id/layout_location"
             android:layout_height="45dip"
             android:layout_width="match_parent"
-            android:layout_below="@+id/button_start"
+            android:layout_below="@+id/button_pause"
             android:layout_marginBottom="3dp"
       >
          <TextView

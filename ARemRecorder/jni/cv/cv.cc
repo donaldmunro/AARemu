@@ -27,32 +27,31 @@
 //#define NDEBUG
 //#include <assert.h>
 
-JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR
-      (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2)
-//------------------------------------------------------------------------------------------------
+jint throw_jni(JNIEnv *env, const char *message,
+               std::string exname ="to/augmented/reality/android/em/recorder/NativeCVException")
+//--------------------------------------------------------------------------------------------
+{
+   jclass klass;
+   bool b = false;
+   klass = env->FindClass(exname.c_str());
+   if (klass != NULL)
+   {
+      b = env->ThrowNew(klass, message);
+      env->DeleteLocalRef(klass);
+   }
+   else
+#ifdef ANDROID_LOG
+      LOGE("Error finding Java exception '%s'", exname.c_str());
+#endif
+   return b;
+}
+
+
+double psnr(uchar *img1, uchar *img2, int width, int height)
+//----------------------------------------------------------
 {
    double ret = 0;
-//   jboolean is_copy;
-//   uchar* img1 = (uchar*) env->GetByteArrayElements(image1, &is_copy);
-//   #ifndef DESKTOP
-//   LOGI("Image1 copy %d", is_copy);
-//   #endif   
-//   uchar* img2 = (uchar*) env->GetByteArrayElements(image2, &is_copy);
-//   LOGI("Image2 copy %d", is_copy);
-//   jsize len1 = env->GetArrayLength(image1);
-//   jsize len2 = env->GetArrayLength(image2);
-
-   uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
-   uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
-//   jsize len1 = env->GetDirectBufferCapacity(image1);
-//   jsize len2 = env->GetDirectBufferCapacity(image2);
-
-   cv::Mat nv21(height+height/2, width, CV_8UC1, img1);
-   cv::Mat rgba1(height, width, CV_8UC4), rgba2(height, width, CV_8UC4);
-   cv::cvtColor(nv21, rgba1, CV_YUV2RGBA_NV21);
-   nv21 = cv::Mat(height+height/2, width, CV_8UC1, img2);
-   cv::cvtColor(nv21, rgba2, CV_YUV2RGBA_NV21);
-
+   cv::Mat rgba1(height, width, CV_8UC4, img1), rgba2(height, width, CV_8UC4, img2);
    cv::Mat diff;
    cv::absdiff(rgba1, rgba2, diff);
    diff.convertTo(diff, CV_32F);
@@ -66,35 +65,77 @@ JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR
       double mse  = sse / (double)(rgba1.channels() * rgba1.total());
       ret = 10.0 * log10((255 * 255) / mse);
    }
-//   env->ReleaseByteArrayElements(image1, (jbyte*) img1, JNI_ABORT);
-//   env->ReleaseByteArrayElements(image2, (jbyte*) img2, JNI_ABORT);
    return ret;
 }
 
-JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM
-      (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2)
-//-----------------------------------------------------------
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2)
+//------------------------------------------------------------------------------------------------
 {
-//   jboolean is_copy;
-//   uchar* img1 = (uchar*) env->GetByteArrayElements(image1, &is_copy);
-//   LOGI("Image1 copy %d", is_copy);
-//   uchar* img2 = (uchar*) env->GetByteArrayElements(image2, &is_copy);
-//   LOGI("Image2 copy %d", is_copy);
-//   jsize len1 = env->GetArrayLength(image1);
-//   jsize len2 = env->GetArrayLength(image2);
-
    uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
    uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
-//   jsize len1 = env->GetDirectBufferCapacity(image1);
-//   jsize len2 = env->GetDirectBufferCapacity(image2);
+   try
+   {
+     return psnr(img1, img2, width, height);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "PSNR OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "PSNR Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+}
 
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR__II_3B_3B
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image1, jbyteArray image2)
+//------------------------------------------------------------------------------------------
+{
+   uchar* img1 =  (uchar *) env->GetPrimitiveArrayCritical(image1, 0);
+   uchar* img2 =  (uchar *) env->GetPrimitiveArrayCritical(image2, 0);
+   double v = -1.0;
+   try
+   {
+      v = psnr(img1, img2, width, height);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "PSNR OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "PSNR Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+   env->ReleasePrimitiveArrayCritical(image2, img2, 0);
+   return v;
+}
+
+double mssim(uchar *img1, uchar *img2, int width, int height)
+//----------------------------------------------------------
+{
    const double C1 = 6.5025, C2 = 58.5225;
-   int d     = CV_32F;
-   cv::Mat nv21(height+height/2, width, CV_8UC1, img1);
-   cv::Mat rgba1(height, width, CV_8UC4), rgba2(height, width, CV_8UC4);
-   cv::cvtColor(nv21, rgba1, CV_YUV2RGBA_NV21);
-   nv21 = cv::Mat(height+height/2, width, CV_8UC1, img2);
-   cv::cvtColor(nv21, rgba2, CV_YUV2RGBA_NV21);
+   int d = CV_32F;
+   cv::Mat rgba1(height, width, CV_8UC4, img1), rgba2(height, width, CV_8UC4, img2);
 
    rgba1.convertTo(rgba1, d);           // cannot calculate on one byte large values
    rgba2.convertTo(rgba2, d);
@@ -144,79 +185,76 @@ JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM
    return (mssim.val[0] + mssim.val[1] + mssim.val[2]) / 3;
 }
 
-JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT
-  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2, jintArray result)
-//---------------------------------------------------------------------------------------------------------  
-{   
-   uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
-   uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
-//   jsize len1 = env->GetDirectBufferCapacity(image1);
-//   jsize len2 = env->GetDirectBufferCapacity(image2);
-   jint* result_arr = env->GetIntArrayElements(result, NULL);
-   try
-   {   
-      cv::Mat nv21(height+height/2, width, CV_8UC1, img1);
-      cv::Mat grey1(height, width, CV_8UC1), grey2(height, width, CV_8UC1);
-      cv::cvtColor(nv21, grey1, cv::COLOR_YUV2GRAY_420);
-      nv21 = cv::Mat(height+height/2, width, CV_8UC1, img2);
-      cv::cvtColor(nv21, grey2, cv::COLOR_YUV2GRAY_420);
-      
-      int dftwidth = cv::getOptimalDFTSize(std::max(grey1.cols, grey2.cols));
-      int dftheight = cv::getOptimalDFTSize(std::max(grey1.rows, grey2.rows));
-      cv::Mat fft1(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
-      cv::Mat fft2(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
-   
-      grey1.convertTo(fft1, CV_32F);
-   //   for(int j=0; j<grey1.rows; j++)
-   //      for(int i=0; i<grey1.cols; i++)
-   //         fft1.at<float>(j,i) = grey1.at<unsigned char>(j,i);
-
-      grey2.convertTo(fft2, CV_32F);
-   //   for(int j=0; j<grey2.rows; j++)
-   //      for(int i=0; i<grey2.cols; i++)
-   //         fft2.at<float>(j,i) = grey2.at<unsigned char>(j,i);
-      
-      cv::dft(fft1,fft1, 0, grey1.rows);
-      cv::dft(fft2,fft2, 0, grey2.rows);
-      cv::mulSpectrums(fft1, fft2, fft1, 0, true);
-      cv::idft(fft1, fft1);
-      double maxVal;
-      cv::Point maxLoc;
-      cv::minMaxLoc(fft1, NULL, &maxVal, NULL, &maxLoc);
-      result_arr[0] = (maxLoc.x < dftwidth/2) ? (maxLoc.x) : (maxLoc.x - dftwidth);
-      result_arr[1] = (maxLoc.y < dftheight/2) ? (maxLoc.y) : (maxLoc.y - dftheight);
-   }
-   catch (std::exception &e)
-   {
-      std::cerr << e.what() << std::endl;
-      result_arr[0] = result_arr[1] = std::numeric_limits<int>::min(); 
-   }
-   
-   env->ReleaseIntArrayElements(result, result_arr, 0);
-}
-
-/*
-JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT
-  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2, jintArray result)
-//---------------------------------------------------------------------------------------------------------  
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2)
+//-----------------------------------------------------------
 {
    uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
    uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
-//   jsize len1 = env->GetDirectBufferCapacity(image1);
-//   jsize len2 = env->GetDirectBufferCapacity(image2);
-   jint* result_arr = env->GetIntArrayElements(result, NULL);
-   
-   cv::Mat nv21(height+height/2, width, CV_8UC1, img1);
-   cv::UMat grey1(height, width, CV_8UC1), grey2(height, width, CV_8UC1);
-   cv::cvtColor(nv21, grey1, cv::COLOR_YUV2GRAY_420);
-   nv21 = cv::Mat(height+height/2, width, CV_8UC1, img2);
-   cv::cvtColor(nv21, grey2, cv::COLOR_YUV2GRAY_420);
-   
+   try
+   {
+      return mssim(img1, img2, width, height);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "PSNR OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "PSNR Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+}
+
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM__II_3B_3B
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image1, jbyteArray image2)
+//-----------------------------------------------------------------------------------------
+{
+   uchar* img1 =  (uchar *) env->GetPrimitiveArrayCritical(image1, 0);
+   uchar* img2 =  (uchar *) env->GetPrimitiveArrayCritical(image2, 0);
+   double v = -1;
+   try
+   {
+      v = mssim(img1, img2, width, height);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "PSNR OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "PSNR Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+   env->ReleasePrimitiveArrayCritical(image2, img2, 0);
+   return v;
+}
+
+void shift(cv::Mat &grey1, cv::Mat &grey2, jint width, jint height, jint* result_arr)
+//-----------------------------------------------------------------------------------
+{
    int dftwidth = cv::getOptimalDFTSize(std::max(grey1.cols, grey2.cols));
    int dftheight = cv::getOptimalDFTSize(std::max(grey1.rows, grey2.rows));
-   cv::UMat fft1(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
-   cv::UMat fft2(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
-  
+   cv::Mat fft1(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
+   cv::Mat fft2(cv::Size(dftwidth, dftheight), CV_32F, cv::Scalar(0));
+
    grey1.convertTo(fft1, CV_32F);
 //   for(int j=0; j<grey1.rows; j++)
 //      for(int i=0; i<grey1.cols; i++)
@@ -226,7 +264,7 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT
 //   for(int j=0; j<grey2.rows; j++)
 //      for(int i=0; i<grey2.cols; i++)
 //         fft2.at<float>(j,i) = grey2.at<unsigned char>(j,i);
-   
+
    cv::dft(fft1,fft1, 0, grey1.rows);
    cv::dft(fft2,fft2, 0, grey2.rows);
    cv::mulSpectrums(fft1, fft2, fft1, 0, true);
@@ -236,12 +274,186 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT
    cv::minMaxLoc(fft1, NULL, &maxVal, NULL, &maxLoc);
    result_arr[0] = (maxLoc.x < dftwidth/2) ? (maxLoc.x) : (maxLoc.x - dftwidth);
    result_arr[1] = (maxLoc.y < dftheight/2) ? (maxLoc.y) : (maxLoc.y - dftheight);
-   
-   env->ReleaseIntArrayElements(result, result_arr, 0);
 }
-*/
 
-JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2_3I
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2, jintArray result)
+//---------------------------------------------------------------------------------------------------------
+{
+   try
+   {
+      uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
+      uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
+      jint* result_arr = env->GetIntArrayElements(result, 0);
+      cv::Mat grey1(height, width, CV_8UC1, img1), grey2(height, width, CV_8UC1, img2);
+      shift(grey1, grey2, width, height, result_arr);
+      env->ReleaseIntArrayElements(result, result_arr, 0);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "SHIFT OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "SHIFT Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+}
+
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1SHIFT__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2_3I
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject image1, jobject image2, jintArray result)
+//--------------------------------------------------------------------------------------------------------------------------------------
+{
+   try
+   {
+      uchar* img1 = (uchar*) env->GetDirectBufferAddress(image1);
+      uchar* img2 = (uchar*) env->GetDirectBufferAddress(image2);
+      jint* result_arr = env->GetIntArrayElements(result, 0);
+      cv::Mat rgba(height, width, CV_8UC4, img1);
+      cv::Mat grey1(height, width, CV_8UC1), grey2(height, width, CV_8UC1);
+      cv::cvtColor(rgba, grey1, cv::COLOR_RGBA2GRAY);
+      rgba = cv::Mat(height, width, CV_8UC4, img2);
+      cv::cvtColor(rgba, grey2, cv::COLOR_RGBA2GRAY);
+      shift(grey1, grey2, width, height, result_arr);
+      env->ReleaseIntArrayElements(result, result_arr, 0);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "SHIFT OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "SHIFT Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+}
+
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT__II_3B_3B_3I
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image1, jbyteArray image2, jintArray result)
+//-------------------------------------------------------------------------------------------------------------
+{
+   uchar *img1 = nullptr, *img2 = nullptr;
+   jint *result_arr = nullptr;
+   try
+   {
+      img1 =  (uchar *) env->GetPrimitiveArrayCritical(image1, 0);
+      cv::Mat grey1(height, width, CV_8UC1, img1);
+      env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+      img1 = nullptr;
+
+      img2 =  (uchar *) env->GetPrimitiveArrayCritical(image2, 0);
+      cv::Mat grey2(height, width, CV_8UC1, img2);
+      env->ReleasePrimitiveArrayCritical(image2, img2, 0);
+      img2 = nullptr;
+
+      result_arr = env->GetIntArrayElements(result, NULL);
+      shift(grey1, grey2, width, height, result_arr);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "SHIFT OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "SHIFT Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   if (img1 != nullptr)
+      env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+   if (img2 != nullptr)
+      env->ReleasePrimitiveArrayCritical(image1, img2, 0);
+   if (result_arr != nullptr)
+      env->ReleaseIntArrayElements(result, result_arr, 0);
+}
+
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1SHIFT__II_3B_3B_3I
+(JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image1, jbyteArray image2, jintArray result)
+//-------------------------------------------------------------------------------------------------------------
+{
+   uchar *img1 = nullptr, *img2 = nullptr;
+   jint *result_arr = nullptr;
+   cv::Mat grey1(height, width, CV_8UC1), grey2(height, width, CV_8UC1);
+   try
+   {
+      img1 =  (uchar *) env->GetPrimitiveArrayCritical(image1, 0);
+      cv::Mat rgba(height, width, CV_8UC4, img1);
+      env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+      img1 = nullptr;
+      cv::cvtColor(rgba, grey1, cv::COLOR_RGBA2GRAY);
+
+      img2 =  (uchar *) env->GetPrimitiveArrayCritical(image2, 0);
+      rgba = cv::Mat(height, width, CV_8UC4, img2);
+      env->ReleasePrimitiveArrayCritical(image2, img2, 0);
+      img2 = nullptr;
+      cv::cvtColor(rgba, grey2, cv::COLOR_RGBA2GRAY);
+
+      result_arr = env->GetIntArrayElements(result, 0);
+      shift(grey1, grey2, width, height, result_arr);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "SHIFT OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "SHIFT Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   if (img1 != nullptr)
+      env->ReleasePrimitiveArrayCritical(image1, img1, 0);
+   if (img2 != nullptr)
+      env->ReleasePrimitiveArrayCritical(image1, img2, 0);
+   if (result_arr != nullptr)
+      env->ReleaseIntArrayElements(result, result_arr, 0);
+}
+
+void kludge(int width, int height, cv::Mat &rgba, int shift, bool is_right,
+                cv::Mat &out)
+//-----------------------------------------------------------------------------
+{
+   rgba.copyTo(out);
+   //assert(out.isContinuous());
+   if (is_right)
+      rgba(cv::Rect(0, 0, rgba.cols-shift, rgba.rows)).copyTo(
+                           out(cv::Rect(shift, 0, rgba.cols-shift, rgba.rows)));
+   else
+      rgba(cv::Rect(shift, 0, rgba.cols-shift, rgba.rows)).copyTo(
+                           out(cv::Rect(0, 0, rgba.cols-shift, rgba.rows)));
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1NV21__IILjava_nio_ByteBuffer_2IZLjava_nio_ByteBuffer_2
   (JNIEnv *env, jclass klass, jint width, jint height, jobject image, jint shift, jboolean is_right, jobject image_out)
 //------------------------------------------------------------------------------------------------------------------
 {
@@ -251,33 +463,180 @@ JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUD
       cv::Mat nv21(height+height/2, width, CV_8UC1, img);
       cv::Mat rgba(height, width, CV_8UC4);
       cv::cvtColor(nv21, rgba, CV_YUV2RGBA_NV21);
-      
-      uchar* imgout = (uchar*) env->GetDirectBufferAddress(image_out);
+
       jsize outlen = env->GetDirectBufferCapacity(image_out);
-      int len = rgba.step * rgba.rows;   
-      //fprintf(stdout, "%d %d\n", outlen, len); fflush(stdout);
+      int len = rgba.step * rgba.rows;
       if (outlen < len)
+      {
+         LOGE("KLUDGE_NV21: Output length %d less than input length %d", outlen, len);
          return JNI_FALSE;
-      //cv::Mat out = cv::Mat::zeros(rgba.size(), rgba.type());
-      cv::Mat out = cv::Mat(height, width, CV_8UC4, (void *) imgout);
-      rgba.copyTo(out);
-      //assert(out.isContinuous());
-      if (is_right)
-         rgba(cv::Rect(0, 0, rgba.cols-shift, rgba.rows)).copyTo(out(cv::Rect(shift, 0, rgba.cols-shift, rgba.rows)));
-      else
-         rgba(cv::Rect(shift, 0, rgba.cols-shift, rgba.rows)).copyTo(out(cv::Rect(0, 0, rgba.cols-shift, rgba.rows)));
-   //   cv::imwrite("/tmp/rgba.png", rgba);
-   //   cv::imwrite("/tmp/out.png",  out);                  
-         
-   //   memcpy((void *) imgout, (void *) out.data, len);
-      return JNI_TRUE;
+      }
+
+      uchar* imgout = (uchar*) env->GetDirectBufferAddress(image_out);
+      cv::Mat out = cv::Mat(height, width, CV_8UC4, imgout);
+      kludge(width, height, rgba, shift, (is_right != JNI_FALSE), out);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
    }
    catch (std::exception &e)
    {
-      std::cerr << e.what() << std::endl;
-      return JNI_FALSE;
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
    }
-}   
+   return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1RGBA__IILjava_nio_ByteBuffer_2IZLjava_nio_ByteBuffer_2
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject image, jint shift,
+   jboolean is_right, jobject image_out)
+//-------------------------------------------------------------------------------------------
+{
+   try
+   {
+      uchar* img = (uchar*) env->GetDirectBufferAddress(image);
+      cv::Mat rgba(height, width, CV_8UC4, img);
+
+      jsize outlen = env->GetDirectBufferCapacity(image_out);
+      int len = rgba.step * rgba.rows;
+      if (outlen < len)
+      {
+         LOGE("KLUDGE_NV21: Output length %d less than input length %d", outlen, len);
+         return JNI_FALSE;
+      }
+
+      uchar* imgout = (uchar*) env->GetDirectBufferAddress(image_out);
+      cv::Mat out = cv::Mat(height, width, CV_8UC4, imgout);
+      kludge(width, height, rgba, shift, (is_right != JNI_FALSE), out);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_RGBA OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_RGBA Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1NV21__II_3BIZ_3B
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image,
+   jint shift, jboolean is_right, jbyteArray image_out)
+//---------------------------------------------------------------------------------------------------
+{
+   uchar *img = nullptr, *imgout = nullptr;
+   try
+   {
+      img =  (uchar *) env->GetPrimitiveArrayCritical(image, 0);
+      cv::Mat nv21(height+height/2, width, CV_8UC1, img);
+      env->ReleasePrimitiveArrayCritical(image, img, 0);
+      img = nullptr;
+      cv::Mat rgba(height, width, CV_8UC4);
+      cv::cvtColor(nv21, rgba, CV_YUV2RGBA_NV21);
+
+      jsize outlen = env->GetArrayLength(image_out);
+      int len = rgba.step * rgba.rows;
+      if (outlen < len)
+      {
+         LOGE("KLUDGE_NV21: Output length %d less than input length %d", outlen, len);
+         return JNI_FALSE;
+      }
+
+      imgout =  (uchar *) env->GetPrimitiveArrayCritical(image_out, 0);
+      cv::Mat out = cv::Mat(height, width, CV_8UC4, imgout);
+      kludge(width, height, rgba, shift, (is_right != JNI_FALSE), out);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   if (imgout != nullptr)
+      env->ReleasePrimitiveArrayCritical(image_out, imgout, 0);
+   if (img != nullptr)
+      env->ReleasePrimitiveArrayCritical(image, img, 0);
+   return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1RGBA__II_3BIZ_3B
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray image,
+   jint shift, jboolean is_right, jbyteArray image_out)
+//---------------------------------------------------------------------------------------------------
+{
+   uchar *img = nullptr, *imgout = nullptr;
+   try
+   {
+      img =  (uchar *) env->GetPrimitiveArrayCritical(image, 0);
+      cv::Mat rgba(height, width, CV_8UC4, img);
+      env->ReleasePrimitiveArrayCritical(image, img, 0);
+      img = nullptr;
+
+      jsize outlen = env->GetArrayLength(image_out);
+      int len = rgba.step * rgba.rows;
+      if (outlen < len)
+      {
+         LOGE("KLUDGE_NV21: Output length %d less than input length %d", outlen, len);
+         return JNI_FALSE;
+      }
+
+      imgout =  (uchar *) env->GetPrimitiveArrayCritical(image_out, 0);
+      cv::Mat out = cv::Mat(height, width, CV_8UC4, imgout);
+      kludge(width, height, rgba, shift, (is_right != JNI_FALSE), out);
+   }
+   catch( cv::Exception& e )
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 OpenCV Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      if (! throw_jni(env, errm))
+         throw_jni(env, errm, "java/lang/RuntimeException");
+   }
+   catch (std::exception &e)
+   {
+      std::stringstream ss;
+      ss << "KLUDGE_NV21 Fatal Exception: " << e.what();
+      const char *errm = ss.str().c_str();
+      LOGE("%s", errm);
+      throw_jni(env, errm,"java/lang/RuntimeException");
+   }
+   if (imgout != nullptr)
+      env->ReleasePrimitiveArrayCritical(image_out, imgout, 0);
+   if (img != nullptr)
+      env->ReleasePrimitiveArrayCritical(image, img, 0);
+   return JNI_TRUE;
+}
 
 JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_GPUSTATUS
   (JNIEnv *env, jclass klass, jobject status_buffer)
@@ -293,7 +652,7 @@ JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_GPUS
       ss << "GPU not found or not supported" << std::endl;
    else
    {
-      cv::ocl::setUseOpenCL(true);   
+      cv::ocl::setUseOpenCL(true);
       ss << "****** GPU Support *******" << std::endl;
       ss << "Name:              " << sdk.name() << std::endl;
       ss << "Vendor:            " << sdk.vendor() << std::endl;
@@ -328,33 +687,3 @@ JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_GPUS
    env->CallObjectMethod(status_buffer, mid, jstr);
    return ret;
 }
-
-/*
-void cvtRGBAtoNV21(int *rgba, int width, int height, uchar *yuv420sp)
-//---------------------------------------------------------------------
-{
-   const int frameSize = width * height;
-   int R, G, B, Y, U, V, index = 0, yIndex = 0, uvIndex = frameSize;
-   for (int j = 0; j < height; j++) 
-   {
-      for (int i = 0; i < width; i++) 
-      {
-         R = (rgba[index] & 0xff000000) >> 24;
-         G = (rgba[index] & 0xff0000) >> 16;
-         B = (rgba[index] & 0xff00) >> 8;
-
-         Y = ( (  66 * R + 129 * G +  25 * B + 128) >> 8) +  16;
-         U = ( ( -38 * R -  74 * G + 112 * B + 128) >> 8) + 128;
-         V = ( ( 112 * R -  94 * G -  18 * B + 128) >> 8) + 128;
-
-         yuv420sp[yIndex++] = (uchar) ((Y < 0) ? 0 : ((Y > 255) ? 255 : Y));
-         if ( ((j % 2) == 0) && ((index % 2) == 0) )
-         { 
-            yuv420sp[uvIndex++] = (uchar)((V<0) ? 0 : ((V > 255) ? 255 : V));
-            yuv420sp[uvIndex++] = (uchar)((U<0) ? 0 : ((U > 255) ? 255 : U));
-         }
-         index++;
-      }
-   }
-}
-*/

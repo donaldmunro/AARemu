@@ -12,9 +12,9 @@ public interface OrientationListenable
 {
    /**
     * See OrientationProvider.setOrientationListener
-    * @param M Rotation matrix
+    * @param R Rotation matrix
     * @param Q Rotation quaternion
     * @param timestamp time stamp
     */
-   public void onOrientationListenerUpdate(float[] M, Quaternion Q, long timestamp);
+   public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp);
 }

@@ -9,6 +9,7 @@ package to.augmented.reality.android.common.sensor.orientation;
 import android.app.Activity;
 import android.content.Context;
 import android.hardware.Sensor;
+import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.*;
@@ -69,7 +70,14 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
    /**
     * The list of sensors used by this provider
     */
-   protected List<Sensor> sensorList = new ArrayList<Sensor>();
+   final protected List<Sensor> sensorList = new ArrayList<Sensor>();
+
+   /**
+    * Extra sensors providing raw event callbacks. The 2nd element of the Pair is the sensor update
+    * speed which can be SensorManager.SENSOR_DELAY_FASTEST, SENSOR_DELAY_GAME, SENSOR_DELAY_NORMAL
+    * or SENSOR_DELAY_UI
+    */
+   final protected List<Pair<Integer, Integer>> extraSensorList = new ArrayList<Pair<Integer, Integer>>();
 
    /**
     * The matrix that holds the current rotation
@@ -91,25 +99,25 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
     */
    protected SensorManager sensorManager;
 
-   // Added Donald Munro
-   final static protected int ACCEL_VEC_SIZE = 3, GRAVITY_VEC_SIZE = 3, GYRO_VEC_SIZE = 3, MAG_VEC_SIZE = 3,
-                              ROTATION_VEC_SIZE;
+   final static public int ACCEL_VEC_SIZE = 3, LINACCEL_VEC_SIZE = 3, GRAVITY_VEC_SIZE = 3, GYRO_VEC_SIZE = 3,
+                           MAG_VEC_SIZE = 3, ROTATION_VEC_SIZE, MAX_EVENT_SIZE;
    static
    {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2)
-         ROTATION_VEC_SIZE = 5;
+         MAX_EVENT_SIZE = ROTATION_VEC_SIZE = 5;
       else
-         ROTATION_VEC_SIZE = 4;
+         MAX_EVENT_SIZE = ROTATION_VEC_SIZE = 4;
    }
 
    protected float[] lastAccelVec = new float[ACCEL_VEC_SIZE], lastGravityVec = new float[GRAVITY_VEC_SIZE],
                      lastGyroVec = new float[GYRO_VEC_SIZE], lastMagVec = new float[MAG_VEC_SIZE],
-                     lastRotationVec = new float[ROTATION_VEC_SIZE];
+                     lastRotationVec = new float[ROTATION_VEC_SIZE], lastLinearAccelVec = new float[LINACCEL_VEC_SIZE];
    public float[] getLastAccelVec() { return lastAccelVec; }
    public float[] getLastMagVec() { return lastMagVec; }
    public float[] getLastGyroVec() { return lastGyroVec; }
    public float[] getLastGravityVec() { return lastGravityVec; }
    public float[] getLastRotationVec() { return lastRotationVec; }
+   public float[] getLastLinearAccelVec() { return lastLinearAccelVec; }
 
    /**
     * Initialises a new OrientationProvider
@@ -129,6 +137,8 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
       // Initialise with identity
       currentOrientationQuaternion = new Quaternion();
    }
+
+   abstract protected int[] fusedSensors();
 
    @Override
    protected void onLooperPrepared()
@@ -198,6 +208,33 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
       isStarting = false;
    }
 
+   public void rawSensors(int[] extraSensors) { rawSensors(extraSensors, null); }
+
+   /**
+    * Define extra sensors in addition to the ones used in sensor fusion to report events for.
+    * @param extraSensors The sensor types eg
+    * @param sensorSpeeds the corresponding sensor update speeds which can be SensorManager.SENSOR_DELAY_FASTEST,
+    *                     SENSOR_DELAY_GAME, SENSOR_DELAY_NORMAL or SENSOR_DELAY_UI. If null or empty then
+    *                     SENSOR_DELAY_FASTEST is assumed.
+    */
+   public void rawSensors(int[] extraSensors, int[] sensorSpeeds)
+   //-------------------------------------------------------------
+   {
+      for (int i=0; i<extraSensors.length; i++)
+      {
+         int sensorType = extraSensors[i];
+         if (sensorType >= 0)
+         {
+            final int speed;
+            if ( (sensorSpeeds == null) || (sensorSpeeds.length <= i) )
+               speed = SensorManager.SENSOR_DELAY_FASTEST;
+            else
+               speed = sensorSpeeds[i];
+            extraSensorList.add(new Pair<Integer, Integer>(sensorType, speed));
+         }
+      }
+   }
+
    protected void startOrientating()
    //-------------------------------
    {
@@ -214,19 +251,81 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
             Log.e(TAG, "A sensor in sensorList was null (Sensor not supported on device ?)");
             break;
          }
-         if (! sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME, handler))
+         if (! sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_FASTEST, handler))
          {
             isOK = false;
             Log.e(TAG, sensor + " in sensorList failed to register listener");
             break;
          }
       }
+
+      activateRawSensors(false);
+
       isStarted = isOK;
       if (! isStarted)
       {
          for (Sensor sensor : sensorList)
             if (sensor != null)
                sensorManager.unregisterListener(this, sensor);
+         deactivateRawSensors();
+      }
+   }
+
+   public boolean activateRawSensors(boolean isFailOnError)
+   //------------------------------------------------------
+   {
+      if ( (extraSensorList == null) || (extraSensorList.isEmpty()) )
+         return true;
+      boolean isOK = true;
+      for (Pair<Integer, Integer> pp : extraSensorList)
+      {
+         int sensorType = pp.first;
+         Sensor sensor = sensorManager.getDefaultSensor(sensorType);
+         if (sensor == null)
+         {
+            Log.w(TAG, "Sensor Type " + sensorType + " not supported (getDefaultSensor returned null).");
+            if (isFailOnError)
+            {
+               isOK = false;
+               break;
+            }
+            else
+               continue;
+         }
+         for (int excludeSensorType : fusedSensors())
+         {  //Don't re-register
+            if (excludeSensorType == sensorType)
+            {
+               sensor = null;
+               break;
+            }
+         }
+         if (sensor != null)
+         {
+            int speed = pp.second;
+            if (! sensorManager.registerListener(this, sensor, speed, handler))
+            {
+               Log.e(TAG, sensor + " in sensorList failed to register listener");
+               if (isFailOnError)
+               {
+                  isOK = false;
+                  break;
+               }
+            }
+         }
+      }
+      return isOK;
+   }
+
+   public void deactivateRawSensors()
+   //---------------------------------
+   {
+      for (Pair<Integer, Integer> pp : extraSensorList)
+      {
+         int sensorType = pp.first;
+         Sensor sensor = sensorManager.getDefaultSensor(sensorType);
+         if (sensor != null)
+            sensorManager.unregisterListener(this, sensor);
       }
    }
 
@@ -327,7 +426,13 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
          observers = null;
    }
 
-   public void clearOrientationObservers() { observers.clear(); observers = null; }
+   public void clearOrientationObservers()
+   //--------------------------------------
+   {
+      if (observers != null)
+         observers.clear();
+      observers = null;
+   }
 
    private List<WeakReference<OrientationObservable>> toDelete = new ArrayList<WeakReference<OrientationObservable>>();
 
@@ -348,6 +453,10 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
    protected OrientationListenable orientationListener = null;
 
    public void setOrientationListener(OrientationListenable listener) { this.orientationListener = listener; }
+
+   protected RawSensorListenable eventListener = null;
+
+   public void setRawSensorListener(RawSensorListenable listener) { this.eventListener = listener; }
 
    /**
     * @param context A Context derived class eg Activity
@@ -370,6 +479,54 @@ public abstract class OrientationProvider extends HandlerThread implements Senso
             return ( (hasGyroscope(context)) && (hasAccelerometer(context)) && (hasCompass(context)) );
       }
       return false;
+   }
+
+   protected void onHandleEvent(final int eventType, final SensorEvent event)
+   //-----------------------------------------------------------------------------
+   {
+      boolean isDispatch = false;
+      for (Pair<Integer, Integer> pp : extraSensorList)
+      {
+         if (pp.first == eventType)
+         {
+            isDispatch = true;
+            break;
+         }
+      }
+      isDispatch = ( (isDispatch) && (eventListener != null) );
+      switch (eventType)
+      {
+         case Sensor.TYPE_ROTATION_VECTOR:
+            System.arraycopy(event.values, 0, lastRotationVec, 0, ROTATION_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onRotationVecSensorUpdate(lastRotationVec, timestampNS);
+            break;
+         case Sensor.TYPE_GYROSCOPE:
+            System.arraycopy(event.values, 0, lastGyroVec, 0, GYRO_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onGyroSensorUpdate(lastGyroVec, timestampNS);
+            break;
+         case Sensor.TYPE_GRAVITY:
+            System.arraycopy(event.values, 0, lastGravityVec, 0, GRAVITY_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onGravitySensorUpdate(lastGravityVec, timestampNS);
+            break;
+         case Sensor.TYPE_MAGNETIC_FIELD:
+            System.arraycopy(event.values, 0, lastMagVec, 0, MAG_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onMagneticSensorUpdate(lastMagVec, timestampNS);
+            break;
+         case Sensor.TYPE_ACCELEROMETER:
+            System.arraycopy(event.values, 0, lastAccelVec, 0, ACCEL_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onAccelSensorUpdate(lastAccelVec, timestampNS);
+            break;
+         case Sensor.TYPE_LINEAR_ACCELERATION:
+            System.arraycopy(event.values, 0, lastLinearAccelVec, 0, LINACCEL_VEC_SIZE);
+            if (isDispatch)
+               eventListener.onLinearAccelSensorUpdate(lastLinearAccelVec, timestampNS);
+            break;
+      }
    }
 
    /**

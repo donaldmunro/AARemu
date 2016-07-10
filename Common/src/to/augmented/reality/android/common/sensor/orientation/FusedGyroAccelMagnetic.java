@@ -94,6 +94,9 @@ import java.util.*;
 public class FusedGyroAccelMagnetic extends OrientationProvider
 //===========================================================
 {
+   static final protected int[] SENSORS = { Sensor.TYPE_GYROSCOPE, Sensor.TYPE_GRAVITY, Sensor.TYPE_MAGNETIC_FIELD };
+   @Override protected int[] fusedSensors() { return SENSORS; }
+
    public static final float FILTER_COEFFICIENT = 0.5f;
    public static final float EPSILON = 0.000000001f;
    private static final String tag = FusedGyroAccelMagnetic.class.getSimpleName();
@@ -151,8 +154,10 @@ public class FusedGyroAccelMagnetic extends OrientationProvider
    private MeanFilter meanFilterAcceleration;
    private MeanFilter meanFilterMagnetic;
 
-   public FusedGyroAccelMagnetic(SensorManager sensorManager)
-   //--------------------------------------------------------
+   public FusedGyroAccelMagnetic(SensorManager sensorManager) { this(sensorManager, null, null); }
+
+   public FusedGyroAccelMagnetic(SensorManager sensorManager, int[] extraSensors, int[] extraSensorSpeeds)
+   //-----------------------------------------------------------------------------------------------------
    {
       super(sensorManager);
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE));
@@ -179,6 +184,9 @@ public class FusedGyroAccelMagnetic extends OrientationProvider
       gyroMatrix[6] = 0.0f;
       gyroMatrix[7] = 0.0f;
       gyroMatrix[8] = 1.0f;
+
+      if ( (extraSensors != null) && (extraSensors.length > 0) )
+         super.rawSensors(extraSensors, extraSensorSpeeds);
    }
 
    @Override
@@ -186,25 +194,28 @@ public class FusedGyroAccelMagnetic extends OrientationProvider
    //--------------------------------------------
    {
       if (isSuspended) return;
-      switch (event.sensor.getType())
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
+      else
+         super.timestampNS = System.nanoTime();
+      final int eventType = event.sensor.getType();
+      switch (eventType)
       {
          case Sensor.TYPE_MAGNETIC_FIELD:
             System.arraycopy(event.values, 0, magnetic, 0, event.values.length);
-            System.arraycopy(event.values, 0, lastMagVec, 0, MAG_VEC_SIZE);
             magnetic = meanFilterMagnetic.filterFloat(magnetic);
             break;
          case Sensor.TYPE_GRAVITY:
             System.arraycopy(event.values, 0, gravity, 0, event.values.length);
-            System.arraycopy(event.values, 0, lastGravityVec, 0, GRAVITY_VEC_SIZE);
             gravity = meanFilterAcceleration.filterFloat(gravity);
             calculateOrientation();
             break;
          case Sensor.TYPE_GYROSCOPE:
             System.arraycopy(event.values, 0, gyroscope, 0, event.values.length);
-            System.arraycopy(event.values, 0, lastGyroVec, 0, GYRO_VEC_SIZE);
             onGyroscopeSensorChanged(event.timestamp);
             break;
       }
+      onHandleEvent(eventType, event);
    }
 
    public void onGyroscopeSensorChanged(long timeStamp)
@@ -372,10 +383,7 @@ public class FusedGyroAccelMagnetic extends OrientationProvider
          currentOrientationRotationMatrix[10] = gyroMatrix[8];
          currentOrientationQuaternion.setFromMatrix(gyroMatrix);
       }
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
-      else
-         super.timestampNS = System.nanoTime();
+
       if (orientationListener != null)
          orientationListener.onOrientationListenerUpdate(currentOrientationRotationMatrix, currentOrientationQuaternion,
                                                          super.timestampNS);

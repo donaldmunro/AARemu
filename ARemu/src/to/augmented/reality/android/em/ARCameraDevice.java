@@ -1,3 +1,19 @@
+/*
+* Copyright (C) 2014 Donald Munro.
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*/
+
 package to.augmented.reality.android.em;
 
 import android.annotation.TargetApi;
@@ -7,42 +23,126 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
-import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Process;
+import android.util.Log;
 import android.view.Surface;
+import to.augmented.reality.android.em.free.PlaybackThreadFree;
+import to.augmented.reality.android.em.three60.PlaybackThread360;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-public class ARCameraDevice extends ARCameraCommon implements AutoCloseable
-//==========================================================================
+public class ARCameraDevice extends AbstractARCamera implements AutoCloseable, ARCameraInterface
+//============================================================================================
 {
+   final static private String TAG = ARCameraDevice.class.getSimpleName();
+
+   public interface ARCaptureCallback { void onPreviewFrame(byte[] data); }
 
    private CameraDevice delegateCamera = null;
-   private final ARCaptureCallback callback;
 
-   public ARCameraDevice(Context context, int cameraId, ARCaptureCallback callback, File headerFile, File framesFile)
-          throws IOException
+   private ARCameraDevice.ARCaptureCallback cameraCallback;
+
+   public void setPreviewCallback(Object callback) { this.cameraCallback = (ARCaptureCallback) callback; }
+
+   public void setPreviewCallbackWithBuffer(Object callback) { this.cameraCallback = (ARCaptureCallback) callback; isUseBuffer = true; }
+
+   /**
+    * Creates an ARCameraDevice instance.
+    * @param context A Context instance. Can be null for RecordingType.FREE recordings if setDelegateCamera is not used.
+    * @param cameraId The camera id to use.
+    * @param headerFile The header file of the recording.
+    * @throws IOException
+    */
+   public ARCameraDevice(Context context, String cameraId, File headerFile) throws IOException
+   //----------------------------------------------------------------------------------------------------------
+   {
+      this(context, cameraId, headerFile, null, null, null, null, false);
+   }
+
+   /**
+    * Creates an ARCameraDevice instance.
+    * @param context A Context instance. Can be null for RecordingType.FREE recordings if setDelegateCamera is not used.
+    * @param cameraId The camera id to use.
+    * @param headerFile The header file of the recording.
+    * @param framesFile The frames file or null if the frames file is to be inferred from the header.
+    * @param orientationFile A file containing orientation data or null for no orientation data or if inferred from
+    *                        the header file (Applies only to RecordingType.FREE recordings).
+    * @param locationFile A file containing location data or null for no location data  or if inferred from
+    *                        the header file (Applies only to RecordingType.FREE recordings).
+    * @param  type The Recording type or null if it is to be determined from the header file
+    * @param isRepeat Continue cycling the recording until cancelled
+    * @throws IOException
+    */
+   public ARCameraDevice(Context context, String cameraId, File headerFile, File framesFile, File orientationFile,
+                         File locationFile, RecordingType type, boolean isRepeat) throws IOException
    //--------------------------------------------------------------------------------------------------
    {
       super(context);
       this.id = cameraId;
-      this.callback = callback;
-      setFiles(headerFile, framesFile);
+      recordingType = null;
+      setFiles(headerFile, framesFile, orientationFile, locationFile);
+      if (recordingType == null)
+         recordingType  = type;
+      this.isRepeat = isRepeat;
+      ARCameraManager manager = ARCameraManager.get(context, headerFile, false);
+      if (manager != null)
+      {
+         ARCameraDevice existingCamera = manager.getCamera(cameraId);
+         if (existingCamera != null)
+         {
+            Log.w(TAG, "ARCameraDevice constructor: Camera Id" + cameraId +
+                  " has already been added to ARCameraManager. Closing and recreating.");
+            try { existingCamera.close(); } catch (Exception e) { Log.e(TAG, "", e); }
+         }
+      }
    }
 
-   void setDelegateCamera(String cameraId, CameraDevice camera)
-   //----------------------------------------------------------
+   static public ARCameraDevice create(Context context, String cameraId, File headerFile, File framesFile,
+                                       File orientationFile, File locationFile, RecordingType type, boolean isRepeat)
+         throws IOException
+   //------------------------------------------------------------------------------------------------------------------
    {
+      ARCameraDevice camera = new ARCameraDevice(context, cameraId, headerFile, framesFile, orientationFile,
+                                                 locationFile, type, isRepeat);
+      ARCameraManager manager = ARCameraManager.get(context, headerFile, false);
+      if (manager != null)
+      {
+         ARCameraDevice existingCamera = manager.getCamera(cameraId);
+         if (existingCamera != null)
+         {
+            Log.w(TAG, "ARCameraDevice constructor: Camera Id" + cameraId +
+                  " has already been added to ARCameraManager. Closing and recreating.");
+            try { existingCamera.close(); } catch (Exception e) { Log.e(TAG, "", e); }
+         }
+         manager.addCamera(cameraId, camera);
+      }
+      camera.isOpen = true;
+      return camera;
+   }
+
+   public CameraDevice getDelegateCamera() { return delegateCamera; }
+
+   /**
+    * Sets the delegate camera.
+    * @param cameraId The id of the 'real' camera or null if the camera parameter is not null)
+    * @param camera The 'real' camera to use as the delegate camera or null to open the camera using the cameraId
+    *               parameter.
+   */
+   public void setDelegateCamera(String cameraId, CameraDevice camera)
+   //------------------------------------------------------------------
+   {
+      if (context == null)
+         throw new RuntimeException("Requires a non-null context in ARCameraDevice");
       if (camera == null)
       {
+         if (cameraId == null)
+            throw new RuntimeException("One or both of cameraId or camera must be non-null");
          CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
          String[] cameras;
          try { cameras = manager.getCameraIdList(); } catch (Exception e) { cameras = null; }
@@ -110,6 +210,23 @@ public class ARCameraDevice extends ARCameraCommon implements AutoCloseable
       delegateCamera = null;
    }
 
+   @Override protected void onSetCallbackFree(PlaybackThreadFree playbackThread)
+   //---------------------------------------------------------------------------
+   {
+      playbackThread.setCameraListener(cameraCallback);
+      playbackThread.setOrientationListener(orientationCallback);
+      playbackThread.setLocationListener(locationListener);
+   }
+
+   @Override
+   protected void onSetCallback360(PlaybackThread360 playbackThread)
+   //---------------------------------------------------------------
+   {
+      playbackThread.setCameraListener(cameraCallback);
+      if (bearingListener != null)
+         playbackThread.setBearingListener(bearingListener);
+   }
+
    public CaptureRequest.Builder createCaptureRequest(int templatePreview)
    //--------------------------------------------------------------------
    {
@@ -124,13 +241,26 @@ public class ARCameraDevice extends ARCameraCommon implements AutoCloseable
    //---------------------------------------------------------------------------------------------------------------
    {
       ARCameraCaptureSession captureSession = new ARCameraCaptureSession();
-      cameraStatusCallback.onConfigured(captureSession);
+      if (cameraStatusCallback != null)
+         cameraStatusCallback.onConfigured(captureSession);
+   }
+
+   public ARCameraCaptureSession createCaptureSessionDirect() { return new ARCameraCaptureSession(); }
+
+   @Override
+   public void startPreview()
+   //-----------------------
+   {
+      if (cameraCallback == null)
+         Log.e(TAG, "ERROR: Camera frame callback is null for ARCameraDevice");
+      if ( (orientationCallback == null) && (recordingType == RecordingType.FREE) )
+         Log.w(TAG, "WARNING: Orientation callback is null for ARCameraDevice");
+      super.startPreview();
    }
 
    public class ARCameraCaptureSession extends CameraCaptureSession
-   //=======================================================
+   //==============================================================
    {
-
       @Override public CameraDevice getDevice() { return delegateCamera; }
 
       @Override
@@ -147,59 +277,21 @@ public class ARCameraDevice extends ARCameraCommon implements AutoCloseable
 
       @Override
       public int setRepeatingRequest(CaptureRequest request, CaptureCallback listener, Handler handler) throws CameraAccessException
+      //-----------------------------------------------------------------------------------------------------------------------------
       {
+         if (cameraCallback == null)
+            throw new RuntimeException("ARCameraDevice.ARCaptureCallback not set in ARCameraDevice");
+         startPreview();
          return 0;
       }
 
-      public int setRepeatingRequestAR(CaptureRequest request, CaptureCallback listener, Handler handler) throws CameraAccessException
+      public int setRepeatingRequestAR(CaptureRequest request, ARCameraDevice.ARCaptureCallback callback, Handler handler)
+            throws CameraAccessException
       //------------------------------------------------------------------------------------------------------------------------------
       {
-         float increment = getMapFloat(headers, "Increment", -1);
-         if (increment <= 0)
-            throw new RuntimeException("ERROR: Recording increment not found in header file");
-         try
-         {
-            switch (renderMode)
-            {
-               case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
-                  playbackThread = new DirtyPlaybackThread(context, ARCameraDevice.this, framesFile, bufferSize,
-                                                           increment, callback, isOneShot, bearingListener, bufferQueue,
-                                                           orientationProviderType, fileFormat);
-                  break;
-               case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
-                  playbackThread = new ContinuousPlaybackThread(context, ARCameraDevice.this, framesFile, bufferSize,
-                                                                increment, callback, isOneShot, bearingListener, bufferQueue,
-                                                                orientationProviderType, fileFormat);
-                  break;
-            }
-
-            playbackFuture = playbackExecutor.submit(playbackThread);
-            if (locationListener != null)
-            {
-               locationHandlerThread = new LocationThread(Process.THREAD_PRIORITY_LESS_FAVORABLE, ARCameraDevice.this,
-                                                          context, locationListener);
-               locationHandlerThread.start();
-            }
-         }
-         catch (Exception e)
-         {
-            if (playbackThread != null)
-            {
-               playbackThread.mustStop = true;
-               if (playbackThread.isStarted())
-               {
-                  if (playbackFuture != null)
-                  {
-                     try { playbackFuture.get(300, TimeUnit.MILLISECONDS); } catch (Exception _e) { }
-                     if (!playbackFuture.isDone())
-                        playbackFuture.cancel(true);
-                  }
-               }
-            }
-            if (locationHandlerThread != null)
-               locationHandlerThread.quit();
-            locationHandlerThread = null;
-         }
+         if (callback != null)
+            cameraCallback = callback;
+         startPreview();
          return 0;
       }
 
@@ -209,26 +301,14 @@ public class ARCameraDevice extends ARCameraCommon implements AutoCloseable
          return 0;
       }
 
-      @Override
-      public void stopRepeating() throws CameraAccessException
-      {
-
-      }
+      @Override public void stopRepeating() throws CameraAccessException { stopPreview(); }
 
       @Override
-      public void abortCaptures() throws CameraAccessException
-      {
-
-      }
+      public void abortCaptures() throws CameraAccessException { stopRepeating(); }
 
       @Override
-      public void close()
-      {
-
-      }
+      public void close() { try { stopRepeating(); } catch (Exception _e) {} }
    }
-
-   public interface ARCaptureCallback { void onPreviewFrame(byte[] data); }
 
    static public abstract class StateCallback extends CameraDevice.StateCallback
    //===========================================================================

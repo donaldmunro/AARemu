@@ -32,7 +32,7 @@
             android:layout_alignParentTop="true"
             android:text="@string/open"
             android:onClick="onOpen"
-            android:layout_marginTop="15dp"
+            android:layout_marginTop="50dp"
             android:focusable="true"
       />
 
@@ -126,6 +126,16 @@
             android:layout_gravity="center"
             android:text="@string/review"
             android:onClick="onReview"
+            />
+
+      <ImageButton
+            android:id="@+id/button_exit"
+            android:layout_height="50dip"
+            android:layout_width="match_parent"
+            android:layout_below="@id/button_review"
+            android:layout_gravity="center"
+            android:src="@drawable/exit"
+            android:layout_marginBottom="5dp"
             />
 
    </RelativeLayout>

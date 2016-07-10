@@ -53,12 +53,15 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
    private static final int MAGIC_TEXTURE_ID = 10;
 
    protected ARCamera camera;
+
    public ARCamera getArEmCamera() { return camera; }
    final protected Context context;
    private SurfaceTexture surfaceTexture = null;
-   private File headerFile = null, framesFile = null;
+   private File headerFile = null, framesFile = null, orientationFile = null, locationFile = null;
    public File getHeaderFile() { return headerFile; }
    public File getFramesFile() { return framesFile; }
+   public File getOrientationFile() { return orientationFile; }
+   public File getLocationFile() { return locationFile; }
 
    private byte[] buffer = null;
    private Bitmap cacheBitmap;
@@ -83,7 +86,22 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
    final public boolean setRecordingFiles(File headerFile, File framesFile)
    //----------------------------------------------------------------------
    {
-      if ( (headerFile == null) || (framesFile == null) )
+      return setRecordingFiles(headerFile, framesFile, null, null);
+   }
+
+   /**
+    * Sets the recording files used by the ARCamera class for playback.
+    * @param headerFile
+    * @param framesFile
+    * @param orientationFile File containing orientation data (for RecordingType.FREE only)
+    * @param locationFile File containing location data (for RecordingType.FREE only)
+    * @return
+    */
+   final public boolean setRecordingFiles(File headerFile, File framesFile, File orientationFile,
+                                          File locationFile)
+   //---------------------------------------------------------------------------------------------
+   {
+      if (headerFile == null)
       {
          this.headerFile = this.framesFile = null;
          disconnectCamera();
@@ -94,7 +112,7 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
          Log.e(TAG, "Header file " + headerFile.getAbsolutePath() + " does not exist or is not readable");
          return false;
       }
-      if ( (! framesFile.exists()) || (! framesFile.canRead()) )
+      if ( (framesFile != null) && ( (! framesFile.exists()) || (! framesFile.canRead()) ) )
       {
          Log.e(TAG, "Frames file " + framesFile.getAbsolutePath() + " does not exist or is not readable");
          return false;
@@ -105,6 +123,8 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
          return true;
       this.headerFile = headerFile;
       this.framesFile = framesFile;
+      this.orientationFile = orientationFile;
+      this.locationFile = locationFile;
       connectCamera(getWidth(), getHeight());
       return true;
    }
@@ -116,7 +136,7 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
    protected boolean connectCamera(int width, int height)
    //----------------------------------------------------
    {
-      if ( (headerFile == null) || (framesFile == null) )
+      if (headerFile == null)
          return true;
       if (! initializeCamera(width, height))
          return false;
@@ -223,8 +243,8 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
             return false;
          try
          {
-            if ( (headerFile != null) && (framesFile != null) )
-               camera.setFiles(headerFile, framesFile);
+            if (headerFile != null)
+               camera.setFiles(headerFile, framesFile, orientationFile, locationFile);
             else
             {
                Log.w(TAG, "Recording files not set in initializeCamera. Call setRecordingFiles in onCreate.");
@@ -363,7 +383,7 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
          rgba = new Mat(height, width, CvType.CV_8UC4); // NOT width, height !
          switch (format)
          {
-            case RGB:  rgb = new Mat(height, width, CvType.CV_8UC3); break;
+            case RGBA:  rgb = new Mat(height, width, CvType.CV_8UC3); break;
             case NV21:
                nv21 = new Mat(height + (height/2), width, CvType.CV_8UC1);
                try
@@ -403,7 +423,6 @@ public class EmulatorCameraView extends CameraBridgeViewBase implements Camera.P
          switch (format)
          {
             case RGBA:     rgba.put(0, 0, data); break;
-            case RGB:      rgb.put(0, 0, data);  Imgproc.cvtColor(rgb, rgba, Imgproc.COLOR_RGB2RGBA, 4); break;
             case NV21:
                if (YUVToRGB == null)
                {

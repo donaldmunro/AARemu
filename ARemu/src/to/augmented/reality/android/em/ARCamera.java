@@ -20,9 +20,7 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.hardware.Camera;
-import android.opengl.GLSurfaceView;
 import android.os.Build;
-import android.os.Process;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RSIllegalArgumentException;
@@ -31,6 +29,8 @@ import android.renderscript.Type;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import to.augmented.reality.android.common.math.QuickFloat;
+import to.augmented.reality.android.em.free.PlaybackThreadFree;
+import to.augmented.reality.android.em.three60.PlaybackThread360;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +39,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  AARemu is a software tool enabling simulation of Augmented Reality by allowing an AR developer to record
@@ -82,8 +81,8 @@ import java.util.concurrent.TimeUnit;
  ARCamera camera = (ARCamera) ARCamera.open(cameraId);
  </code>
  */
-public class ARCamera extends ARCameraCommon
-//===========================================
+public class ARCamera extends AbstractARCamera implements ARCameraInterface
+//=======================================================================
 {
    private static final String KEY_PREVIEW_SIZE = "preview-size";
    private static final String KEY_PREVIEW_FORMAT = "preview-format";
@@ -107,6 +106,7 @@ public class ARCamera extends ARCameraCommon
    final static protected Map<Integer, ARCamera> INSTANCES = new HashMap<Integer, ARCamera>();
    static protected int ARCAMERA_COUNT = 0;
 
+   protected Camera.ErrorCallback errorCallback;
    protected Camera.PreviewCallback callback = null;
 
    public static int getNumberOfCameras() { return ARCAMERA_COUNT + Camera.getNumberOfCameras(); }
@@ -147,19 +147,74 @@ public class ARCamera extends ARCameraCommon
     * @param camera A Camera instance is used for delegation and to obtain an internal
     *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
     *               reflection is used to obtain a Camera.Parameter.
-    * @param headerFile The recording header file of the 360 degree recording.
-    * @param framesFile The recording frames file of the 360 degree recording.
+    * @param headerFile The recording header file.
+    * @throws Exception
+    */
+   public ARCamera(Context context, int cameraId, Camera camera, File headerFile)
+         throws IOException
+   //------------------------------------------------------------------------------------------
+   {
+      this(context, cameraId, camera, headerFile, null, null, null, null, false);
+   }
+
+   /**
+    * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
+    * be accessed using open() or open(int id). The Camera instance is used for delegation and to obtain an internal
+    * Camera.Parameter instance.
+    * @param context A Context instance used to access sensor classes.
+    * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
+    *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
+    *                 If it is the original id or the id of an existing hardware camera then the emulated camera
+    *                 replaces the hadrware camera when opened using ARCamera.open(id).
+    * @param camera A Camera instance is used for delegation and to obtain an internal
+    *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
+    *               reflection is used to obtain a Camera.Parameter.
+    * @param headerFile The recording header file.
+    * @param framesFile The recording frames file (or null if the frames file is to be inferred from the header file).
     * @throws Exception
     */
    public ARCamera(Context context, int cameraId, Camera camera, File headerFile, File framesFile)
          throws IOException
    //------------------------------------------------------------------------------------------
    {
+      this(context, cameraId, camera, headerFile, framesFile, null, null, null, false);
+   }
+
+   /**
+    * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
+    * be accessed using open() or open(int id). The Camera instance is used for delegation and to obtain an internal
+    * Camera.Parameter instance.
+    * @param context A Context instance used to access sensor classes.
+    * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
+    *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
+    *                 If it is the original id or the id of an existing hardware camera then the emulated camera
+    *                 replaces the hadrware camera when opened using ARCamera.open(id).
+    * @param camera A Camera instance is used for delegation and to obtain an internal
+    *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
+    *               reflection is used to obtain a Camera.Parameter.
+    * @param headerFile The recording header file.
+    * @param framesFile The recording frames file.
+    * @param orientationFile The file containing orientation data (for free recording mode only) or null for none.
+    * @param locationFile The file containing location data (for free recording mode only) or null for none.
+    * @param  type The Recording type or null if it is to be determined from the header file
+    * @param isRepeat Specifies whether to continue repeating a free (non-360) recording.
+    * @throws Exception
+    */
+   public ARCamera(Context context, int cameraId, Camera camera, File headerFile, File framesFile, File orientationFile,
+                   File locationFile, RecordingType type, boolean isRepeat)
+         throws IOException
+   //------------------------------------------------------------------------------------------
+   {
       super(context);
       this.camera = camera;
       init(cameraId, camera);
-      if ( (headerFile != null) && (framesFile != null) )
-         setFiles(headerFile, framesFile);
+      recordingType = null;
+      setFiles(headerFile, framesFile,orientationFile, locationFile);
+      if (this.recordingType == null)
+         this.recordingType = type;
+      this.orientationFile = orientationFile;
+      this.locationFile = locationFile;
+      this.isRepeat = isRepeat;
    }
 
    /**
@@ -172,7 +227,13 @@ public class ARCamera extends ARCameraCommon
     *                 replaces the hadrware camera when opened using ARCamera.open(id).
     * @throws Exception
     */
-   public ARCamera(Context context, int cameraId) { super(context); init(cameraId, null); }
+   public ARCamera(Context context, int cameraId)
+   {
+      super(context);
+      init(cameraId, null);
+      if (cameraId < 0)
+         isOpen = true;
+   }
 
    /**
     * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
@@ -181,38 +242,95 @@ public class ARCamera extends ARCameraCommon
     * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
     *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
     *                 If it is the id of an existing hardware camera then the emulated camera
-    *                 replaces the hadrware camera when opened using ARCamera.open(id).
+    *                 replaces the hardware camera when opened using ARCamera.open(id).
     * @param headerFile The header file of the 360 degree recording.
-    * @param framesFile The frames file of the 360 degree recording.
     * @throws Exception
     */
+   public ARCamera(Context context, int cameraId, File headerFile) throws IOException
+   //--------------------------------------------------------------------------------
+   {
+      this(context, cameraId, headerFile, null, null);
+   }
+
    public ARCamera(Context context, int cameraId, File headerFile, File framesFile) throws IOException
+   //------------------------------------------------------------------------------------------------
+   {
+      this(context, cameraId, headerFile, framesFile, null);
+   }
+
+   /**
+    * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
+    * be accessed using open() or open(int id).
+    * @param context A Context instance used to access sensor classes.
+    * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
+    *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
+    *                 If it is the id of an existing hardware camera then the emulated camera
+    *                 replaces the hardware camera when opened using ARCamera.open(id).
+    * @param headerFile The header file.
+    * @param framesFile The frames file or null if the frames file is to be inferred from the header.
+    * @param  type The Recording type or null if it is to be determined from the header file
+    * @throws Exception
+    */
+   public ARCamera(Context context, int cameraId, File headerFile, File framesFile, RecordingType type) throws IOException
    //--------------------------------------------------------------------------------------------------
    {
       super(context);
       init(cameraId, null);
-      if ( (headerFile != null) && (framesFile != null) )
-         setFiles(headerFile, framesFile);
+      recordingType = type;
+      setFiles(headerFile, framesFile, null, null);
+      orientationFile = locationFile = null;
    }
 
+   /**
+    * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
+    * be accessed using open() or open(int id). If either orientationFile or locationFile is not null then this
+    * constructor assumes a RecordingType.FREE type recording.
+    * @param context A Context instance used to access sensor classes.
+    * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
+    *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
+    *                 If it is the id of an existing hardware camera then the emulated camera
+    *                 replaces the hardware camera when opened using ARCamera.open(id).
+    * @param headerFile The header file of the 360 degree recording.
+    * @param framesFile The frames file or null if the frames file is to be inferred from the header.
+    * @param orientationFile A file containing orientation data or null for no orientation data or if inferred from
+    *                        the header file (Applies only to RecordingType.FREE recordings).
+    * @param locationFile A file containing location data or null for no location data  or if inferred from
+    *                        the header file (Applies only to RecordingType.FREE recordings).
+    * @param isRepeat Continue cycling the recording until cancelled
+    * @throws IOException
+    */
+   public ARCamera(Context context, int cameraId, File headerFile, File framesFile, File orientationFile,
+                   File locationFile, boolean isRepeat) throws IOException
+   //--------------------------------------------------------------------------------------------------
+   {
+      super(context);
+      init(cameraId, null);
+      recordingType = null;
+      setFiles(headerFile, framesFile, orientationFile, locationFile);
+      if ( (recordingType == null) && ( (orientationFile != null) || (locationFile != null) ) )
+         recordingType = RecordingType.FREE;
+      this.isRepeat = isRepeat;
+
+   }
 
    final private void init(int cameraId, Camera camera)
    //------------------------------------------------------------------------------------------
    {
-      if (cameraId < 0)
-         cameraId = Camera.getNumberOfCameras() + ARCAMERA_COUNT++;
-      else
+      if (cameraId >= 0)
       {
          Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
-         try { Camera.getCameraInfo(cameraId, cameraInfo); } catch (Throwable _e) { ARCAMERA_COUNT++; }
+         try { Camera.getCameraInfo(cameraId, cameraInfo); } catch (Throwable _e) { cameraId = -1; }
       }
+      if (cameraId < 0)
+         cameraId = Camera.getNumberOfCameras() + ARCAMERA_COUNT++;
+
       for (int i = 0; i < Camera.getNumberOfCameras(); i++)
       {
          if (i != cameraId)
             INSTANCES.put(i, null);
       }
       INSTANCES.put(cameraId, this);
-      this.id = cameraId;
+      this.id = Integer.toString(cameraId);
       if (camera != null)
       {
          Camera.Parameters parameters = camera.getParameters();
@@ -227,7 +345,7 @@ public class ARCamera extends ARCameraCommon
    public static ARCamera open()
    //---------------------------
    {
-      ARCameraCommon instance = INSTANCES.get(0);
+      AbstractARCamera instance = INSTANCES.get(0);
       if ( (instance == null) || (! (instance instanceof ARCamera)) )
       {
          Collection<ARCamera> allCameras = INSTANCES.values();
@@ -253,7 +371,7 @@ public class ARCamera extends ARCameraCommon
    {
       if (id == -1)
          return ARCamera.open();
-      ARCameraCommon instance = INSTANCES.get(id);
+      ARCamera instance = INSTANCES.get(id);
       if (instance == null)
       {
          Camera C = Camera.open(id);
@@ -274,7 +392,7 @@ public class ARCamera extends ARCameraCommon
    public static void getCameraInfo(int cameraId, Camera.CameraInfo cameraInfo)
    //-------------------------------------------------------------------------
    {
-      ARCameraCommon arcamera  = INSTANCES.get(cameraId);
+      ARCamera arcamera  = INSTANCES.get(cameraId);
       if ( (arcamera != null) && (arcamera instanceof ARCamera) )
       {
          cameraInfo.facing = Camera.CameraInfo.CAMERA_FACING_BACK;
@@ -348,85 +466,42 @@ public class ARCamera extends ARCameraCommon
          surface = null;
    }
 
-   /**
-    * @see Camera#startPreview()
-    * Starts the preview of the recording.
-    */
-   public void startPreview()
-   //------------------------
+   protected void onSetCallbackFree(PlaybackThreadFree playbackThread)
    {
-      if ( (! isOpen) || (headers == null) || (headerFile == null) || (framesFile == null) )
-         throw new RuntimeException("Cannot start preview without proper initialisation");
-      if (locationHandlerThread != null)
-         throw new RuntimeException("startPreview called when already previewing");
-      float increment = getMapFloat(headers, "Increment", -1);
-      if (increment <= 0)
-         throw new RuntimeException("ERROR: Recording increment not found in header file");
-      try
-      {
-         switch (renderMode)
-         {
-            case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
-               playbackThread = new DirtyPlaybackThread(context, this, framesFile, bufferSize, increment, callback,
-                                                        isOneShot, bearingListener, bufferQueue,
-                                                        orientationProviderType, fileFormat);
-               break;
-            case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
-               playbackThread = new ContinuousPlaybackThread(context, this, framesFile, bufferSize, increment, callback,
-                                                             isOneShot, bearingListener, bufferQueue,
-                                                             orientationProviderType, fileFormat);
-               break;
-         }
-
-         playbackFuture = playbackExecutor.submit(playbackThread);
-         if (locationListener != null)
-         {
-            locationHandlerThread = new LocationThread(Process.THREAD_PRIORITY_LESS_FAVORABLE, this, context, locationListener);
-            locationHandlerThread.start();
-         }
-      }
-      catch (Exception e)
-      {
-         if (playbackThread != null)
-         {
-            playbackThread.mustStop = true;
-            if (playbackThread.isStarted())
-            {
-               if (playbackFuture != null)
-               {
-                  try { playbackFuture.get(300, TimeUnit.MILLISECONDS); } catch (Exception _e) { }
-                  if (!playbackFuture.isDone())
-                     playbackFuture.cancel(true);
-               }
-            }
-         }
-         if (locationHandlerThread != null)
-            locationHandlerThread.quit();
-         locationHandlerThread = null;
-      }
+      playbackThread.setCameraListener(callback);
+      playbackThread.setOrientationListener(orientationCallback);
+      playbackThread.setLocationListener(locationListener);
    }
+
+   protected void onSetCallback360(PlaybackThread360 playbackThread)
+   //---------------------------------------------------------------
+   {
+      playbackThread.setCameraListener(callback);
+      if (bearingListener != null)
+         playbackThread.setBearingListener(bearingListener);
+   }
+
 
    /**
     * @see android.hardware.Camera#setPreviewCallback
     * @param callback
     */
-   public final void setPreviewCallback(Camera.PreviewCallback callback)
-   //------------------------------------------------------------------
-   {
-      this.callback = callback;
-      isOneShot = false;
-   }
+   public final void setPreviewCallback(Camera.PreviewCallback callback) { this.callback = callback; }
+
+   public void setPreviewCallback(Object callback) { this.callback = (Camera.PreviewCallback) callback; }
+
+   /**
+    * Sets a BearingListener instance which will receive the latest bearing.
+    * @see to.augmented.reality.android.em.BearingListener
+    * @param bearingListener
+    */
+   public void setBearingListener(BearingListener bearingListener) { this.bearingListener = bearingListener; }
 
    /**
     * @see android.hardware.Camera#setOneShotPreviewCallback
     * @param callback
     */
-   public void setOneShotPreviewCallback(Camera.PreviewCallback callback)
-   //--------------------------------------------------------------------
-   {
-      this.callback = callback;
-      isOneShot = true;
-   }
+   public void setOneShotPreviewCallback(Camera.PreviewCallback callback) { this.callback = callback; }
 
    /**
     * @see android.hardware.Camera#setPreviewCallbackWithBuffer
@@ -439,15 +514,15 @@ public class ARCamera extends ARCameraCommon
       isUseBuffer = true;
    }
 
+   public void setPreviewCallbackWithBuffer(Object callback) { setPreviewCallback((Camera.PreviewCallback) callback); }
+
    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
    public Allocation createPreviewAllocation(RenderScript rs, int usage) throws RSIllegalArgumentException
    //------------------------------------------------------------------------------------------------------
    {
-      Type.Builder yuvBuilder = new Type.Builder(rs, Element.createPixel                           (rs, Element.DataType.UNSIGNED_8,
-                                                                                                    Element.DataKind.PIXEL_YUV)
+      Type.Builder yuvBuilder = new Type.Builder(rs, Element.createPixel(rs, Element.DataType.UNSIGNED_8,
+                                                                         Element.DataKind.PIXEL_YUV)
       );
-      // Use YV12 for wide compatibility. Changing this requires also
-      // adjusting camera service's format selection.
       yuvBuilder.setYuvFormat(ImageFormat.YV12);
       yuvBuilder.setX(previewWidth);
       yuvBuilder.setY(previewHeight);
@@ -500,7 +575,7 @@ public class ARCamera extends ARCameraCommon
    public void autoFocus(Camera.AutoFocusCallback cb)
    //------------------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.autoFocus(cb);
    }
 
@@ -511,7 +586,7 @@ public class ARCamera extends ARCameraCommon
    public void cancelAutoFocus()
    //---------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.cancelAutoFocus();
    }
 
@@ -519,7 +594,7 @@ public class ARCamera extends ARCameraCommon
    public void setAutoFocusMoveCallback(Camera.AutoFocusMoveCallback cb)
    //-------------------------------------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.setAutoFocusMoveCallback(cb);
    }
 
@@ -533,7 +608,7 @@ public class ARCamera extends ARCameraCommon
    public void takePicture(Camera.ShutterCallback shutter, Camera.PictureCallback raw, Camera.PictureCallback jpeg)
    //--------------------------------------------------------------------------------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.takePicture(shutter, raw, jpeg);
    }
 
@@ -549,7 +624,7 @@ public class ARCamera extends ARCameraCommon
                            Camera.PictureCallback jpeg)
    //-----------------------------------------------------------------------------------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.takePicture(shutter, raw, postview, jpeg);
    }
 
@@ -561,7 +636,7 @@ public class ARCamera extends ARCameraCommon
    public void startSmoothZoom(int value)
    //------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.startSmoothZoom(value);
    }
 
@@ -572,7 +647,7 @@ public class ARCamera extends ARCameraCommon
    public void stopSmoothZoom()
    //--------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.stopSmoothZoom();
    }
 
@@ -591,7 +666,7 @@ public class ARCamera extends ARCameraCommon
    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
    public boolean enableShutterSound(boolean enabled)
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          return camera.enableShutterSound(enabled);
       return true;
    }
@@ -604,7 +679,7 @@ public class ARCamera extends ARCameraCommon
    public void setZoomChangeListener(Camera.OnZoomChangeListener listener)
    //---------------------------------------------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.setZoomChangeListener(listener);
    }
 
@@ -615,7 +690,7 @@ public class ARCamera extends ARCameraCommon
     */
    public final void setFaceDetectionListener(Camera.FaceDetectionListener listener)
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.setFaceDetectionListener(listener);
    }
 
@@ -626,7 +701,7 @@ public class ARCamera extends ARCameraCommon
    public void startFaceDetection()
    //------------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.startFaceDetection();
    }
 
@@ -637,7 +712,7 @@ public class ARCamera extends ARCameraCommon
    public void stopFaceDetection()
    //-----------------------------
    {
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.stopFaceDetection();
    }
 
@@ -649,7 +724,7 @@ public class ARCamera extends ARCameraCommon
    //---------------------------------------------------------------
    {
       errorCallback = callback;
-      if ( (camera != null) && (delegationType == DelegationTypes.ALL) )
+      if ( (camera != null) && (delegationType == DelegationType.ALL) )
          camera.setErrorCallback(callback);
    }
 

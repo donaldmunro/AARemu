@@ -21,6 +21,6 @@ import android.os.*;
 public interface Freezeable
 //=========================
 {
-   public void pause(Bundle B);
-   public void restore(Bundle B);
+   public void freeze(Bundle B);
+   public void thaw(Bundle B);
 }

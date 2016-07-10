@@ -12,32 +12,96 @@ extern "C" {
  * Method:    PSNR
  * Signature: (IILjava/nio/ByteBuffer;Ljava/nio/ByteBuffer;)D
  */
-JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
   (JNIEnv *, jclass, jint, jint, jobject, jobject);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    PSNR
+ * Signature: (II[B[B)D
+ */
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_PSNR__II_3B_3B
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jbyteArray);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_CV
  * Method:    MSSIM
  * Signature: (IILjava/nio/ByteBuffer;Ljava/nio/ByteBuffer;)D
  */
-JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
   (JNIEnv *, jclass, jint, jint, jobject, jobject);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    MSSIM
+ * Signature: (II[B[B)D
+ */
+JNIEXPORT jdouble JNICALL Java_to_augmented_reality_android_em_recorder_CV_MSSIM__II_3B_3B
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jbyteArray);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_CV
  * Method:    SHIFT
  * Signature: (IILjava/nio/ByteBuffer;Ljava/nio/ByteBuffer;[I)V
  */
-JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2_3I
   (JNIEnv *, jclass, jint, jint, jobject, jobject, jintArray);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_CV
- * Method:    KLUDGE
+ * Method:    TOGREY_SHIFT
+ * Signature: (IILjava/nio/ByteBuffer;Ljava/nio/ByteBuffer;[I)V
+ */
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1SHIFT__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2_3I
+  (JNIEnv *, jclass, jint, jint, jobject, jobject, jintArray);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    SHIFT
+ * Signature: (II[B[B[I)V
+ */
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_SHIFT__II_3B_3B_3I
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jbyteArray, jintArray);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    TOGREY_SHIFT
+ * Signature: (II[B[B[I)V
+ */
+JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1SHIFT__II_3B_3B_3I
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jbyteArray, jintArray);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    KLUDGE_NV21
  * Signature: (IILjava/nio/ByteBuffer;IZLjava/nio/ByteBuffer;)Z
  */
-JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1NV21__IILjava_nio_ByteBuffer_2IZLjava_nio_ByteBuffer_2
   (JNIEnv *, jclass, jint, jint, jobject, jint, jboolean, jobject);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    KLUDGE_NV21
+ * Signature: (II[BIZ[B)Z
+ */
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1NV21__II_3BIZ_3B
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jint, jboolean, jbyteArray);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    KLUDGE_RGBA
+ * Signature: (IILjava/nio/ByteBuffer;IZLjava/nio/ByteBuffer;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1RGBA__IILjava_nio_ByteBuffer_2IZLjava_nio_ByteBuffer_2
+  (JNIEnv *, jclass, jint, jint, jobject, jint, jboolean, jobject);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    KLUDGE_RGBA
+ * Signature: (II[BIZ[B)Z
+ */
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_KLUDGE_1RGBA__II_3BIZ_3B
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jint, jboolean, jbyteArray);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_CV

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:weightSum="100"
+              android:orientation="horizontal"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+>
+   <TextView
+         android:id="@+id/three60_result_increment_header"
+         android:layout_width="0dip"
+         android:layout_height="?android:attr/listPreferredItemHeight"
+         android:layout_weight="15"
+         android:text="Increment"
+         android:paddingStart="4dp"
+         android:layout_marginStart="4dp"
+         android:paddingEnd="25dp"
+         android:layout_marginEnd="25dp"
+         android:focusable="true"
+         android:textStyle="bold"
+         style="?android:attr/dropDownItemStyle"
+         android:textAppearance="?android:attr/textAppearanceLargePopupMenu"
+         android:singleLine="true"
+         android:ellipsize="marquee"
+   />
+   <TextView
+         android:id="@+id/three60_result_filename"
+         android:layout_width="0dip"
+         android:layout_height="?android:attr/listPreferredItemHeight"
+         android:text="File"
+         android:layout_weight="70"
+         android:paddingEnd="10dp"
+         android:layout_marginEnd="10dp"
+         android:focusable="true"
+         android:textStyle="bold"
+         style="?android:attr/dropDownItemStyle"
+         android:textAppearance="?android:attr/textAppearanceLargePopupMenu"
+         android:singleLine="true"
+         android:ellipsize="marquee"
+   />
+   <TextView
+         android:id="@+id/three60_result_kludges"
+         android:layout_width="0dip"
+         android:layout_height="?android:attr/listPreferredItemHeight"
+         android:layout_weight="15"
+         android:paddingEnd="1dp"
+         android:text="Kludges"
+         android:textStyle="bold"
+         android:focusable="true"
+         style="?android:attr/dropDownItemStyle"
+         android:textAppearance="?android:attr/textAppearanceLargePopupMenu"
+         android:singleLine="true"
+         android:ellipsize="marquee"
+         />
+
+</LinearLayout>

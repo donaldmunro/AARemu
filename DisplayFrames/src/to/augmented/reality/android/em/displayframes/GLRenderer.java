@@ -29,6 +29,7 @@ import android.util.Pair;
 import android.widget.Toast;
 import to.augmented.reality.android.common.gl.*;
 import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -172,11 +173,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
       {
          switch (camera.getFileFormat())
          {
-            case RGB:      bufferSize = previewWidth * previewHeight * 3;
-               bufferSize += bufferSize % 4;
-               break;
             case RGBA:     bufferSize = previewWidth * previewHeight * 4; break;
-            case RGB565:   bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8; break;
             case NV21:     bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;    break;
             default: throw new RuntimeException("Cannot determine buffer size. (BufferSize and FileFormat are missing from the header file");
          }
@@ -189,10 +186,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
             if (isUseOwnBuffers)
                cameraBuffer  = new byte[nv21BufferSize];
             break;
-         case RGB:
-            bufferSize += bufferSize % 4;
          case RGBA:
-         case RGB565:
             if (isUseOwnBuffers)
                cameraBuffer  = new byte[bufferSize];
       }
@@ -246,11 +240,7 @@ public class GLRenderer implements GLSurfaceView.Renderer
       {
          switch (camera.getFileFormat())
          {
-            case RGB:      bufferSize = previewWidth * previewHeight * 3;
-                           bufferSize += bufferSize % 4;
-                           break;
             case RGBA:     bufferSize = previewWidth * previewHeight * 4; break;
-            case RGB565:   bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.RGB_565) / 8; break;
             case NV21:     bufferSize = previewWidth * previewHeight * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;    break;
             default: throw new RuntimeException("Cannot determine buffer size. (BufferSize and FileFormat are missing from the header file");
          }
@@ -358,14 +348,14 @@ public class GLRenderer implements GLSurfaceView.Renderer
          if (camera == null)
          {
             camera = new ARCamera(activity, -1);
-            cameraId = camera.getId();
+            cameraId = Integer.parseInt(camera.getId());
             camera = (ARCamera) ARCamera.open(cameraId);
          }
          if (camera == null)
             return false;
-         camera.setFiles(headerFile, framesFile);
+         camera.setFiles(headerFile, framesFile, null, null);
          camera.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
-//         setDisplayOrientation();         
+//         setDisplayOrientation();
          camera.setDisplayOrientation(180);
          Camera.Parameters cameraParameters = camera.getParameters();
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
@@ -389,12 +379,6 @@ public class GLRenderer implements GLSurfaceView.Renderer
             case NV21:
             case RGBA:
                textureFormat = GLTexture.TextureFormat.RGBA;
-               break;
-            case RGB:  // Not always a safe option, see http://www.opengl.org/wiki/Common_Mistakes#Texture_upload_and_pixel_reads
-               textureFormat = GLTexture.TextureFormat.RGB;
-               break;
-            case RGB565:
-               textureFormat = GLTexture.TextureFormat.RGB565;
                break;
             default: throw new RuntimeException(fileFormat.name() + ": Unknown recording file format");
          }
@@ -751,11 +735,11 @@ public class GLRenderer implements GLSurfaceView.Renderer
    }
 
    public void review(float startBearing, float endBearing, int pauseMs, boolean isRepeat,
-                      ARCamera.Reviewable reviewable)
+                      ReviewListenable reviewListenable)
    //-------------------------------------------------------------------------------------
    {
       if ( (camera != null) && (isPreviewing) )
-         camera.startReview(startBearing, endBearing, pauseMs, isRepeat, reviewable);
+         camera.review(startBearing, endBearing, pauseMs, isRepeat, reviewListenable);
    }
 
 public void pause() { stopCamera(); }

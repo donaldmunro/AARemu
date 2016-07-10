@@ -23,6 +23,9 @@ import to.augmented.reality.android.common.math.*;
 public class FastFusedGyroscopeRotationVector extends OrientationProvider
 //========================================================================
 {
+   static final protected int[] SENSORS = { Sensor.TYPE_GYROSCOPE, Sensor.TYPE_ROTATION_VECTOR };
+
+   @Override protected int[] fusedSensors() { return SENSORS; }
 
    /**
     * Constant specifying the factor between a Nano-second and a second
@@ -130,19 +133,28 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
     */
    private static final int PANIC_THRESHOLD = 60;
 
+   public FastFusedGyroscopeRotationVector(SensorManager sensorManager) { this(sensorManager, null, null); }
+
    /**
     * Initialises a new ImprovedOrientationSensor1Provider
     *
     * @param sensorManager The android sensor manager
+    * @param extraSensors Extra sensors for raw event callback
+    * @param extraSensorSpeeds the corresponding sensor update speeds which can be SensorManager.SENSOR_DELAY_FASTEST,
+    *                     SENSOR_DELAY_GAME, SENSOR_DELAY_NORMAL or SENSOR_DELAY_UI. If null or empty then
+    *                     SENSOR_DELAY_FASTEST is assumed.
     */
-   public FastFusedGyroscopeRotationVector(SensorManager sensorManager)
-   //--------------------------------------------------------------------
+   public FastFusedGyroscopeRotationVector(SensorManager sensorManager, int[] extraSensors, int[] extraSensorSpeeds)
+   //---------------------------------------------------------------------------------------------------------------
    {
       super(sensorManager);
 
       //Add the gyroscope and rotation Vector
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE));
       sensorList.add(sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR));
+
+      if ( (extraSensors != null) && (extraSensors.length > 0) )
+         super.rawSensors(extraSensors, extraSensorSpeeds);
    }
 
    @Override
@@ -150,11 +162,14 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
    //--------------------------------------------
    {
       if (isSuspended) return;
-      if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
+      else
+         super.timestampNS = System.nanoTime();
+      final int eventType = event.sensor.getType();
+      if (eventType == Sensor.TYPE_ROTATION_VECTOR)
       {
-         System.arraycopy(event.values, 0, lastRotationVec, 0, ROTATION_VEC_SIZE);
          // Process rotation vector (just save it)
-
          float[] q = new float[4];
          // Calculate angle. Starting with API_18, Android will provide this value as event.values[3], but if not, we have to calculate it manually.
          SensorManager.getQuaternionFromVector(q, event.values);
@@ -167,9 +182,9 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
             quaternionGyroscope.setFrom(quaternionRotationVector);
             positionInitialised = true;
          }
-      } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE)
+      }
+      else if (eventType == Sensor.TYPE_GYROSCOPE)
       {
-         System.arraycopy(event.values, 0, lastGyroVec, 0, GYRO_VEC_SIZE);
          // Process Gyroscope and perform fusion
 
          // This timestep's delta rotation to be multiplied by the current rotation
@@ -268,6 +283,8 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
          }
          timestamp = event.timestamp;
       }
+      onHandleEvent(eventType, event);
+      return;
    }
 
    /**
@@ -291,11 +308,6 @@ public class FastFusedGyroscopeRotationVector extends OrientationProvider
          // Set the rotation matrix as well to have both representations
          SensorManager.getRotationMatrixFromVector(currentOrientationRotationMatrix, correctedQuat.toArray());
       }
-
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-         super.timestampNS = SystemClock.elapsedRealtimeNanos(); //event.timestamp;
-      else
-         super.timestampNS = System.nanoTime();
       if (orientationListener != null)
          orientationListener.onOrientationListenerUpdate(currentOrientationRotationMatrix, currentOrientationQuaternion,
                                                          super.timestampNS);

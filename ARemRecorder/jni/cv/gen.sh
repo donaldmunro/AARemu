@@ -6,7 +6,7 @@ strindex()
       [[ $x = $1 ]] && echo -1 || echo ${#x}
 }
 
-S=`find ../.. -iname "CV.class"`
+S=`find ../../build/intermediates/classes/debug -iname "CV.class"`
 #echo $S
 I=`strindex "$S" "to/augmented/reality"`
 CP=${S:0:I}

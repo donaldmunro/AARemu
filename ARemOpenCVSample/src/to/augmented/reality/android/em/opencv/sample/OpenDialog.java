@@ -16,17 +16,35 @@
 
 package to.augmented.reality.android.em.opencv.sample;
 
-import android.app.*;
+import android.app.DialogFragment;
 import android.content.Context;
-import android.os.*;
-import android.text.*;
-import android.util.*;
-import android.view.*;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.*;
+import android.os.Bundle;
+import android.text.Editable;
+import android.text.InputFilter;
+import android.text.Spanned;
+import android.text.TextWatcher;
+import android.util.DisplayMetrics;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.InflateException;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ListView;
 
-import java.io.*;
-import java.util.*;
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 public class OpenDialog extends DialogFragment
 //============================================
@@ -85,6 +103,11 @@ public class OpenDialog extends DialogFragment
       }
       else
          rootDir = dir;
+      if ( (! dir.exists()) || (! dir.isDirectory()) || (! dir.canRead()) )
+      {
+         Log.e(LOGTAG, "OpenDialog invalid directory specified");
+         return null;
+      }
       fileName = bundle.getString("file");
 
       textFileName = (EditText) v.findViewById(R.id.openName);
@@ -264,6 +287,8 @@ public class OpenDialog extends DialogFragment
             return false;
          }
       });
+      if (af == null)
+         return null;
       String[] afn = new String[af.length];
       int i = 0;
       for (File f : af)

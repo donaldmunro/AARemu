@@ -16,31 +16,69 @@
 
 package to.augmented.reality.android.em.sample;
 
-import android.app.*;
-import android.content.*;
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
+import android.app.ActionBar;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.FragmentTransaction;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.pm.PackageManager;
+import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
-import android.view.*;
-import android.view.inputmethod.*;
-import android.widget.*;
+import android.util.Log;
+import android.util.Size;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.NumberPicker;
+import android.widget.TextView;
+import android.widget.Toast;
 import com.doubleTwist.drawerlib.ADrawerLayout;
+import to.augmented.reality.android.common.math.Quaternion;
+import to.augmented.reality.android.common.sensor.orientation.OrientationListenable;
 import to.augmented.reality.android.em.ARCamera;
+import to.augmented.reality.android.em.ARCameraCharacteristics;
+import to.augmented.reality.android.em.ARCameraDevice;
+import to.augmented.reality.android.em.ARCameraInterface;
+import to.augmented.reality.android.em.ARCameraManager;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.BearingListener;
+import to.augmented.reality.android.em.FreePreviewListenable;
+import to.augmented.reality.android.em.RecordingType;
+import to.augmented.reality.android.em.ReviewListenable;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 
 
 public class MainActivity extends Activity implements OpenDialog.DialogCloseable
 //==============================================================================
 {
    final static String TAG = MainActivity.class.getSimpleName();
+
    private static File DIR;
    static
    {
@@ -71,13 +109,15 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    private ARSurfaceView previewSurface;
    private TextView resolutionText, incrementText, locationText, bearingText;
    private View decorView = null;
-   private Button reviewButton;
+   private Button openButton, reviewButton;
 
    AlertDialog reviewDialog = null;
    boolean isStartReviewing = false;
    float reviewStartBearing =-1, reviewEndBearing =-1, reviewCurrentBearing =-1, lastStartBearing = -1, lastEndBearing = -1;
    int reviewPause =0, lastPause = -1;
    boolean isReviewing =false, isReviewRepeating =false, lastIsReviewRepeating = false;
+
+   ARSensorManager sensorManager;
 
    int uiOptions;
    final Handler hideHandler = new Handler();
@@ -101,9 +141,12 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
 //            actionBar.hide();
       }
    };
+   private boolean isLocationAllowed = true;
+
+   public boolean isLocationAllowed() { return isLocationAllowed; }
 
    private class UpdateBearingRunner implements Runnable
-   //============================================
+   //====================================================
    {
       volatile public float bearing;
       @Override public void run() { bearingText.setText(String.format("%.4f", bearing)); }
@@ -167,15 +210,30 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       drawerLayout.open();
 
       previewSurface = (ARSurfaceView) findViewById(R.id.camera_preview_surface);
+      previewSurface.createRenderer();
       resolutionText = (TextView) findViewById(R.id.resolution_text);
       incrementText = (TextView) findViewById(R.id.text_increment);
       locationText = (TextView) findViewById(R.id.location_text);
       bearingText = (TextView) findViewById(R.id.bearing_text);
       reviewButton = (Button) findViewById(R.id.button_review);
+      openButton = (Button) findViewById(R.id.open_button);
+      ImageButton exitButton = (ImageButton) findViewById(R.id.button_exit);
+      exitButton.setOnClickListener(new View.OnClickListener()
+      {
+         @Override
+         public void onClick(View v)
+         //-------------------------
+         {
+            finish();
+            System.exit(1);
+         }
+      });
 
       if (B != null)
          previewSurface.onRestoreInstanceState(B);
    }
+
+   CountDownLatch latch = new CountDownLatch(2);
 
    private void startPreview()
    //-------------------------
@@ -185,40 +243,145 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          Toast.makeText(MainActivity.this, "Open a valid recording first.", Toast.LENGTH_LONG).show();
          return;
       }
-      if ( (framesFile == null) || (! framesFile.exists()) || (! framesFile.canRead()) )
+      File dir = headerFile.getParentFile();
+      //previewSurface.setPreviewFiles(headerFile, framesFile);
+      ARCameraInterface icamera;
+      if (EmulationControls.USE_CAMERA2_API)
       {
-         Toast.makeText(MainActivity.this, "Open a valid recording first.", Toast.LENGTH_LONG).show();
-         return;
+         ARCameraDevice camera = previewSurface.getCamera2Camera();
+         icamera = camera;
       }
-      previewSurface.setPreviewFiles(headerFile, framesFile);
-      ARCamera camera = previewSurface.getCamera();
-      camera.setLocationListener(new LocationListener()
-            //===============================================
+      else
       {
-         @Override public void onLocationChanged(final Location location)
-         //--------------------------------------------------------------
-         {
-            if (! isDrawerOpen) return;
-            updateLocationRunner.location = location;
-            MainActivity.this.runOnUiThread(updateLocationRunner);
-         }
-         @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
-         @Override public void onProviderEnabled(String provider) { }
-         @Override public void onProviderDisabled(String provider) { }
-      });
-      camera.setBearingListener(new BearingListener()
-            //=============================================
+         ARCamera camera = previewSurface.getLegacyCamera();
+         icamera = camera;
+      }
+      if ( (icamera.getRecordingType() == RecordingType.THREE60) || (icamera.getLocationFile() != null) )
+         icamera.setLocationListener(new LocationUpdateListener());
+      if (icamera.getRecordingType() == RecordingType.FREE)
       {
-         @Override
-         public void onBearingChanged(float bearing)
-         //-----------------------------------------
+         File sensorFile = new File(dir, "sensordata.raw");
+         boolean isUsingVec = false;
+         if ( (EmulationControls.USE_RAW_ROTATION_VEC) && (sensorFile.exists()) )
          {
-            if (! isDrawerOpen) return;
-            updateBearingRunner.bearing = bearing;
-            MainActivity.this.runOnUiThread(updateBearingRunner);
+            icamera.setFreePreviewListener(new FreePreviewListenable()
+            {
+               @Override public void onStarted() { }
+
+               @Override public boolean onComplete(int iterNo)
+               //--------------------------------------------
+               {
+                  latch = new CountDownLatch(2);
+                  try { sensorManager.restart(latch); } catch (Exception e) { Log.e(TAG, "", e); }
+                  latch.countDown();
+                  try { latch.await(); } catch (InterruptedException e) { return false; }
+                  return true;
+               }
+
+               @Override public void onError(String msg, Exception e) { }
+            });
+            SensorManager manager = (SensorManager) getSystemService(Activity.SENSOR_SERVICE);
+            try
+            {
+               sensorManager = new ARSensorManager(manager, sensorFile);
+               SensorEventListener listener = new SensorEventListener()
+               {
+                  float[] R = new float[16];
+
+                  @Override
+                  public void onSensorChanged(SensorEvent event)
+                  //--------------------------------------------
+                  {
+                     if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR)
+                     {
+                        SensorManager.getRotationMatrixFromVector(R, event.values);
+                        int REMAP_X = SensorManager.AXIS_X, REMAP_Y = SensorManager.AXIS_Z;
+                        SensorManager.remapCoordinateSystem(R, REMAP_X, REMAP_Y, R);
+                        updateBearingRunner.bearing = (float) Math.toDegrees(Math.atan2(R[1], R[5]));
+                        if (updateBearingRunner.bearing < 0)
+                           updateBearingRunner.bearing += 360;
+                        MainActivity.this.runOnUiThread(updateBearingRunner);
+                     }
+                  }
+
+                  @Override public void onAccuracyChanged(Sensor sensor, int i) { }
+               };
+               Sensor sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+               sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_FASTEST);
+               sensorManager.start(latch);
+               isUsingVec = true;
+            }
+            catch (Exception ee)
+            {
+               toast("Error creating ARSensorManager using sensor file " + sensorFile);
+               Log.e(TAG, "Error creating ARSensorManager using sensor file " + sensorFile, ee);
+
+            }
          }
-      });
-      previewSurface.startPreview();
+         if (! isUsingVec)
+         {
+            icamera.setOrientationListener(new OrientationListenable()
+            {
+               @Override
+               public void onOrientationListenerUpdate(float[] R, Quaternion Q, long timestamp)
+               //------------------------------------------------------------------------------
+               {
+                  if (!isDrawerOpen) return;
+                  int REMAP_X = SensorManager.AXIS_X, REMAP_Y = SensorManager.AXIS_Z;
+                  SensorManager.remapCoordinateSystem(R, REMAP_X, REMAP_Y, R);
+                  //      float[] orientation = new float[3];
+                  //      SensorManager.getOrientation(RM, orientation);
+                  updateBearingRunner.bearing = (float) Math.toDegrees(Math.atan2(R[1], R[5]));
+                  if (updateBearingRunner.bearing < 0)
+                     updateBearingRunner.bearing += 360;
+                  MainActivity.this.runOnUiThread(updateBearingRunner);
+               }
+            });
+         }
+      }
+      if (icamera.getRecordingType() == RecordingType.THREE60)
+      {
+         icamera.setBearingListener(new BearingListener()
+               //=============================================
+         {
+            @Override
+            public void onBearingChanged(float bearing)
+            //-----------------------------------------
+            {
+               if (!isDrawerOpen) return;
+               updateBearingRunner.bearing = bearing;
+               MainActivity.this.runOnUiThread(updateBearingRunner);
+            }
+         });
+      }
+
+      if (icamera.getRecordingType() == RecordingType.FREE)
+         openButton.setText("Stop");
+      else
+         openButton.setText("Open");
+      previewSurface.startPreview(latch);
+   }
+
+   class LocationUpdateListener implements LocationListener
+   //======================================================
+   {
+      @Override
+      public void onLocationChanged(final Location location)
+      //--------------------------------------------------------------
+      {
+         if (!isDrawerOpen) return;
+         updateLocationRunner.location = location;
+         MainActivity.this.runOnUiThread(updateLocationRunner);
+      }
+
+      @Override
+      public void onStatusChanged(String provider, int status, Bundle extras) { }
+
+      @Override
+      public void onProviderEnabled(String provider) { }
+
+      @Override
+      public void onProviderDisabled(String provider) { }
    }
 
    public void onReview(View view)
@@ -484,9 +647,59 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    public void onOpen(View view)
    //---------------------------
    {
-      FragmentTransaction ft = getFragmentManager().beginTransaction();
-      OpenDialog dialog = OpenDialog.instance(DIR);
-      dialog.show(ft, "OpenDialog");
+      if (! hasPermissions(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA))
+         requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA }, 1);
+      if (! hasPermissions(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
+         requestPermissions(new String[]{ Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION }, 2);
+      if (previewSurface.isPreviewing())
+      {
+         previewSurface.stopPreview();
+         openButton.setText("Open");
+      }
+      else
+      {
+         FragmentTransaction ft = getFragmentManager().beginTransaction();
+         OpenDialog dialog = OpenDialog.instance(DIR);
+         dialog.show(ft, "OpenDialog");
+      }
+   }
+
+   @SuppressLint("NewApi")
+   public boolean hasPermissions(String... permissions)
+   //--------------------------------------------------
+   {
+      if ( (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) &&
+            (permissions != null) && (permissions.length > 0) )
+      {
+         for (String permission : permissions)
+         {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED)
+               return false;
+         }
+      }
+      return true;
+   }
+
+   @TargetApi(Build.VERSION_CODES.M)
+   @Override
+   public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults)
+   //-----------------------------------------------------------------------------------------------
+   {
+      switch (requestCode)
+      {
+         case 1:
+            for (int i=0; i<grantResults.length; i++)
+               if (grantResults[i] == PackageManager.PERMISSION_DENIED)
+            {
+               this.finish();
+               System.exit(1);
+            }
+            break;
+
+         case 2:
+            isLocationAllowed = false;
+            break;
+      }
    }
 
    @Override
@@ -502,47 +715,116 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          else
             basename = filename;
          headerFile = new File(dir, basename + ".head");
-         if ( (headerFile == null) || (! headerFile.exists()) || (! headerFile.canRead()) )
+         if ( (! headerFile.exists()) || (! headerFile.canRead()) )
          {
             Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " not found or not readable", Toast.LENGTH_LONG).show();
             return;
          }
          framesFile = new File(dir, basename + ".frames");
-         if ( (framesFile == null) || (! framesFile.exists()) || (! framesFile.canRead()) )
+         StringBuilder errbuf = new StringBuilder();
+         previewSurface.setPreviewFiles(headerFile, framesFile, errbuf);
+         if (errbuf.length() > 0)
+            Toast.makeText(this, errbuf.toString(), Toast.LENGTH_LONG).show();
+         int width =-1, height = -1;
+         ARCameraInterface icamera = null;
+         if (! EmulationControls.USE_CAMERA2_API)
          {
-            Toast.makeText(MainActivity.this, framesFile.getAbsolutePath() + " not found or not readable", Toast.LENGTH_LONG).show();
+            ARCamera camera = previewSurface.getLegacyCamera();
+            icamera = (ARCameraInterface) camera;
+            if (camera == null)
+            {
+               Toast.makeText(this, "Could not obtain camera", Toast.LENGTH_LONG).show();
+               return;
+            }
+
+            if (EmulationControls.IS_EMULATE_CAMERA)
+            {
+               Camera.Parameters parameters = camera.getParameters();
+               Camera.Size sz = parameters.getPreviewSize();
+               width = sz.width;
+               height = sz.height;
+            }
+            else
+            {
+               width = icamera.getHeaderInt("PreviewWidth", -1);
+               height = icamera.getHeaderInt("PreviewHeight", -1);
+            }
+         }
+         else
+         {
+            ARCameraDevice camera = previewSurface.getCamera2Camera();
+            if (camera == null)
+            {
+               Toast.makeText(this, "Could not obtain camera", Toast.LENGTH_LONG).show();
+               return;
+            }
+            icamera = camera;
+            if (EmulationControls.IS_EMULATE_CAMERA)
+            {
+               ARCameraManager manager = ARCameraManager.get(this, headerFile, null, null, null, false);
+               try
+               {
+                  ARCameraCharacteristics characteristics = manager.getCameraCharacteristics(camera.getId());
+                  ARCameraCharacteristics.ARStreamConfigurationMap streamConfig =
+                        characteristics.get(ARCameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                  for (Size psize : streamConfig.getOutputSizes(SurfaceTexture.class))
+                  {
+                     width = psize.getWidth();
+                     height = psize.getHeight();
+                  }
+               }
+               catch (Exception e)
+               {
+                  Log.e(TAG, "", e);
+                  width = icamera.getHeaderInt("PreviewWidth", -1);
+                  height = icamera.getHeaderInt("PreviewHeight", -1);
+               }
+            }
+            else
+            {
+               width = icamera.getHeaderInt("PreviewWidth", -1);
+               height = icamera.getHeaderInt("PreviewHeight", -1);
+            }
+         }
+
+         if ((width < 0) || (height < 0))
+         {
+            Toast.makeText(MainActivity.this,
+                           headerFile.getAbsolutePath() + " does not contain preview width or height",
+                           Toast.LENGTH_LONG).show();
             return;
          }
-         previewSurface.setPreviewFiles(headerFile, framesFile);
-         ARCamera camera = previewSurface.getCamera();
-         if (camera == null)
+         RecordingType type = icamera.getRecordingType();
+         if (type == RecordingType.THREE60)
          {
-            Toast.makeText(this, "Could not obtain camera", Toast.LENGTH_LONG).show();
-            return;
+            float increment = icamera.getHeaderFloat("Increment", -1);
+            if (increment < 0)
+            {
+               Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain frame increment",
+                              Toast.LENGTH_LONG).show();
+               return;
+            }
+            incrementText.setText(String.format(Locale.US, "%.1f", increment));
          }
-         Camera.Parameters parameters = camera.getParameters();
-         Camera.Size sz = parameters.getPreviewSize();
-         int width = sz.width;
-         int height = sz.height;
-         if ( (width < 0) || (height < 0) )
-         {
-            Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain preview width or height", Toast.LENGTH_LONG).show();
-            return;
-         }
-         float increment = camera.getHeaderFloat("Increment", -1);
-         if (increment < 0)
-         {
-            Toast.makeText(MainActivity.this, headerFile.getAbsolutePath() + " does not contain frame increment", Toast.LENGTH_LONG).show();
-            return;
-         }
+         else
+            incrementText.setVisibility(View.GONE);
          resolutionText.setText(String.format(Locale.US, "%dx%d", width, height));
-         incrementText.setText(String.format(Locale.US, "%.1f", increment));
-         String location = camera.getHeader("Location", "");
+         String location = icamera.getHeader("Location", "");
          locationText.setText(location.replaceAll("\\s+", ""));
 
          startPreview();
          drawerLayout.close();
       }
+   }
+
+   public void toast(final String msg)
+   //--------------------------
+   {
+      runOnUiThread(new Runnable()
+      {
+         @Override
+         public void run() { Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show(); }
+      });
    }
 
    @Override
@@ -599,11 +881,9 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          previewSurface.review(reviewStartBearing, reviewEndBearing, reviewPause, isReviewRepeating, new ReviewHandler());
          previewSurface.setReviewBearing(reviewCurrentBearing);
       }
-
-
    }
 
-   class ReviewHandler implements ARCamera.Reviewable
+   class ReviewHandler implements ReviewListenable
    //================================================
    {
       @Override public void onReviewStart() { }

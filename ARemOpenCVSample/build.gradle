@@ -1,13 +1,13 @@
 apply plugin: 'com.android.application'
 
 android {
-   compileSdkVersion 22
+   compileSdkVersion 23
    buildToolsVersion '23.0.2'
    android.enforceUniquePackageName=false
 
    defaultConfig {
       applicationId "to.augmented.reality.android.em.opencv.sample"
-      minSdkVersion 14
+      minSdkVersion 19
       targetSdkVersion 22
       versionCode 1
       versionName "1.0"

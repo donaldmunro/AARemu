@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.3)
+project(ringbuf)
+find_package(JNI)
+if (NOT JNI_LIBRARIES)
+    message(FATAL_ERROR "Java JNI support not found")
+endif (NOT JNI_LIBRARIES)
+message(STATUS "Using JNI libraries: ${JNI_LIBRARIES}" )
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(SOURCE_FILES framebuffer.cc  snappy.cc  snappy-sinksource.cc  snappy-stubs-internal.cc)
+include_directories("${JNI_INCLUDE_DIRS}" ${PROJECT_SOURCE_DIR})
+ADD_LIBRARY(ringbuf SHARED ${SOURCE_FILES})
+TARGET_LINK_LIBRARIES(ringbuf ${JNI_LIBRARIES})

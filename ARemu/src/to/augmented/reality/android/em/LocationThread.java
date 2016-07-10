@@ -21,11 +21,15 @@ import android.content.pm.*;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 import android.widget.Toast;
+
+import java.lang.reflect.Method;
 
 public class LocationThread extends HandlerThread
 //================================================
@@ -48,12 +52,12 @@ public class LocationThread extends HandlerThread
 
    public Handler getHandler() { return handler; }
 
-   private ARCameraCommon camera = null;
+   private AbstractARCamera camera = null;
 
    volatile Location lastLocation = null;
    public Location getLastLocation() { return lastLocation;  }
 
-   public LocationThread(int priority, ARCameraCommon camera, Context context, LocationListener locationListener)
+   public LocationThread(int priority, AbstractARCamera camera, Context context, LocationListener locationListener)
    //----------------------------------------------------------------------------------------------------
    {
       super("SensorHandler", priority);
@@ -160,6 +164,39 @@ public class LocationThread extends HandlerThread
          }
          dummyLocation = null;
       }
+   }
+
+   static public Location createLocation(boolean isGps, double latitude, double longitude, double altitude, float accuracy)
+   //---------------------------------------------------------------------------------------------------------------
+   {
+      Location location;
+      if (isGps)
+         location = new Location(LocationManager.GPS_PROVIDER);
+      else
+         location = new Location(LocationManager.NETWORK_PROVIDER);
+      location.setTime(System.currentTimeMillis());
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+         location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+      else
+      {
+         // Kludge because some location APIs requires elapsedtime in nanos but call is not available in all Android versions.
+         try
+         {
+            Method makeCompleteMethod = null;
+            makeCompleteMethod = Location.class.getMethod("makeComplete");
+            if (makeCompleteMethod != null)
+               makeCompleteMethod.invoke(location);
+         }
+         catch (Exception e)
+         {
+            e.printStackTrace();
+         }
+      }
+      location.setLatitude(latitude);
+      location.setLongitude(longitude);
+      location.setAltitude(altitude);
+      location.setAccuracy(accuracy);
+      return location;
    }
 
 }

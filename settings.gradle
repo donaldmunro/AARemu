@@ -1,2 +1,3 @@
 include ':Common', ':ARemRecorder', ':ARemu', ':AROpenCVemu', ':DisplayFrames', ':ARemSample', ':ARemOpenCVSample'
 include ':OpenCV'
+include ':OpenCV'
