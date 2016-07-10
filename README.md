@@ -75,7 +75,7 @@ sensors used). The vanilla rotation vector is also the default sensor.
 record data for.
 
 <b>The debug</b> checkbox is mostly used when developing the recording application and results in
-intermediate files 
+intermediate files not being deleted on recording completion.
 
 The <b>Flash On</b> checkbox specifies switching the camera flash on in flashlight mode
 for recording in the dark (only visible if the device supports a flash).
