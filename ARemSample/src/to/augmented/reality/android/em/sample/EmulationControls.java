@@ -34,7 +34,7 @@ public class EmulationControls
 
    //Frames per second. If DIRTY_VIDEO is false then FPS > 0 plays back at the specified frame rate
    // while FPS <= 0 attempts to play back at the original rate using stored timestamps.
-   final static public int FPS = 0;
+   final static public int FPS = 24;
 
    // true to continue repeating RecordingType.FREE recordings
    final static public boolean REPEAT = true;
