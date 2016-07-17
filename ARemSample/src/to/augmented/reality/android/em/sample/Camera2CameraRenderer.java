@@ -16,6 +16,7 @@
 
 package to.augmented.reality.android.em.sample;
 
+import android.annotation.TargetApi;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -24,6 +25,7 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CaptureRequest;
 import android.opengl.GLSurfaceView;
+import android.os.Build;
 import android.os.Handler;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
@@ -36,6 +38,7 @@ import android.view.Surface;
 import to.augmented.reality.android.em.ARCameraCharacteristics;
 import to.augmented.reality.android.em.ARCameraDevice;
 import to.augmented.reality.android.em.ARCameraManager;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.Latcheable;
 import to.augmented.reality.android.em.ReviewListenable;
@@ -173,6 +176,7 @@ public class Camera2CameraRenderer extends GLRenderer
 
    public Camera2CameraRenderer(MainActivity activity, ARSurfaceView surfaceView) { super(activity, surfaceView); }
 
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
    @Override
    protected boolean initCamera(StringBuilder errbuf) throws Exception
    //----------------------------------------------
@@ -276,13 +280,15 @@ public class Camera2CameraRenderer extends GLRenderer
       return true;
    }
 
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
    @Override
-   public boolean startPreview(CountDownLatch latch)
-   //-----------------------------------------------
+   public boolean startPreview(CountDownLatch latch, ARSensorManager sensorManager)
+   //------------------------------------------------------------------------------
    {
       isPreviewing = false;
       if (previewWidth < 0 || previewHeight < 0)
          return false;
+      this.sensorManager = sensorManager;
       if (null == cameraDevice)
       {
          Log.e(TAG, "createCameraPreviewSession: camera not initialised");
@@ -363,6 +369,12 @@ public class Camera2CameraRenderer extends GLRenderer
             cameraDevice.setFrameRate(EmulationControls.FPS);
             cameraDevice.setRepeat(EmulationControls.REPEAT);
             cameraDevice.createCaptureSession(Arrays.asList(dummySurface), cameraStatusCallback, cameraHandler);
+            if ( (cameraDevice instanceof Latcheable) && (latch != null) )
+            {
+               ((Latcheable) cameraDevice).setLatch(latch);
+               super.latch = latch;
+            }
+            cameraDevice.setARSensorManager(sensorManager);
             return true;
          }
          catch (CameraAccessException e)
@@ -397,6 +409,7 @@ public class Camera2CameraRenderer extends GLRenderer
             ((Latcheable) cameraDevice).setLatch(latch);
             super.latch = latch;
          }
+         cameraDevice.setARSensorManager(sensorManager);
          cameraDevice.startPreview();
          isPreviewing = true;
          return true;
@@ -404,6 +417,7 @@ public class Camera2CameraRenderer extends GLRenderer
       return false;
    }
 
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
    @Override protected void stopCamera()
    //-----------------------------------
    {

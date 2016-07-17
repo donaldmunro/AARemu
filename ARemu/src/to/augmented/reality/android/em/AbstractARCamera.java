@@ -16,6 +16,7 @@
 
 package to.augmented.reality.android.em;
 
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
@@ -87,7 +88,12 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
    protected int previewFrameRate = 15000;
    protected int previewFrameRateMin = 15000;
    protected int previewWidth =-1;
+   @Override public int getPreviewWidth() { return previewWidth; }
+
    protected int previewHeight =-1;
+   @Override public int getPreviewHeight() { return previewHeight; }
+
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
    @Override public Size getPreviewSize() { return new Size(previewWidth, previewHeight); }
    protected float focalLength = -1;
    protected float fovx = -1;
@@ -96,6 +102,9 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
    public RecordingType getRecordingType() { return recordingType; }
 
    protected CountDownLatch startLatch = null;
+
+   protected ARSensorManager sensorManager = null;
+   @Override public void setARSensorManager(ARSensorManager sensorManager) { this.sensorManager = sensorManager;  }
 
    /**
     * Sets a count down latch which can be used to synchronize starting the camera previewing thread with other threads,
@@ -478,12 +487,12 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
                   case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
                      playbackThread = new DirtyPlaybackThreadFree(framesFile, orientationFile, locationFile, fileFormat,
                                                                   bufferSize, previewFrameRate, isRepeat, bufferQueue,
-                                                                  progress);
+                                                                  sensorManager, progress);
                      break;
                   case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
                      playbackThread = new ContinuousPlaybackThreadFree(framesFile, orientationFile, locationFile,
                                                                        fileFormat, bufferSize, previewFrameRate,
-                                                                       isRepeat, bufferQueue, progress);
+                                                                       isRepeat, bufferQueue, sensorManager, progress);
                      break;
                   default:
                      throw new RuntimeException("Invalid renderMode (" + renderMode + ")");

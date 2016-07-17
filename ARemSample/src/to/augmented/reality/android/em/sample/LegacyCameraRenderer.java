@@ -27,10 +27,10 @@ import android.support.v8.renderscript.RenderScript;
 import android.support.v8.renderscript.ScriptIntrinsicYuvToRGB;
 import android.support.v8.renderscript.Type;
 import android.util.Log;
-import android.util.Size;
 import to.augmented.reality.android.common.gl.GLTexture;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.ARImageFormat;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.Latcheable;
 import to.augmented.reality.android.em.ReviewListenable;
 
@@ -135,9 +135,8 @@ public class LegacyCameraRenderer extends GLRenderer
                                                 // use a valid camera id or pass a Camera instance to have delegation
             cameraId = Integer.parseInt(camera.getId());
             camera.setFiles(headerFile, framesFile, null, null);
-            Size previewSize = camera.getPreviewSize();
-            previewWidth = previewSize.getWidth();
-            previewHeight = previewSize.getHeight();
+            previewWidth = camera.getPreviewWidth();
+            previewHeight = camera.getPreviewHeight();
             bufferSize = camera.getPreviewBufferSize();
             camera.setFrameRate(EmulationControls.FPS);
             camera.setRepeat(EmulationControls.REPEAT);
@@ -180,8 +179,8 @@ public class LegacyCameraRenderer extends GLRenderer
       }
    }
 
-   public boolean startPreview(CountDownLatch latch)
-   //-----------------------------------------------
+   public boolean startPreview(CountDownLatch latch, ARSensorManager sensorManager)
+   //------------------------------------------------------------------------------
    {
       if (camera == null) return false;
       if (isPreviewing)
@@ -291,6 +290,7 @@ public class LegacyCameraRenderer extends GLRenderer
          ((Latcheable) camera).setLatch(latch);
          super.latch = latch;
       }
+      camera.setARSensorManager(sensorManager);
       camera.startPreview();
       isPreviewing = true;
       return true;

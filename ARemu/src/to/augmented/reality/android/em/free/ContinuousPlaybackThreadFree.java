@@ -19,9 +19,12 @@ package to.augmented.reality.android.em.free;
 import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.AbstractARCamera;
-import to.augmented.reality.android.em.Latcheable;
 import to.augmented.reality.android.em.FreePreviewListenable;
+import to.augmented.reality.android.em.Latcheable;
+import to.augmented.reality.android.em.QueuedRawSensorPlaybackThread;
+import to.augmented.reality.android.em.RawSensorPlaybackThread;
 import to.augmented.reality.android.em.Stoppable;
 
 import java.io.BufferedInputStream;
@@ -57,9 +60,11 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
 
    public ContinuousPlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
                                        AbstractARCamera.RecordFileFormat fileFormat, int bufferSize, int fps, boolean isRepeat,
-                                       ArrayBlockingQueue<byte[]> bufferQueue, FreePreviewListenable progress)
+                                       ArrayBlockingQueue<byte[]> bufferQueue, ARSensorManager sensorManager,
+                                       FreePreviewListenable progress)
    {
-      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, progress);
+      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, sensorManager,
+            progress);
    }
 
    @Override
@@ -72,8 +77,8 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
          try { startLatch.await(); } catch (InterruptedException e) { return; }
       }
 
-      Runnable orientationThread = null, locationThread = null;
-      ConcurrentLinkedQueue<Long> orientationTimestampQueue = null, locationTimestampQueue = null;
+      Runnable orientationThread = null, locationThread = null, sensorThread = null;
+      ConcurrentLinkedQueue<Long> orientationTimestampQueue = null, locationTimestampQueue = null, sensorTimestampQueue = null;
       long fpsInterval = -1L;
       if (fps > 0)
       {
@@ -114,6 +119,19 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                locationThread = new LocationCallbackThread(locationFile, locationListener);
             tc++;
          }
+         if (sensorManager != null)
+         {
+            if (fps > 0)
+            {
+               sensorTimestampQueue = new ConcurrentLinkedQueue<>();
+               sensorThread = new QueuedRawSensorPlaybackThread(sensorManager.getSensorFile(), sensorManager.getSensorMao(),
+                                                                sensorManager.getObservers(), null, sensorTimestampQueue);
+            }
+            else
+               sensorThread = new RawSensorPlaybackThread(sensorManager.getSensorFile(), sensorManager.getSensorMao(),
+                                                          sensorManager.getObservers());
+            tc++;
+         }
          CountDownLatch startLatch = new CountDownLatch(tc + 1);
          createThreadPool();
          if (orientationThread != null)
@@ -128,6 +146,12 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
             Future<?> future = threadPool.submit(locationThread);
             futures.add(future);
          }
+         if (sensorThread != null)
+         {
+            ((Latcheable) sensorThread).setLatch(startLatch);
+            Future<?> future = threadPool.submit(sensorThread);
+            futures.add(future);
+         }
          Thread.yield();
          startLatch.countDown();
          try { startLatch.await(); } catch (InterruptedException e) { mustStop = true; isStarted = false; return; }
@@ -137,8 +161,10 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
          else
             processStart = startTime = System.nanoTime();
          int readlen, iter = 0;
-         try (DataInputStream framesStream = new DataInputStream(new BufferedInputStream(new FileInputStream(framesFile), 65535)))
+         DataInputStream framesStream = null;
+         try
          {
+            framesStream = new DataInputStream(new BufferedInputStream(new FileInputStream(framesFile), 65535));
             if (progress != null)
                progress.onStarted();
             long frameStartTime = startTime, frameEndTime, size;
@@ -152,6 +178,8 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                      orientationTimestampQueue.offer(timestamp);
                   if (locationTimestampQueue != null)
                      locationTimestampQueue.offer(timestamp);
+                  if (sensorTimestampQueue != null)
+                     sensorTimestampQueue.offer(timestamp);
                }
                size = framesStream.readLong();
                if (size > 0)
@@ -219,7 +247,7 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                         cameraListener.onPreviewFrame(buffer, null);
                      else
                         camera2Listener.onPreviewFrame(buffer);
-                     if (!isUseBuffer)
+                     if ( (! isUseBuffer) && (bufferQueue.size() < PREALLOCATED_BUFFERS) )
                         bufferQueue.add(buffer);
                   }
 
@@ -234,13 +262,17 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                         long dt = frameEndTime - frameStartTime;
                         while (dt < fpsInterval)
                         {
+                           Thread.yield();
                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                               frameEndTime = SystemClock.elapsedRealtimeNanos();
                            else
                               frameEndTime = System.nanoTime();
                            dt = frameEndTime - frameStartTime;
                         }
-                        frameStartTime = frameEndTime;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+                           frameStartTime = SystemClock.elapsedRealtimeNanos();
+                        else
+                           frameStartTime = System.nanoTime();
                      }
                      else
                      {
@@ -261,6 +293,8 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                         orientationTimestampQueue.offer(timestamp);
                      if (locationTimestampQueue != null)
                         locationTimestampQueue.offer(timestamp);
+                     if (sensorTimestampQueue != null)
+                        sensorTimestampQueue.offer(timestamp);
                      if (size == 0)
                      {
                         buffer = null;
@@ -310,6 +344,11 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                progress.onError("ABEND", e); // Android/360
             throw new RuntimeException(e);
          }
+         finally
+         {
+            if (framesStream != null)
+               try { framesStream.close(); } catch (Exception _e) {}
+         }
          iter++;
          if (progress != null)
             again = progress.onComplete(iter);
@@ -320,6 +359,4 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
       try { stopThreads((Stoppable) orientationThread, (Stoppable) locationThread); } catch (InterruptedException _e) {}
       isStarted = false;
    }
-
-
 }

@@ -29,6 +29,7 @@ import to.augmented.reality.android.common.gl.GLHelper;
 import to.augmented.reality.android.common.gl.GLTexture;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.ARCameraDevice;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.ReviewListenable;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -96,6 +97,8 @@ public abstract class GLRenderer implements GLSurfaceView.Renderer
 
    String lastError = null;
 
+   protected ARSensorManager sensorManager = null;
+
    public GLRenderer(MainActivity activity, ARSurfaceView surfaceView)
    //----------------------------------------------------------------
    {
@@ -106,7 +109,7 @@ public abstract class GLRenderer implements GLSurfaceView.Renderer
 
    abstract protected boolean initCamera(StringBuilder errbuf) throws Exception;
 
-   abstract public boolean startPreview(CountDownLatch latch);
+   abstract public boolean startPreview(CountDownLatch latch, ARSensorManager sensorManager);
 
    abstract protected void stopCamera();
 
@@ -510,7 +513,7 @@ public abstract class GLRenderer implements GLSurfaceView.Renderer
          try { initCamera(errbuf); } catch (Exception e) { Log.e(TAG, "Camera initialization", e); activity.toast(errbuf.toString()); }
       }
       if (isPreviewing)
-         startPreview(latch);
+         startPreview(latch, sensorManager);
    }
 
    public void onSaveInstanceState(Bundle B)

@@ -22,7 +22,7 @@ Hard coded parameters. Implementing them in the UI is left as an exercise for th
 public class EmulationControls
 //============================
 {
-   // true emulates Camera 2 API, false emulates old Camera API
+   // true emulates Camera 2 API (requires >= Lollipop), false emulates old Camera API
    final static public boolean USE_CAMERA2_API = false;
 
    // true uses code which emulates API calls with mock objects (where possible),
@@ -30,11 +30,11 @@ public class EmulationControls
    final static public boolean IS_EMULATE_CAMERA = false;
 
    //true skips repeated frames, false shows all frames (for RecordingType.FREE recordings).
-   final static public boolean DIRTY_VIDEO = true;
+   final static public boolean DIRTY_VIDEO = false;
 
    //Frames per second. If DIRTY_VIDEO is false then FPS > 0 plays back at the specified frame rate
    // while FPS <= 0 attempts to play back at the original rate using stored timestamps.
-   final static public int FPS = 24;
+   final static public int FPS = 0;
 
    // true to continue repeating RecordingType.FREE recordings
    final static public boolean REPEAT = true;

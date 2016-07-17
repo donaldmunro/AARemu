@@ -230,6 +230,8 @@ public class OpenDialog extends DialogFragment
    //--------------------
    {
       super.onResume();
+      if (listViewFiles == null)
+         return;
       DisplayMetrics dm = getActivity().getResources().getDisplayMetrics();
       int width = dm.widthPixels;
       int height = dm.heightPixels;

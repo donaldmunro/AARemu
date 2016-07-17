@@ -71,6 +71,7 @@ import to.augmented.reality.android.em.ReviewListenable;
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
 
@@ -117,7 +118,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    int reviewPause =0, lastPause = -1;
    boolean isReviewing =false, isReviewRepeating =false, lastIsReviewRepeating = false;
 
-   ARSensorManager sensorManager;
+   ARSensorManager sensorManager = null;
 
    int uiOptions;
    final Handler hideHandler = new Handler();
@@ -233,7 +234,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          previewSurface.onRestoreInstanceState(B);
    }
 
-   CountDownLatch latch = new CountDownLatch(2);
+//   CountDownLatch latch = new CountDownLatch(2);
 
    private void startPreview()
    //-------------------------
@@ -264,22 +265,22 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          boolean isUsingVec = false;
          if ( (EmulationControls.USE_RAW_ROTATION_VEC) && (sensorFile.exists()) )
          {
-            icamera.setFreePreviewListener(new FreePreviewListenable()
-            {
-               @Override public void onStarted() { }
-
-               @Override public boolean onComplete(int iterNo)
-               //--------------------------------------------
-               {
-                  latch = new CountDownLatch(2);
-                  try { sensorManager.restart(latch); } catch (Exception e) { Log.e(TAG, "", e); }
-                  latch.countDown();
-                  try { latch.await(); } catch (InterruptedException e) { return false; }
-                  return true;
-               }
-
-               @Override public void onError(String msg, Exception e) { }
-            });
+//            icamera.setFreePreviewListener(new FreePreviewListenable()
+//            {
+//               @Override public void onStarted() { }
+//
+//               @Override public boolean onComplete(int iterNo)
+//               //--------------------------------------------
+//               {
+//                  latch = new CountDownLatch(2);
+//                  try { sensorManager.restart(latch); } catch (Exception e) { Log.e(TAG, "", e); }
+//                  latch.countDown();
+//                  try { latch.await(); } catch (InterruptedException e) { return false; }
+//                  return true;
+//               }
+//
+//               @Override public void onError(String msg, Exception e) { }
+//            });
             SensorManager manager = (SensorManager) getSystemService(Activity.SENSOR_SERVICE);
             try
             {
@@ -308,7 +309,6 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
                };
                Sensor sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
                sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_FASTEST);
-               sensorManager.start(latch);
                isUsingVec = true;
             }
             catch (Exception ee)
@@ -359,7 +359,8 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
          openButton.setText("Stop");
       else
          openButton.setText("Open");
-      previewSurface.startPreview(latch);
+//      previewSurface.startPreview(latch, sensorManager);
+      previewSurface.startPreview(null, sensorManager);
    }
 
    class LocationUpdateListener implements LocationListener

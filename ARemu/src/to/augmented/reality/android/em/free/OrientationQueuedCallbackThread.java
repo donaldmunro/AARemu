@@ -89,8 +89,10 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
          startTime = System.nanoTime();
       Long nextTimestamp = -1L;
       long timestamp = 0, lastTimestamp = 0;
-      try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 32768)))
+      DataInputStream dis = null;
+      try
       {
+         dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 32768));
          float x, y, z, w;
          Quaternion Q = null;
          int rlen;
@@ -115,7 +117,7 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
          isStarted = true;
          byte[] ab = null;
          int alen = 0;
-         while (!isStop)
+         while (! isStop)
          {
             nextTimestamp = timestampQueue.poll();
             if (nextTimestamp == null)
@@ -204,6 +206,11 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
       {
          Log.e(TAG, "", e);
          throw new RuntimeException(e);
+      }
+      finally
+      {
+         if (dis != null)
+            try { dis.close(); } catch (Exception _e) {}
       }
       Log.d(TAG, "Last Orientation timestamp read " + timestamp + " " +  nextTimestamp);
       isStarted = false;

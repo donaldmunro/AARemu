@@ -19,8 +19,11 @@ package to.augmented.reality.android.em.free;
 import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.FreePreviewListenable;
+import to.augmented.reality.android.em.Latcheable;
+import to.augmented.reality.android.em.QueuedRawSensorPlaybackThread;
 import to.augmented.reality.android.em.Stoppable;
 
 import java.io.BufferedInputStream;
@@ -49,9 +52,10 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
 
    public DirtyPlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
                                   AbstractARCamera.RecordFileFormat fileFormat, int bufferSize, int fps, boolean isRepeat,
-                                  ArrayBlockingQueue<byte[]> bufferQueue, FreePreviewListenable progress)
+                                  ArrayBlockingQueue<byte[]> bufferQueue, ARSensorManager sensorManager, FreePreviewListenable progress)
    {
-      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, progress);
+      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, sensorManager,
+            progress);
    }
 
    @Override
@@ -69,11 +73,12 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
       else if (fps > 1000)
          fps /= 1000;
       fpsInterval = 1000000000L / fps;
-      ConcurrentLinkedQueue<Long> orientationTimestampQueue = null, locationTimestampQueue = null;
+      ConcurrentLinkedQueue<Long> orientationTimestampQueue = null, locationTimestampQueue = null, sensorTimestampQueue = null;
       isStarted = true;
       mustStop = false;
       OrientationQueuedCallbackThread orientationThread = null;
       LocationQueuedCallbackThread locationThread = null;
+      QueuedRawSensorPlaybackThread sensorThread = null;
       int readlen = 0, iter = 0;
       boolean again;
       do
@@ -96,6 +101,13 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
             locationThread = new LocationQueuedCallbackThread(locationFile, locationTimestampQueue, locationListener);
             tc++;
          }
+         if (sensorManager != null)
+         {
+            sensorTimestampQueue = new ConcurrentLinkedQueue<>();
+            sensorThread = new QueuedRawSensorPlaybackThread(sensorManager.getSensorFile(), sensorManager.getSensorMao(),
+                                                             sensorManager.getObservers(), null, sensorTimestampQueue);
+            tc++;
+         }
          CountDownLatch startLatch = new CountDownLatch(tc + 1);
          createThreadPool();
          if (orientationThread != null)
@@ -110,6 +122,12 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
             Future<?> future = threadPool.submit(locationThread);
             futures.add(future);
          }
+         if (sensorThread != null)
+         {
+            ((Latcheable) sensorThread).setLatch(startLatch);
+            Future<?> future = threadPool.submit(sensorThread);
+            futures.add(future);
+         }
          Thread.yield();
          startLatch.countDown();
          try { startLatch.await(); } catch (InterruptedException e) { mustStop = true; isStarted = false; return; }
@@ -118,8 +136,10 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
             startTime = SystemClock.elapsedRealtimeNanos();
          else
             startTime = System.nanoTime();
-         try (DataInputStream framesStream = new DataInputStream(new BufferedInputStream(new FileInputStream(framesFile), 65535)))
+         DataInputStream framesStream = null;
+         try
          {
+            framesStream = new DataInputStream(new BufferedInputStream(new FileInputStream(framesFile), 65535));
             if (progress != null)
                progress.onStarted();
             long frameStartTime, frameEndTime, frameTimestamp, frameSize;
@@ -135,6 +155,8 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
                   orientationTimestampQueue.offer(frameTimestamp);
                if (locationTimestampQueue != null)
                   locationTimestampQueue.offer(frameTimestamp);
+               if (sensorTimestampQueue != null)
+                  sensorTimestampQueue.offer(frameTimestamp);
                frameSize = framesStream.readLong();
                if (frameSize > 0)
                {
@@ -168,7 +190,7 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
                         cameraListener.onPreviewFrame(buffer, null);
                      else
                         camera2Listener.onPreviewFrame(buffer);
-                     if (!isUseBuffer)
+                     if ( (!isUseBuffer) && (bufferQueue.size() < PREALLOCATED_BUFFERS) )
                         bufferQueue.add(buffer);
 
 //                     framecount++;
@@ -187,6 +209,7 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
                      long dt = frameEndTime - frameStartTime;
                      while (dt < fpsInterval)
                      {
+                        Thread.yield();
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                            frameEndTime = SystemClock.elapsedRealtimeNanos();
                         else
@@ -208,6 +231,8 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
                      orientationTimestampQueue.offer(frameTimestamp);
                   if (locationTimestampQueue != null)
                      locationTimestampQueue.offer(frameTimestamp);
+                  if (sensorTimestampQueue != null)
+                     sensorTimestampQueue.offer(frameTimestamp);
                   frameSize = framesStream.readLong();
                   if (frameSize == 0)
                   {
@@ -251,6 +276,11 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
             if (progress != null)
                progress.onError("ABEND", e); // Android/360
             throw new RuntimeException(e);
+         }
+         finally
+         {
+            if (framesStream != null)
+               try { framesStream.close(); } catch (Exception _e) {}
          }
          iter++;
          if (progress != null)

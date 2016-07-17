@@ -55,6 +55,10 @@ public interface ARCameraInterface extends Latcheable
 
    Size getPreviewSize();
 
+   int getPreviewWidth();
+
+   int getPreviewHeight();
+
    void setRepeat(boolean isRepeat);
 
    void setFreePreviewListener(FreePreviewListenable progress);
@@ -70,6 +74,8 @@ public interface ARCameraInterface extends Latcheable
    void setOrientationListener(OrientationListenable listener);
 
    void addCallbackBuffer(byte[] buffer);
+
+   void setARSensorManager(ARSensorManager sensorManager);
 
    void startPreview();
 }

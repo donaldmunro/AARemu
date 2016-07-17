@@ -19,10 +19,11 @@ package to.augmented.reality.android.em.free;
 import android.hardware.Camera;
 import android.location.LocationListener;
 import to.augmented.reality.android.common.sensor.orientation.OrientationListenable;
-import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.ARCameraDevice;
-import to.augmented.reality.android.em.Latcheable;
+import to.augmented.reality.android.em.ARSensorManager;
+import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.FreePreviewListenable;
+import to.augmented.reality.android.em.Latcheable;
 import to.augmented.reality.android.em.Stoppable;
 
 import java.io.DataInputStream;
@@ -41,7 +42,7 @@ abstract public class PlaybackThreadFree implements Runnable, Stoppable, Latchea
 //=================================================================================
 {
    final static private String TAG = "free/" + PlaybackThreadFree.class.getSimpleName();
-   final static private int PREALLOCATED_BUFFERS = 3;
+   final static protected int PREALLOCATED_BUFFERS = 3;
 
    protected final File framesFile;
    protected final File orientationFile;
@@ -59,6 +60,8 @@ abstract public class PlaybackThreadFree implements Runnable, Stoppable, Latchea
 
    protected CountDownLatch startLatch = null;
    @Override public void setLatch(CountDownLatch latch) { startLatch = latch; }
+
+   protected ARSensorManager sensorManager = null;
 
    final protected boolean isUseBuffer;
 
@@ -89,12 +92,12 @@ abstract public class PlaybackThreadFree implements Runnable, Stoppable, Latchea
    public PlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
                              AbstractARCamera.RecordFileFormat fileFormat, int bufferSize)
    {
-      this(framesFile, orientationFile, locationFile, fileFormat, bufferSize, -1, false, null, null);
+      this(framesFile, orientationFile, locationFile, fileFormat, bufferSize, -1, false, null, null, null);
    }
 
    public PlaybackThreadFree(File framesFile, File orientationFile, File locationFile, AbstractARCamera.RecordFileFormat fileFormat,
                              int bufferSize, int fps, boolean isRepeat, ArrayBlockingQueue<byte[]> bufferQueue,
-                             FreePreviewListenable progress)
+                             ARSensorManager sensorManager, FreePreviewListenable progress)
    //-----------------------------------------------------------------------------------------------------------
    {
       this.framesFile = framesFile;
@@ -107,6 +110,7 @@ abstract public class PlaybackThreadFree implements Runnable, Stoppable, Latchea
       this.bufferQueue = bufferQueue;
       this.progress = progress;
       isUseBuffer = (bufferQueue != null);
+      this.sensorManager = sensorManager;
       if (! isUseBuffer)
       {  // If not using user defined buffers create an internal buffer of buffers
          this.bufferQueue = new ArrayBlockingQueue<byte[]>(PREALLOCATED_BUFFERS);

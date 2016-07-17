@@ -25,6 +25,7 @@ import android.os.Bundle;
 import android.util.AttributeSet;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.ARCameraDevice;
+import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.ReviewListenable;
 
 import java.io.File;
@@ -138,11 +139,11 @@ public class ARSurfaceView extends GLSurfaceView
 
    public Renderer getRenderer() { return renderer; }
 
-   public void startPreview(CountDownLatch latch)
-   //------------------------------------------
+   public void startPreview(CountDownLatch latch, ARSensorManager sensorManager)
+   //---------------------------------------------------------------------------
    {
       if (renderer != null)
-         renderer.startPreview(latch);
+         renderer.startPreview(latch, sensorManager);
    }
 
    public void stopPreview()
