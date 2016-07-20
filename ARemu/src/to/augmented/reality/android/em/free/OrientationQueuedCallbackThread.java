@@ -183,7 +183,7 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
                      Thread.yield();
                      Long L = timestampQueue.poll();
                      if (L != null)
-                        nextTimestamp = L;
+                        nextTimestamp = L; // Slightly naughty - changes outer loop condition value
                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                         now = SystemClock.elapsedRealtimeNanos();
                      else

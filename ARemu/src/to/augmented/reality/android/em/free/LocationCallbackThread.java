@@ -74,14 +74,16 @@ class LocationCallbackThread implements Runnable, Stoppable, Latcheable
          processStart = startTime = SystemClock.elapsedRealtimeNanos();
       else
          processStart = startTime = System.nanoTime();
-      try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(locationFile), 16384)))
+      DataInputStream dis = null;
+      try
       {
+         dis = new DataInputStream(new BufferedInputStream(new FileInputStream(locationFile), 16384));
          Location location = null;
          try
          {
             lastTimestamp = timestamp =  dis.readLong();
-            char ch = dis.readChar();
-            boolean isGPSLocation = (ch == 'G');
+            char provider = (char) (dis.readByte() & 0xFF);
+            boolean isGPSLocation = (provider == 'G');
             double latitude = dis.readDouble();
             double longitude = dis.readDouble();
             double altitude = dis.readDouble();
@@ -130,8 +132,8 @@ class LocationCallbackThread implements Runnable, Stoppable, Latcheable
             {
                lastTimestamp = timestamp;
                timestamp =  dis.readLong();
-               char ch = dis.readChar();
-               boolean isGPSLocation = (ch == 'G');
+               char provider = (char) (dis.readByte() & 0xFF);
+               boolean isGPSLocation = (provider == 'G');
                double latitude = dis.readDouble();
                double longitude = dis.readDouble();
                double altitude = dis.readDouble();
@@ -147,6 +149,11 @@ class LocationCallbackThread implements Runnable, Stoppable, Latcheable
       catch (Exception e)
       {
          Log.e(TAG, "", e);
+      }
+      finally
+      {
+         if (dis != null)
+            try { dis.close(); } catch (Exception _e) {}
       }
       isStarted = false;
    }

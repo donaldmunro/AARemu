@@ -45,6 +45,7 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
 //==============================================================================
 {
    final static private String TAG = LocationHandler.class.getSimpleName();
+   final static private int RECORD_SIZE = (Long.SIZE + Byte.SIZE + Double.SIZE*3 + Float.SIZE) / 8;
 
    Location lastLocation;
    boolean isWaitingGPS = true, isWaitingNetLoc = true;
@@ -57,6 +58,7 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
    volatile boolean mustWrite = false;
    private long startTimestamp = 0;
    private int writeCount = 0;
+   private long filePos = 0;
 
    @SuppressLint({"NewApi", "MissingPermission, UseCheckPermission"})
    public LocationHandler(RecorderActivity activity, File dir) throws FileNotFoundException
@@ -214,9 +216,9 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
             {
                locationWriter.writeLong(timestamp);
                if (isGPSLocation)
-                  locationWriter.writeChar('G');
+                  locationWriter.writeByte('G');
                else
-                  locationWriter.writeChar('N');
+                  locationWriter.writeByte('N');
                locationWriter.writeDouble(location.getLatitude());
                locationWriter.writeDouble(location.getLongitude());
                locationWriter.writeDouble(location.getAltitude());
@@ -274,9 +276,6 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
       }
    }
 
-
-   private long filePos = 0;
-   final static private int RECORD_SIZE = (Long.SIZE + Character.SIZE + Double.SIZE*3 + Float.SIZE) / 8;
    @Override
    public BufferData read() throws IOException
    //----------------------------------------
@@ -284,7 +283,7 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
       try
       {
          long ts = locationReader.readLong();
-         char provider = locationReader.readChar();
+         char provider = (char) (locationReader.readByte() & 0xFF);
          double latitude = locationReader.readDouble();
          double longitude = locationReader.readDouble();
          double altitude = locationReader.readDouble();

@@ -81,14 +81,16 @@ class LocationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
       else
          startTime = System.nanoTime();
       long timestamp = 0, lastTimestamp = 0;
-      try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(locationFile), 16384)))
+      DataInputStream dis = null;
+      try
       {
+         dis = new DataInputStream(new BufferedInputStream(new FileInputStream(locationFile), 16384));
          Location location = null;
          try
          {
             timestamp =  dis.readLong();
-            char ch = dis.readChar();
-            boolean isGPSLocation = (ch == 'G');
+            char provider = (char) (dis.readByte() & 0xFF);
+            boolean isGPSLocation = (provider == 'G');
             double latitude = dis.readDouble();
             double longitude = dis.readDouble();
             double altitude = dis.readDouble();
@@ -122,8 +124,8 @@ class LocationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
                {
                   lastTimestamp = timestamp;
                   timestamp =  dis.readLong();
-                  char ch = dis.readChar();
-                  boolean isGPSLocation = (ch == 'G');
+                  char provider = (char) (dis.readByte() & 0xFF);
+                  boolean isGPSLocation = (provider == 'G');
                   double latitude = dis.readDouble();
                   double longitude = dis.readDouble();
                   double altitude = dis.readDouble();
@@ -158,7 +160,7 @@ class LocationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
                      Thread.sleep(20);
                      Long L = timestampQueue.poll();
                      if (L != null)
-                        nextTimestamp = L;
+                        nextTimestamp = L;  // Slightly naughty - changes outer loop condition value
                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
                         now = SystemClock.elapsedRealtimeNanos();
                      else
@@ -176,6 +178,11 @@ class LocationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
       catch (InterruptedException e)
       {
          isStop = true;
+      }
+      finally
+      {
+         if (dis != null)
+            try { dis.close(); } catch (Exception _e) {}
       }
       isStarted = false;
    }
