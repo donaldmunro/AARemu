@@ -62,11 +62,11 @@ too many errors for the specified increment (eg saving every 1 degree could be i
 
 
 The <b>Rotation sensor</b> specifies which orientation sensor fusion method to use for calculating the 
-device orientation and bearing for cooked orientation data. The sensor fusion
-code is based on work done by Alexander Pacha for his Masters thesis (see Credits below), although
-the vanilla Rotation Vector provided by Android which used a Kalman filter can also be used (in some
-cases it may provide better results due to manufacturers knowledge of idiosyncrasies of the hardware
-sensors used). The vanilla rotation vector is also the default sensor.
+device orientation and bearing for interactive mode or cooked orientation data for free recordings. The 
+sensor fusion code is based on work done by Alexander Pacha for his Masters thesis (see Credits below), 
+although the vanilla Rotation Vector provided by Android which used a Kalman filter can also be used 
+(in some cases it may provide better results due to manufacturers knowledge of idiosyncrasies of the 
+hardware sensors used). The vanilla rotation vector is also the default sensor.
 
 <b>Max Size</b> specifies the maximum size the recording can grow to (suffixed by 'G' for gigabytes,
 'M' for megabytes or 'K' for kilobytes - no suffix means bytes).
@@ -82,14 +82,13 @@ for recording in the dark (only visible if the device supports a flash).
 
 The <b>Camera2 API</b> specifies using the new Camera2 API.
 
- 
-When recording keeping the device at a constant vertical angle and rotating slowly and smoothly is important
-for accurate recording. 
-
 <h3>Issues, Caveats and Recommendations</h3>
 The two main issues for the 360 degree recording process are the stability of the compass bearing sensors 
 and ensuring that the frame that gets saved for a given bearing is the correct frame for that bearing. 
-The recorder uses a postprocessing step to attempt to minimize errors b y filtering bad frames. 
+Keeping the device at a constant vertical angle and rotating slowly and smoothly is thus important for 
+accurate interactive recordings. 
+
+The recorder uses a postprocessing step to attempt to minimize errors by filtering bad frames. 
 On some occasions there may still be a discontinuity between the start and end frame which may be 
 addressed in a future version by finding features in the first  frame and then trying to match them in 
 the final one. In the meantime The DisplayFrames app allows the insertion of single frames to
@@ -103,20 +102,21 @@ recording then it may be best to cancel the recording (press the recording butto
 ARemu
 -----
 <h3>Description and Usage</h3>
-This module provides the ARCamera and ARCamera2 mock classes as well as  supporting classes and is thus the primary module
-to be used by AR applications wishing to emulate an AR environment. In addition to the Camera API methods,
-ARCamera also provides supplementary API methods specific to playing back recordings such as setting the recording files. The
-render mode can also be set to dirty where frames are previewed only when the bearing changes, or continuous
-where the preview continuously receives frames. In the latter case the frame rate specified in the
-Camera.Parameters returned by ARCamera.getParameters is respected. When creating applications it is possible to
-emulate the C/C++ preprocessor #ifdef statements in Java by using the Just in Time (JIT) feature of the Java
-runtime to optimise out unused code (unfortunately unlike for C, it does not reduce code size, just speed):
+This module provides the ARCamera and ARCamera2 mock classes as well as  supporting classes and is thus 
+the primary module to be used by AR applications wishing to emulate an AR environment. In addition to the 
+Camera API methods, ARCamera also provides supplementary API methods specific to playing back recordings 
+such as setting the recording files. The render mode can also be set to dirty where frames are previewed only 
+when the bearing changes, or continuous where the preview continuously receives frames. In the latter case 
+the frame rate specified in the Camera.Parameters returned by ARCamera.getParameters is respected. 
+When creating applications it is possible to emulate the C/C++ preprocessor #ifdef statements in Java by 
+using the Just in Time (JIT) feature of the Java runtime to optimise out unused code (unfortunately unlike for C, 
+it does not reduce code size, just speed):
 
 <code>
-static final boolean EMULATION = true;<br>
-if (EMULATION)<br>
-&nbsp;&nbsp;&nbsp;cameraEm.startPreview();<br>
-else<br>
+static final boolean EMULATION = true;
+if (EMULATION)
+&nbsp;&nbsp;&nbsp;cameraEm.startPreview();
+else
 &nbsp;&nbsp;&nbsp;camera.startPreview();<br>
 </code>
 In the code above the unused branch will be optimised out.
@@ -162,6 +162,13 @@ OpenCV4Android as used by the OpenCV modules.
 
 Credits
 =======
+readerwriterqueue - A fast single-producer, single-consumer lock-free queue for C++ ([Github](https://github.com/cameron314/readerwriterqueue))
+is used in both the JNI Android code and the desktop C++ ARemu implementation. Simplified BSD License.
+
+filesystem - A tiny self-contained path manipulation library for C++ ([Github](https://github.com/wjakob/filesystem)) is used for file path manipulation 
+in the desktop C++ ARemu implementation. BSD license.
+
+portable_endian.h - Provides endian conversion functions on Windows, Linux, *BSD, and Mac OS X. ([Github Gist](https://gist.github.com/panzi/6856583)).
 
 ADraweLayout which is used to provide a sliding drawer UI is copyright DoubleTwist and is licensed under the
 Apache license. See their [Github site](https://github.com/doubletwist/adrawerlayoutlib).
