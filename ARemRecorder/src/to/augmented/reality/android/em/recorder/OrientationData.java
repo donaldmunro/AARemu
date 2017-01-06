@@ -61,6 +61,7 @@ public class OrientationData
          float[] R = new float[rlen];
          for (int i = 0; i < rlen; i++)
             R[i] = dis.readFloat();
+         float bearing = dis.readFloat();
          OrientationData data = new OrientationData(timestamp, Q, R);
          recordLen[0] = (Long.SIZE + Float.SIZE*(5 + rlen) + Integer.SIZE) / 8;
          return data;
@@ -98,6 +99,7 @@ public class OrientationData
       orientationWriter.writeInt(R.length);
       for (int i=0; i<R.length; i++)
          orientationWriter.writeFloat(R[i]);
+      orientationWriter.writeFloat((bearing < 0) ? bearing() : bearing);
    }
 
    public float bearing()

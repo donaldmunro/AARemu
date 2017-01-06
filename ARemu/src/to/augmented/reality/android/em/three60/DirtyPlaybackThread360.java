@@ -19,6 +19,7 @@ package to.augmented.reality.android.em.three60;
 import android.content.*;
 import android.os.*;
 import android.util.*;
+import android.view.Surface;
 import to.augmented.reality.android.common.sensor.orientation.*;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.Reviewable;
@@ -38,19 +39,13 @@ public class DirtyPlaybackThread360 extends PlaybackThread360 implements Runnabl
    final static private String TAG = DirtyPlaybackThread360.class.getSimpleName();
 
    public DirtyPlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
-                                 OrientationProvider.ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat)
-   //-------------------------------------------------------------------------------------------
-   {
-      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, null, -1);
-      bearingAvailCondVar = new ConditionVariable(false);
-   }
-
-   public DirtyPlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
                                  OrientationProvider.ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat,
-                                 ArrayBlockingQueue<byte[]> bufferQueue, int fps)
+                                 ArrayBlockingQueue<byte[]> bufferQueue, int fps,
+                                 int previewWidth, int previewHeight, Surface previewSurface)
    //-------------------------------------------------------------------------------------------
    {
-      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, bufferQueue, fps);
+      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, bufferQueue, fps,
+            previewWidth, previewHeight, previewSurface);
       bearingAvailCondVar = new ConditionVariable(false);
    }
 
@@ -107,7 +102,11 @@ public class DirtyPlaybackThread360 extends PlaybackThread360 implements Runnabl
                startBearing = offset;
                endBearing = startBearing + recordingIncrement;
                if (previewCallback != null)
+               {
                   previewCallback.onPreviewFrame(frameBuffer, null);
+                  if (surface != null)
+                     super.drawToSurface(frameBuffer);
+               }
                else
                   captureCallback.onPreviewFrame(frameBuffer);
                if (! isUseBuffer)

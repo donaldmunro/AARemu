@@ -74,10 +74,10 @@ public class NativeFrameBuffer implements Bufferable
 
    @Override public native void startTimestamp(long timestamp);
 
-   @Override public native void push(long timestamp, byte[] data);
+   @Override public native void push(long timestamp, byte[] data, int retries);
 
    public native void pushYUV(long timestamp, ByteBuffer Y, int ysize, ByteBuffer U, int usize, int ustride,
-                              ByteBuffer V, int vsize, int vstride);
+                              ByteBuffer V, int vsize, int vstride, int retries);
 
    @Override public native void writeOn();
 

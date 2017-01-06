@@ -16,9 +16,11 @@
 
 package to.augmented.reality.android.em.free;
 
+import android.content.Context;
 import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Surface;
 import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.FreePreviewListenable;
@@ -45,18 +47,17 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
    private static final int DEFAULT_FPS = 24;
 
    public DirtyPlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
-                                  AbstractARCamera.RecordFileFormat fileFormat, int bufferSize)
-   {
-      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize);
-   }
-
-   public DirtyPlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
-                                  AbstractARCamera.RecordFileFormat fileFormat, int bufferSize, int fps, boolean isRepeat,
-                                  ArrayBlockingQueue<byte[]> bufferQueue, ARSensorManager sensorManager, FreePreviewListenable progress)
+                                  AbstractARCamera.RecordFileFormat fileFormat, int bufferSize, int fps,
+                                  boolean isRepeat,
+                                  ArrayBlockingQueue<byte[]> bufferQueue, ARSensorManager sensorManager,
+                                  int previewWidth, int previewHeight, Context context, Surface surface,
+                                  int version, FreePreviewListenable progress)
+   //---------------------------------------------------------------------------------------------------------------
    {
       super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, sensorManager,
-            progress);
+            previewWidth, previewHeight, context, surface, version, progress);
    }
+
 
    @Override
    public void run()
@@ -92,7 +93,7 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
          {
             orientationTimestampQueue = new ConcurrentLinkedQueue<>();
             orientationThread = new OrientationQueuedCallbackThread(orientationFile, orientationTimestampQueue,
-                                                                    orientationListener);
+                                                                    orientationListener, version);
             tc++;
          }
          if ( (locationFile != null) && (locationFile.length() > 0) && (locationListener != null) )
@@ -187,7 +188,11 @@ public class DirtyPlaybackThreadFree extends PlaybackThreadFree implements Runna
                   if (buffer != null)
                   {
                      if (cameraListener != null)
+                     {
                         cameraListener.onPreviewFrame(buffer, null);
+                        if (surface != null)
+                           super.drawToSurface(buffer);
+                     }
                      else
                         camera2Listener.onPreviewFrame(buffer);
                      if ( (!isUseBuffer) && (bufferQueue.size() < PREALLOCATED_BUFFERS) )

@@ -35,10 +35,10 @@ public class FreeRecordingThread extends RecordingThread
 
    protected FreeRecordingThread(GLRecorderRenderer renderer, Previewable previewer, File recordDir,
                                  long maxSize, ConditionVariable frameAvailCondVar,
-                                 OrientationHandler orientationHandler, LocationHandler locationHandler, boolean isDebug)
-   //-------------------------------------------------------------------------
+                                 OrientationHandler orientationHandler, LocationHandler locationHandler, boolean isPostProcess)
+   //--------------------------------------------------------------------------------------------------------------------------
    {
-      super(renderer, previewer, recordDir, maxSize, frameAvailCondVar, orientationHandler, locationHandler, isDebug);
+      super(renderer, previewer, recordDir, maxSize, frameAvailCondVar, orientationHandler, locationHandler, isPostProcess);
    }
 
    @Override
@@ -51,6 +51,7 @@ public class FreeRecordingThread extends RecordingThread
       wakeLock.acquire();
       final long timestamp = SystemClock.elapsedRealtimeNanos();
       boolean isCreated = false;
+      PrintWriter headerWriter = null;
       Bufferable previewBuffer = (Bufferable) previewer;
       Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
       try
@@ -137,24 +138,86 @@ public class FreeRecordingThread extends RecordingThread
          previewer.setFlash(false);
          previewer.suspendPreview();
 
+         Log.w(TAG, "=================================== FreeRecording ============================");
+
+         File headerFile = new File(recordingDir, recordingDir.getName() + ".head");
          File orientationFile = orientationHandler.writeFile();
          int orientationCount = orientationHandler.writeCount();
+         try
+         {
+            headerWriter = new PrintWriter(headerFile);
+            if (locationHandler != null)
+            {
+               File locationFile = locationHandler.writeFile();
+               if ( (locationFile != null) && (locationFile.exists()) && (locationFile.length() > 0) )
+                  headerWriter.println(String.format(Locale.US, "LocationFile=%s", locationFile.getAbsolutePath()));
+            }
+            headerWriter.println(String.format(Locale.US, "Version=%d", renderer.getVersionCode()));
+            headerWriter.println(String.format(Locale.US, "VersionName=%s", renderer.getVersionName()));
+            headerWriter.println(String.format(Locale.US, "StartTime=%d", startTime));
+            headerWriter.println(String.format(Locale.US, "BufferSize=%d", renderer.rgbaBufferSize));
+            headerWriter.println(String.format(Locale.US, "RawBufferSize=%d", renderer.rawBufferSize));
+            headerWriter.println(String.format(Locale.US, "RawBufferFormat=%s", previewer.getPreviewFormat()));
+            headerWriter.println(String.format(Locale.US, "PreviewWidth=%d", renderer.previewWidth));
+            headerWriter.println(String.format(Locale.US, "PreviewHeight=%d", renderer.previewHeight));
+            headerWriter.println(String.format(Locale.US, "FocalLength=%.6f", previewer.getFocalLen()));
+            headerWriter.println(String.format(Locale.US, "HorizontalViewAngle=%.6f", previewer.getFovx()));
+            headerWriter.println(String.format(Locale.US, "VerticalViewAngle=%.6f", previewer.getFovy()));
+            headerWriter.println("Type=FREE");
+            OrientationProvider.ORIENTATION_PROVIDER orientationProviderType = orientationHandler.getType();
+            headerWriter.println(String.format(Locale.US, "OrientationProvider=%s",
+                                               (orientationProviderType == null) ? OrientationProvider.ORIENTATION_PROVIDER.DEFAULT.name()
+                                                                                 : orientationProviderType.name()));
+            headerWriter.println(String.format(Locale.US, "OrientationCount=%d", orientationCount));
+            headerWriter.flush();
+         }
+         catch (IOException ee)
+         {
+            Log.e(TAG, "Error creating header file " + headerFile, ee);
+         }
+
+         if (isPostProcess)
+         {
+            renderer.toast("Raw frames and sensor data saved in " + recordingDir.getAbsolutePath());
+            renderer.isPause = false;
+            renderer.requestRender();
+            previewer.setFlash(false);
+            return true;
+         }
+
          orientationCount = orientationFilter(recordingDir, orientationFile, -1, progress, orientationCount, false, 8,
-                                              -1, isDebug);
+                                              -1);
          File smoothOrientationFile = new File(recordingDir, orientationFile.getName() + ".smooth");
          if ( (orientationCount < 0) || (! smoothOrientationFile.exists()) || (smoothOrientationFile.length() == 0) )
          {
             Log.e(TAG, "Orientation filter failed");
             smoothOrientationFile = null;
          }
+         else if (headerFile != null)
+         {
+            try
+            {
+               headerWriter.println(String.format(Locale.US, "OrientationFile=%s", orientationFile.getAbsolutePath()));
+               if ((smoothOrientationFile != null) && (smoothOrientationFile.exists()) && (smoothOrientationFile.length() > 0))
+                  headerWriter.println(String.format(Locale.US, "FilteredOrientationFile=%s",
+                                                     smoothOrientationFile.getAbsolutePath()));
+               headerWriter.println(String.format(Locale.US, "FilteredOrientationCount=%d", orientationCount));
+               headerWriter.flush();
+            }
+            catch (Exception _e)
+            {
+               Log.e(TAG, "Error updating header file with orientation", _e);
+            }
+         }
          previewBuffer.openForReading();
-         Bufferable rgbaBuffer = convertFrames(recordingDir, previewBuffer, previewer, progress, true, isDebug);
+         Bufferable rgbaBuffer = convertFrames(recordingDir, previewBuffer, previewer, progress, false, null, null);
          if (rgbaBuffer == null)
          {
             Log.e(TAG, "Error converting frames");
+            renderer.toast("Error converting frames");
             return false;
          }
-         if (! isDebug)
+         if (!isPostProcess)
          {
             File f = new File(recordingDir, "frames.RAW");
             f.delete();
@@ -169,36 +232,16 @@ public class FreeRecordingThread extends RecordingThread
                f = ff;
             isCreated = ( (f.exists()) && (f.length() > 0) );
          }
-         if (isCreated)
+         if ( (isCreated) && (headerFile != null) )
          {
-            File headerFile = new File(recordingDir, recordingDir.getName() + ".head");
-            try (PrintWriter headerWriter = new PrintWriter(headerFile))
+            try
             {
-               headerWriter.println(String.format(Locale.US, "FramesFile=%s", f.getAbsolutePath()));
-               headerWriter.println(String.format(Locale.US, "OrientationFile=%s", orientationFile.getAbsolutePath()));
-               if ( (smoothOrientationFile != null) && (smoothOrientationFile.exists()) && (smoothOrientationFile.length() > 0) )
-                  headerWriter.println(String.format(Locale.US, "FilteredOrientationFile=%s", smoothOrientationFile.getAbsolutePath()));
-               if (locationHandler != null)
-               {
-                  File locationFile = locationHandler.writeFile();
-                  if ( (locationFile != null) && (locationFile.exists()) && (locationFile.length() > 0) )
-                     headerWriter.println(String.format(Locale.US, "LocationFile=%s", locationFile.getAbsolutePath()));
-               }
-               headerWriter.println(String.format(Locale.US, "StartTime=%d", startTime));
-               headerWriter.println(String.format(Locale.US, "BufferSize=%d", renderer.rgbaBufferSize));
-               headerWriter.println(String.format(Locale.US, "PreviewWidth=%d", renderer.previewWidth));
-               headerWriter.println(String.format(Locale.US, "PreviewHeight=%d", renderer.previewHeight));
-               headerWriter.println(String.format(Locale.US, "FocalLength=%.6f", previewer.getFocalLen()));
                headerWriter.println("FileFormat=RGBA");
-               headerWriter.println("Type=FREE");
-               OrientationProvider.ORIENTATION_PROVIDER orientationProviderType = orientationHandler.getType();
-               headerWriter.println(String.format(Locale.US, "OrientationProvider=%s",
-                                                  (orientationProviderType == null) ? OrientationProvider.ORIENTATION_PROVIDER.DEFAULT.name()
-                                                                                    : orientationProviderType.name()));
+               headerWriter.println(String.format(Locale.US, "FramesFile=%s", f.getAbsolutePath()));
             }
-            catch (IOException ee)
+            catch (Exception _e)
             {
-               Log.e(TAG, "Error creating header file " + headerFile);
+               Log.e(TAG, "Error updating header file with frames file name", _e);
             }
          }
       }
@@ -231,7 +274,9 @@ public class FreeRecordingThread extends RecordingThread
       finally
       {
          wakeLock.release();
-         if (! isDebug)
+         if (headerWriter != null)
+            try { headerWriter.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }
+         if ( (! RecorderActivity.IS_DEBUG) && (! isPostProcess) )
          {
             File f = new File(recordingDir, "frames.RAW");
             f.delete();

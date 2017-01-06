@@ -35,6 +35,7 @@ import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 
@@ -66,7 +67,8 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    protected String error = null;
    protected File recordingFile;
    protected long maxFrameFileSize = 10000000000L; // ~= 10Gb
-   protected boolean isDebug = false;
+   protected boolean isPostProcess = false;
+   public boolean isPostProcess() { return isPostProcess; }
 
    public String getError() { return error; }
 //   protected File recordCompleteBearingsFile = null;
@@ -74,7 +76,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
 
    protected RecordingThread(GLRecorderRenderer renderer, Previewable previewer, File recordDir, long maxSize,
                              ConditionVariable frameAvailCondVar, OrientationHandler orientationHandler,
-                             LocationHandler locationHandler, boolean isDebug)
+                             LocationHandler locationHandler, boolean isPostProcess)
    //----------------------------------------------------------------------------------------------------------------
    {
       this.renderer = renderer;
@@ -101,8 +103,8 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       this.frameAvailCondVar = frameAvailCondVar;
       this.isStartRecording = true;
       logFile = new File(renderer.recordDir, "log");
-      Log.i(TAG, "Record debug mode: " + isDebug);
-      this.isDebug = isDebug;
+      Log.i(TAG, "Record post-process mode: " + isPostProcess);
+      this.isPostProcess = isPostProcess;
       try
       {
          logWriter = new PrintStream(new BufferedOutputStream(new FileOutputStream(logFile)));
@@ -152,13 +154,14 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    }
 
    protected NativeFrameBuffer convertFrames(File dir, Bufferable framesBuffer, Previewable previewer,
-                                             ProgressParam progress, boolean isRemoveRepeats, boolean isDebug)
+                                             ProgressParam progress, boolean isRemoveRepeats, int[] shift_totals,
+                                             int[] framecount)
          throws IOException
    //-----------------------------------------------------------------------------------------------------------
    {
       File f = new File(dir, "frames.RGBA"), ff = null;
       PrintWriter pw = null;
-      if (isDebug)
+      if (RecorderActivity.IS_DEBUG)
       {
          ff = new File(dir, "framestamps.txt");
          try { pw = new PrintWriter(new FileWriter(ff)); } catch (Exception e) { pw = null; Log.e(TAG, "Create frame timestamps file", e); }
@@ -166,6 +169,14 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       int count = framesBuffer.writeCount();
       if (count == 0)
          count = 1;
+      if (shift_totals != null)
+      {
+         shift_totals[0] = 0;
+         if (shift_totals.length > 1)
+            shift_totals[1] = 0;
+      }
+      if (framecount != null)
+         framecount[0] = 0;
       if (progress != null)
       {
          progress.setStatus("Frame Conversion", 0, false, 0);
@@ -181,10 +192,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       newFrameBuffer.bufferOff();
       newFrameBuffer.writeFile(f.getAbsolutePath());
       if (isRemoveRepeats)
-      {
          grey = new byte[renderer.rgbaBufferSize / 4];
-         nextGrey = new byte[renderer.rgbaBufferSize / 4];
-      }
 
 //      ByteBuffer bb = (ByteBuffer) frameBufData.data;
 //      bb.rewind();
@@ -212,31 +220,29 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
             publishProgress(progress);
          }
          ts2 = frameBufData.timestamp;
+
+         if (isRemoveRepeats)
+            nextGrey = new byte[renderer.rgbaBufferSize / 4];
+
          byte[] nextframe = convertRGBA(previewer, (ByteBuffer) frameBufData.data, previewer.getPreviewBufferSize(),
                                         nextGrey);
+
+//         Mat m = new Mat(h, w, CvType.CV_8UC1);
+//         m.put(0, 0, grey);
+//         Imgcodecs.imwrite("/sdcard/1.png", m);
+//         m.put(0, 0, nextGrey);
+//         Imgcodecs.imwrite("/sdcard/2.png", m);
+//         m = new Mat(h, w, CvType.CV_8UC4);
+//         m.put(0, 0, frame);
+//         Imgcodecs.imwrite("/sdcard/3.png", m);
+//         m.put(0, 0, nextframe);
+//         Imgcodecs.imwrite("/sdcard/4.png", m);
+
          try { psnr = CV.PSNR(w, h, frame, nextframe); } catch (Exception ee) { Log.e(TAG, "", ee); psnr = -1; }
          if (psnr < 0)
-         {
             continue;
-//            if (pw != null)
-//               pw.close();
-//            Mat m = new Mat(h, w, CvType.CV_8UC1);
-//            m.put(0, 0, frame);
-//            Imgcodecs.imwrite("/sdcard/bad1.png", m);
-//            m.put(0, 0, nextframe);
-//            Imgcodecs.imwrite("/sdcard/bad2.png", m);
-//            throw new RuntimeException("PSNR exception: images in /sdcard/bad1.png, /sdcard/bad2.png");
-         }
          if (isRemoveRepeats)
          {
-//               if (renderer.activity.isOpenCVJava())
-//               {
-//                  Mat m = new Mat(h, w, CvType.CV_8UC1);
-//                  m.put(0, 0, grey);
-//                  Imgcodecs.imwrite("/sdcard/m1.png", m);
-//                  m.put(0, 0, nextGrey);
-//                  Imgcodecs.imwrite("/sdcard/m2.png", m);
-//               }
             if ( (psnr == 0) || (psnr > 32) )
             {
                duplicateTimestamps.add(ts2);
@@ -253,6 +259,17 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
                      pw.println("T   " + ts + " " + shift[0]);
                   continue;
                }
+               else
+               {
+                  if (shift_totals != null)
+                  {
+                     shift_totals[0] += shift[0];
+                     if (shift_totals.length > 1)
+                        shift_totals[1] += shift[1];
+                  }
+                  if (framecount != null)
+                     framecount[0]++;
+               }
             }
             catch (NativeCVException ee)
             {
@@ -266,18 +283,19 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          }
          if (pw != null)
             pw.println(ts);
-         newFrameBuffer.push(ts, frame);
+         newFrameBuffer.push(ts, frame, -1);
          if (! duplicateTimestamps.isEmpty())
          {
             for (long timestamp : duplicateTimestamps)
             {
-               newFrameBuffer.push(timestamp, null);
+               newFrameBuffer.push(timestamp, null, -1);
                if (pw != null)
                   pw.println("D   " + timestamp);
             }
             duplicateTimestamps.clear();
          }
          frame = nextframe;
+         grey = null;
          grey = nextGrey;
          ts = ts2;
       }
@@ -293,7 +311,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       return newFrameBuffer;
    }
 
-   private byte[] convertRGBA(Previewable previewer, ByteBuffer frameData, int previewBufferSize, byte[] grey)
+   protected byte[] convertRGBA(Previewable previewer, ByteBuffer frameData, int previewBufferSize, byte[] grey)
    //---------------------------------------------------------------------------------------------------------
    {
       if (frameData == null)
@@ -301,18 +319,19 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       byte[] frame = new byte[previewBufferSize];
       frameData.rewind();
       frameData.get(frame);
-      return previewer.toRGBA(activity, frame, renderer.previewWidth, renderer.previewHeight, renderer.rgbaBufferSize, grey);
+      return previewer.toRGBA(activity, frame, renderer.previewWidth, renderer.previewHeight, renderer.rgbaBufferSize,
+                              grey);
    }
 
    protected int orientationFilter(File dir, File orientationFile, float startBearing, ProgressParam progress,
-                                    int count, boolean isMonotonic, float rangeCheck, boolean isDebug)
+                                    int count, boolean isMonotonic, float rangeCheck)
    //-----------------------------------------------------------------------------------------------------
    {
-      return orientationFilter(dir, orientationFile, startBearing, progress, count, isMonotonic, rangeCheck, -1, isDebug);
+      return orientationFilter(dir, orientationFile, startBearing, progress, count, isMonotonic, rangeCheck, -1);
    }
 
    protected int orientationFilter(File dir, File orientationFile, float startBearing, ProgressParam progress,
-                                    int count, boolean isMonotonic, float rangeCheck, int kernelSize, boolean isDebug)
+                                    int count, boolean isMonotonic, float rangeCheck, int kernelSize)
    //---------------------------------------------------------------------------------------------------------------
    {
       if (progress != null)
@@ -337,9 +356,12 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       }
       float previousBearing = -1;
       PrintWriter pw = null;
-      try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 65535));
-           DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f), 65535)))
+      DataInputStream dis = null;
+      DataOutputStream dos = null;
+      try
       {
+         dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 65535));
+         dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(f), 65535));
          long[] recordLen = new long[1];
          OrientationData data = OrientationData.read(dis, recordLen);
          int n = 0;
@@ -353,8 +375,19 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
                data = OrientationData.read(dis, recordLen);
                n++;
             }
+            if (data == null)
+            {
+               String err = String.format(Locale.US, "Could not find start bearing %.3f in orientation file %s",
+                                          startBearing, orientationFile.getName());
+               Log.e(TAG, err);
+               progress.setStatus(err, 0, false, 0);
+               publishProgress(progress);
+               try { dos.close(); dos = null; } catch (Exception _e) {}
+               f.delete();
+               return -1;
+            }
          }
-         if (isDebug)
+         if (RecorderActivity.IS_DEBUG)
             try { pw = new PrintWriter(new FileWriter(new File(dir, "bearingstamps.txt"))); } catch (Exception _e) { pw = null; Log.e(TAG, "", _e); }
          int outOfRange = 0;
          boolean isStarted = false;
@@ -452,7 +485,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
             }
          }
       }
-      catch (IOException e)
+      catch (Exception e)
       {
          StringBuilder sb = new StringBuilder();
          sb.append(orientationFile);
@@ -464,8 +497,12 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
       }
       finally
       {
+         if (dis != null)
+            try { dis.close(); } catch (Exception _e) {}
+         if (dos != null)
+            try { dos.close(); } catch (Exception _e) {}
          if (pw != null)
-            pw.close();
+            try { pw.close(); } catch (Exception _e) {}
       }
       if (progress != null)
       {
@@ -612,7 +649,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
    public static void delDirContents(File dir)
    //------------------------------------
    {
-      if (dir.isDirectory())
+      if ( (dir != null) && (dir.isDirectory()) )
       {
          for (File f : dir.listFiles())
          {
@@ -623,7 +660,7 @@ abstract public class RecordingThread extends AsyncTask<Void, ProgressParam, Boo
          }
          dir.delete();
       }
-      else
+      else if (dir != null)
          dir.delete();
    }
 

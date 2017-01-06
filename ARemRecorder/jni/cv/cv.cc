@@ -15,7 +15,10 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/ocl.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/features2d/features2d.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include "opencv2/stitching.hpp"
 
 #ifndef DESKTOP
 #define  LOG_TAG    "framediff.so"
@@ -437,6 +440,111 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1
       env->ReleasePrimitiveArrayCritical(image1, img2, 0);
    if (result_arr != nullptr)
       env->ReleaseIntArrayElements(result, result_arr, 0);
+}
+
+inline bool stitch(std::vector<cv::Mat>& v, uchar* output)
+//--------------------------------------------------------
+{
+   cv::Mat res; //(image1.rows, image1.cols*2, CV_8UC4);
+   cv::Stitcher::Mode mode = cv::Stitcher::Mode::SCANS;
+   cv::Ptr<cv::Stitcher> stitcher = cv::Stitcher::create(mode, false);
+   // stitcher->setFeaturesFinder(cv::makePtr<cv::detail::OrbFeaturesFinder>(cv::Size(3,1), 1000));
+   cv::Stitcher::Status status = stitcher->stitch(v, res);
+   switch (status)
+   {
+      case cv::Stitcher::Status::OK:
+      {
+         cv::Mat result(v[0].rows, v[0].cols, CV_8UC4, output);
+         cv::Mat resa(v[0].rows, v[0].cols, CV_8UC4);
+//         cv::imwrite("/sdcard/stitch-result0.png", res);
+         cv::cvtColor(res, resa, CV_RGB2RGBA);
+         if ( (res.rows != v[0].rows) || (res.cols != v[0].cols) )
+            cv::resize(resa, result, result.size(), 0, 0, cv::INTER_LANCZOS4);
+         else
+            resa.copyTo(result);
+//         cv::imwrite("/sdcard/stitch-1.png", v[0]);
+//         cv::imwrite("/sdcard/stitch-2.png", v[1]);
+//         cv::imwrite("/sdcard/stitch-3.png", v[2]);
+//         cv::imwrite("/sdcard/stitch-result1.png", result);
+         return true;
+      }
+      case cv::Stitcher::Status::ERR_NEED_MORE_IMGS:
+         LOGE("cv::STITCH: Stitcher returned ERR_NEED_MORE_IMGS"); break;
+      case cv::Stitcher::Status::ERR_HOMOGRAPHY_EST_FAIL:
+         LOGE("cv::STITCH: Stitcher returned ERR_HOMOGRAPHY_EST_FAIL"); break;
+      case cv::Stitcher::Status::ERR_CAMERA_PARAMS_ADJUST_FAIL:
+         LOGE("cv::STITCH: Stitcher returned ERR_CAMERA_PARAMS_ADJUST_FAIL"); break;
+      default:
+         LOGE("cv::STITCH: Stitcher returned unknown status %d", status); break;
+   }
+   return false;
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_STITCH3__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
+  (JNIEnv *env, jclass klass, jint width, jint height, jobject im1, jobject im2, jobject im3, jobject output)
+//----------------------------------------------------------------------------------------------------------------------------------------------------
+{
+   uchar* img1 = (uchar*) env->GetDirectBufferAddress(im1);
+   uchar* img2 = (uchar*) env->GetDirectBufferAddress(im2);
+   uchar* img3 = (uchar*) env->GetDirectBufferAddress(im3);
+   cv::Mat rgba1(height, width, CV_8UC4, img1), rgba2(height, width, CV_8UC4, img2),
+           rgba3(height, width, CV_8UC4, img3);
+   cv::Mat image1(height, width, CV_8UC3), image2(height, width, CV_8UC3),
+           image3(height, width, CV_8UC3);
+   cv::cvtColor(rgba1, image1, CV_RGBA2RGB);
+   cv::cvtColor(rgba2, image2, CV_RGBA2RGB);
+   cv::cvtColor(rgba3, image3, CV_RGBA2RGB);
+
+   uchar* res = (uchar*) env->GetDirectBufferAddress(output);
+   std::vector<cv::Mat> v;
+   v.push_back(image1);
+   v.push_back(image2);
+   v.push_back(image3);
+   return (stitch(v, res)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_STITCH3__II_3B_3B_3B_3B
+  (JNIEnv *env, jclass klass, jint width, jint height, jbyteArray im1, jbyteArray im2, jbyteArray im3,
+   jbyteArray output)
+//--------------------------------------------------------------------------------------------
+{
+   jboolean ret = JNI_FALSE;
+   uchar *img1 = nullptr, *img2 = nullptr, *img3 = nullptr, *res;
+   try
+   {
+      img1 =  (uchar *) env->GetPrimitiveArrayCritical(im1, 0);
+      cv::Mat rgba1(height, width, CV_8UC4, img1), image1(height, width, CV_8UC3);
+      cv::cvtColor(rgba1, image1, CV_RGBA2RGB);
+      img2 =  (uchar *) env->GetPrimitiveArrayCritical(im2, 0);
+      cv::Mat rgba2 = cv::Mat(height, width, CV_8UC4, img2), image2(height, width, CV_8UC3);
+      cv::cvtColor(rgba2, image2, CV_RGBA2RGB);
+      img3 =  (uchar *) env->GetPrimitiveArrayCritical(im3, 0);
+      cv::Mat rgba3(height, width, CV_8UC4, img3), image3(height, width, CV_8UC3);
+      cv::cvtColor(rgba3, image3, CV_RGBA2RGB);
+      res =  (uchar *) env->GetPrimitiveArrayCritical(output, 0);
+      std::vector<cv::Mat> v;
+      v.push_back(image1);
+      v.push_back(image2);
+      v.push_back(image3);
+      ret = (stitch(v, res)) ? JNI_TRUE : JNI_FALSE;
+  }
+  catch (std::exception &e)
+  {
+     std::stringstream ss;
+     ss << "STITCH Fatal Exception: " << e.what();
+     const char *errm = ss.str().c_str();
+     LOGE("%s", errm);
+     throw_jni(env, errm,"java/lang/RuntimeException");
+  }
+  if (img1 != nullptr)
+     env->ReleasePrimitiveArrayCritical(im1, img1, 0);
+  if (img2 != nullptr)
+     env->ReleasePrimitiveArrayCritical(im2, img2, 0);
+  if (img3 != nullptr)
+     env->ReleasePrimitiveArrayCritical(im3, img3, 0);
+  if (res != nullptr)
+     env->ReleasePrimitiveArrayCritical(output, res, 0);
+  return ret;
 }
 
 void kludge(int width, int height, cv::Mat &rgba, int shift, bool is_right,

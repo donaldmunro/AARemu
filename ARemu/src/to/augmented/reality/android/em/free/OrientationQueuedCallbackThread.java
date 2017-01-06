@@ -49,6 +49,8 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
 
    private final File orientationFile;
 
+   private int version =-1;
+
    volatile private boolean isStop = false, isStarted = false;
 
    @Override public boolean isStarted() { return isStarted; }
@@ -57,23 +59,25 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
 
    public OrientationQueuedCallbackThread(File f, CountDownLatch startLatch,
                                           ConcurrentLinkedQueue<Long> timestampQueue,
-                                          OrientationListenable orientationListener)
+                                          OrientationListenable orientationListener, int version)
    //--------------------------------------------------------------------------------------------------
    {
       this.startLatch = startLatch;
       this.timestampQueue = timestampQueue;
       this.orientationListener = orientationListener;
       this.orientationFile = f;
+      this.version = version;
    }
 
    public OrientationQueuedCallbackThread(File f, ConcurrentLinkedQueue<Long> timestampQueue,
-                                          OrientationListenable orientationListener)
+                                          OrientationListenable orientationListener, int version)
    //--------------------------------------------------------------------------------------------------
    {
       this.startLatch = null;
       this.timestampQueue = timestampQueue;
       this.orientationListener = orientationListener;
       this.orientationFile = f;
+      this.version = version;
    }
 
    @Override
@@ -93,7 +97,7 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
       try
       {
          dis = new DataInputStream(new BufferedInputStream(new FileInputStream(orientationFile), 32768));
-         float x, y, z, w;
+         float x, y, z, w, bearing;
          Quaternion Q = null;
          int rlen;
          float[] R = null;
@@ -109,6 +113,8 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
             R = new float[rlen];
             for (int i = 0; i < rlen; i++)
                R[i] = dis.readFloat();
+            if (version > 20)
+               bearing = dis.readFloat();
          }
          catch (EOFException e)
          {
@@ -151,6 +157,8 @@ class OrientationQueuedCallbackThread implements Runnable, Stoppable, Latcheable
                      alen = rlen;
                   }
                   dis.readFully(ab);
+                  if (version > 20)
+                     bearing = dis.readFloat();
                   FloatBuffer fb = ByteBuffer.wrap(ab).asFloatBuffer();
                   fb.rewind();
                   fb.get(R);

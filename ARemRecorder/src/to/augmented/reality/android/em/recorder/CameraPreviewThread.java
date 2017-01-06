@@ -264,7 +264,7 @@ class CameraPreviewThread extends HandlerThread implements Camera.PreviewCallbac
          return;
       }
       long timestamp = SystemClock.elapsedRealtimeNanos();
-      frameBuffer.push(timestamp, data);
+      frameBuffer.push(timestamp, data, 5);
       frameAvailCondVar.open();
 
 //      try (FileOutputStream fw = new FileOutputStream(new File("/sdcard/Documents/ARRecorder/t/frame.nv21"))

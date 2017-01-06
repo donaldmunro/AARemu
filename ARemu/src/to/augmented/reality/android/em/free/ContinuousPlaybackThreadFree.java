@@ -16,9 +16,11 @@
 
 package to.augmented.reality.android.em.free;
 
+import android.content.Context;
 import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Surface;
 import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.AbstractARCamera;
 import to.augmented.reality.android.em.FreePreviewListenable;
@@ -52,19 +54,15 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
 {
    final static private String TAG = "free/" + ContinuousPlaybackThreadFree.class.getSimpleName();
 
-   public ContinuousPlaybackThreadFree(File framesFile, File orientationFile, File locationFile, AbstractARCamera.RecordFileFormat fileFormat,
-                                       int bufferSize)
-   {
-      super(framesFile, orientationFile, locationFile, fileFormat, bufferSize);
-   }
-
    public ContinuousPlaybackThreadFree(File framesFile, File orientationFile, File locationFile,
                                        AbstractARCamera.RecordFileFormat fileFormat, int bufferSize, int fps, boolean isRepeat,
                                        ArrayBlockingQueue<byte[]> bufferQueue, ARSensorManager sensorManager,
-                                       FreePreviewListenable progress)
+                                       int previewWidth, int previewHeight, Context context, Surface previewSurface,
+                                       int version, FreePreviewListenable progress)
+    //-------------------------------------------------------------------------------------------------------------
    {
       super(framesFile, orientationFile, locationFile, fileFormat, bufferSize, fps, isRepeat, bufferQueue, sensorManager,
-            progress);
+            previewWidth, previewHeight, context, previewSurface, version, progress);
    }
 
    @Override
@@ -102,10 +100,10 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
             {
                orientationTimestampQueue = new ConcurrentLinkedQueue<>();
                orientationThread = new OrientationQueuedCallbackThread(orientationFile, orientationTimestampQueue,
-                                                                       orientationListener);
+                                                                       orientationListener, version);
             }
             else
-               orientationThread = new OrientationCallbackThread(orientationFile, orientationListener);
+               orientationThread = new OrientationCallbackThread(orientationFile, orientationListener, version);
             tc++;
          }
          if ( (locationFile != null) && (locationFile.length() > 0) && (locationListener != null) )
@@ -244,7 +242,11 @@ public class ContinuousPlaybackThreadFree extends PlaybackThreadFree implements 
                   if (buffer != null)
                   {
                      if (cameraListener != null)
+                     {
                         cameraListener.onPreviewFrame(buffer, null);
+                        if (surface != null)
+                           super.drawToSurface(buffer);
+                     }
                      else
                         camera2Listener.onPreviewFrame(buffer);
                      if ( (! isUseBuffer) && (bufferQueue.size() < PREALLOCATED_BUFFERS) )

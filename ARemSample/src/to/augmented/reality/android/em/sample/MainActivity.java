@@ -34,6 +34,7 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
+import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -341,6 +342,7 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
       }
       if (icamera.getRecordingType() == RecordingType.THREE60)
       {
+         icamera.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
          icamera.setBearingListener(new BearingListener()
                //=============================================
          {

@@ -24,6 +24,9 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.util.Pair;
 import android.widget.Toast;
+import org.opencv.core.CvType;
+import org.opencv.core.Mat;
+import org.opencv.imgproc.Imgproc;
 import to.augmented.reality.android.common.sensor.orientation.OrientationProvider;
 
 import java.io.BufferedInputStream;
@@ -50,18 +53,26 @@ public class Three60RecordingThread extends RecordingThread
 
    static final private int MAX_KLUDGES = 20;
 
-   static final private boolean TEST_POST_PROCESS = false;
+   private float startIncrement = 1.0f, endIncrement = 3.0f;
 
-   private float increment = 1.0f;
+   private boolean mustStitch = false;
 
-   protected Three60RecordingThread(GLRecorderRenderer renderer, Previewable previewer, File recordDir, float increment,
+   //Testing the post-processing phase. See also RecorderActivity.NO_OVERWRITE_CHECK to
+   // prevent the debug files being overwritten.
+   static final public boolean TEST_POST_PROCESS = false;
+   static final boolean IS_CREATE_ORIENT = false; // When in TEST_POST_PROCESS == true means create smoothed orientation file, false = assume it already exists
+   static final boolean IS_CREATE_RGBA = false; // When in TEST_POST_PROCESS == true means create RGBA file from RAW, false = assume it already exists
+
+
+   protected Three60RecordingThread(GLRecorderRenderer renderer, Previewable previewer, File recordDir, float startIncrement,
                                     long maxSize, ConditionVariable frameAvailCondVar, OrientationHandler orientationHandler,
-                                    LocationHandler locationHandler, boolean isDebug)
+                                    LocationHandler locationHandler, boolean isStitch, boolean isPostProcess)
    //--------------------------------------------------------------------------------------------------------
    {
       super(renderer, previewer, recordDir, maxSize, frameAvailCondVar, orientationHandler, locationHandler,
-            isDebug);
-      this.increment = Math.max(increment, 1f);
+            isPostProcess);
+      mustStitch = isStitch;
+      //this.startIncrement = Math.max(startIncrement, 1f);
    }
 
    @Override
@@ -83,7 +94,7 @@ public class Three60RecordingThread extends RecordingThread
       PrintWriter headerWriter = null;
       boolean isCreated = false;
       float startBearing = -1, currentBearing;
-      final long timestamp = SystemClock.elapsedRealtimeNanos();
+      final long timestamp = SystemClock.elapsedRealtimeNanos();  // Subtracted from the reading timestamps
       if (TEST_POST_PROCESS)
          try { return testPostProcess(headerFile); } catch (Exception e) { Log.e(TAG, "", e); return false; }
 
@@ -92,7 +103,7 @@ public class Three60RecordingThread extends RecordingThread
       PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
       wakeLock.acquire();
       Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-      Bufferable previewBuffer = (Bufferable) previewer;
+      Bufferable rawBuffer = (Bufferable) previewer;
       try
       {
          renderer.recordColor = GLRecorderRenderer.GREEN;
@@ -108,6 +119,12 @@ public class Three60RecordingThread extends RecordingThread
             locationHandler.startTimestamp(timestamp);
             locationHandler.bufferOn();
          }
+         rawBuffer.bufferClear();
+         recordingFile = new File(recordingDir, "frames.RAW");
+         rawBuffer.startTimestamp(timestamp);
+         rawBuffer.writeFile(recordingFile);
+         rawBuffer.bufferOn();
+         rawBuffer.writeOn();
 
          long then = System.currentTimeMillis();
          long now = System.currentTimeMillis();
@@ -141,14 +158,10 @@ public class Three60RecordingThread extends RecordingThread
             publishProgress(progress);
          }
 
-         recordingFile = new File(recordingDir, "frames.RAW");
-         previewBuffer.bufferClear();
-         previewBuffer.startTimestamp(timestamp);
-         previewBuffer.writeFile(recordingFile);
-         previewBuffer.bufferOn();
-         previewBuffer.writeOn();
-
-         long startTime = SystemClock.elapsedRealtimeNanos() - timestamp;
+         final long startTimestamp = SystemClock.elapsedRealtimeNanos();
+         progress.setStatus("Synchronizing start bearing", 100, true, 0);
+         publishProgress(progress);
+         long startTime = startTimestamp - timestamp;
          currentBearing = startBearing + 2;
          if (currentBearing >= 360)
             currentBearing -= 360;
@@ -168,6 +181,8 @@ public class Three60RecordingThread extends RecordingThread
          renderer.requestRender();
          int n = 0;
          boolean isStarted = false;
+         progress.setStatus("Recording", 0, true, 0);
+         publishProgress(progress);
          while (renderer.isRecording)
          {
             if (orientationCond.block(100))
@@ -210,8 +225,7 @@ public class Three60RecordingThread extends RecordingThread
             }
             if ( (secs % 5) == 0)
             {
-//               previewBuffer.flushFile();
-               if (previewBuffer.writeSize() > maxFrameFileSize)
+               if (rawBuffer.writeSize() > maxFrameFileSize)
                {
                   Log.w(TAG, "Exiting due to file size exceeding " + maxFrameFileSize + " bytes");
                   renderer.toast("Exiting due to file size exceeding " + maxFrameFileSize + " bytes");
@@ -220,7 +234,7 @@ public class Three60RecordingThread extends RecordingThread
             }
             if (isPaused)
             {
-               if (! pauseHandler(previewBuffer, orientationHandler))
+               if (! pauseHandler(rawBuffer, orientationHandler))
                   break;
                then = System.currentTimeMillis();
             }
@@ -242,11 +256,11 @@ public class Three60RecordingThread extends RecordingThread
          renderer.requestRender();
 
          Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
-         previewBuffer.bufferOff();
+         rawBuffer.bufferOff();
          orientationHandler.bufferOff();
 
-         previewBuffer.stop();
-         previewBuffer.closeFile();
+         rawBuffer.stop();
+         rawBuffer.closeFile();
 
          orientationHandler.stop();
          orientationHandler.closeFile();
@@ -258,49 +272,75 @@ public class Three60RecordingThread extends RecordingThread
          previewer.suspendPreview();
          if (headerFile.exists())
             headerFile.delete();
+         File orientationFile = orientationHandler.writeFile();
+         int orientationCount = orientationHandler.writeCount();
          headerWriter = new PrintWriter(headerFile);
+         headerWriter.println(String.format(Locale.US, "Version=%d", renderer.getVersionCode()));
+         headerWriter.println(String.format(Locale.US, "VersionName=%s", renderer.getVersionName()));
          headerWriter.println(String.format(Locale.US, "StartBearing=%.1f", startBearing));
          headerWriter.println(String.format(Locale.US, "StartTime=%d", startTime));
          headerWriter.println(String.format(Locale.US, "EndTime=%d", endTime));
          headerWriter.println(String.format(Locale.US, "No=%d", n));
          headerWriter.println(String.format(Locale.US, "BufferSize=%d", renderer.rgbaBufferSize));
+         headerWriter.println(String.format(Locale.US, "RawBufferSize=%d", renderer.rawBufferSize));
+         headerWriter.println(String.format(Locale.US, "RawBufferFormat=%s", previewer.getPreviewFormat()));
          headerWriter.println(String.format(Locale.US, "PreviewWidth=%d", renderer.previewWidth));
          headerWriter.println(String.format(Locale.US, "PreviewHeight=%d", renderer.previewHeight));
          headerWriter.println(String.format(Locale.US, "FocalLength=%.6f", previewer.getFocalLen()));
-         headerWriter.println("FileFormat=RGBA");
+         headerWriter.println(String.format(Locale.US, "HorizontalViewAngle=%.6f", previewer.getFovx()));
+         headerWriter.println(String.format(Locale.US, "VerticalViewAngle=%.6f", previewer.getFovy()));
          headerWriter.println("Type=THREE60");
          OrientationProvider.ORIENTATION_PROVIDER orientationProviderType = orientationHandler.getType();
          headerWriter.println(String.format(Locale.US, "OrientationProvider=%s",
                                             (orientationProviderType == null) ? OrientationProvider.ORIENTATION_PROVIDER.DEFAULT.name()
                                                                               : orientationProviderType.name()));
+         headerWriter.println(String.format(Locale.US, "OrientationCount=%d", orientationCount));
          headerWriter.flush();
 
-         File orientationFile = orientationHandler.writeFile();
-         int orientationCount = orientationHandler.writeCount();
+         if (isPostProcess)
+         {
+            try { headerWriter.close(); } catch (Exception _e) {}
+            headerWriter = null;
+            renderer.toast("Raw frames and sensor data saved in " + recordingDir.getAbsolutePath());
+            renderer.isPause = false;
+            renderer.requestRender();
+            previewer.setFlash(false);
+            previewer.restartPreview();
+            return true;
+         }
+
          orientationCount = orientationFilter(recordingDir, orientationFile, startBearing, progress, orientationCount,
-                                              true, 8, isDebug);
+                                              true, 8);
          File smoothOrientationFile = new File(recordingDir, orientationFile.getName() + ".smooth");
          if ( (orientationCount >= 0) && (smoothOrientationFile.exists()) && (smoothOrientationFile.length() > 0) )
          {
-            if (! isDebug)
-               orientationFile.delete();
             orientationFile = smoothOrientationFile;
+            headerWriter.println(String.format(Locale.US, "FilteredOrientationCount=%d", orientationCount));
          }
 
          Bufferable orientationBuffer = (Bufferable) orientationHandler;
-         previewBuffer.openForReading();
-         Bufferable rgbaBuffer = convertFrames(recordingDir, previewBuffer, previewer, progress, true, isDebug);
+         rawBuffer.openForReading();
+         int[] shift_totals = new int[2], framecount = new int[1];
+         Bufferable rgbaBuffer = convertFrames(recordingDir, rawBuffer, previewer, progress, true, shift_totals,
+                                               framecount);
          if (rgbaBuffer == null)
          {
             Log.e(TAG, "Error converting frames");
+            renderer.toast("Error converting frames");
+            renderer.isPause = false;
+            renderer.requestRender();
+            previewer.setFlash(false);
+            previewer.restartPreview();
             return false;
          }
-
-         if (! isDebug)
+         else
          {
-            File f = new File(recordingDir, "frames.RAW");
-            f.delete();
+            headerWriter.println(String.format(Locale.US, "ShiftX=%d", shift_totals[0]));
+            headerWriter.println(String.format(Locale.US, "ShiftY=%d", shift_totals[1]));
+            headerWriter.println(String.format(Locale.US, "FrameCount=%d", framecount[0]));
+            headerWriter.flush();
          }
+
          orientationBuffer.openForReading(orientationFile);
          rgbaBuffer.openForReading();
          float recordingIncrement = -1f;
@@ -314,28 +354,30 @@ public class Three60RecordingThread extends RecordingThread
             try
             {
                float increment = recordingIncrements[i];
-               if (increment < this.increment)
+               if ( (increment < this.startIncrement) || (increment > this.endIncrement) )
                   continue;;
-//               int no = (int) (Math.floor(360.0f / increment));
+//               int no = (int) (Math.floor(360.0f / startIncrement));
                int no = (int) (Math.floor(((float) (n + 1)) / increment));
-               logWriter.println(); logWriter.println("increment " + Float.toString(increment) + " n = " + n +
+               rgbaBuffer.readPos(0L);
+               rawBuffer.readPos(0L);
+               orientationBuffer.closeFile();
+               orientationBuffer.openForReading(orientationFile);
+               logWriter.println(); logWriter.println("startIncrement " + Float.toString(increment) + " n = " + n +
                                                       " no = " + no);
-               File ff = createThree60(startBearing, rgbaBuffer, orientationBuffer, increment, no, orientationCount,
-                                       progress, kludgeCount);
+               kludgeCount[0] = 0;
+               File ff = createThree60(startBearing, rawBuffer, rgbaBuffer, orientationBuffer, increment, no, orientationCount,
+                                       mustStitch, progress, shift_totals, kludgeCount);
                if (ff != null)
                {
-                  logWriter.println("increment " + Float.toString(increment) + " kludges " + kludgeCount[0]);
+                  logWriter.println("startIncrement " + Float.toString(increment) + " kludges " + kludgeCount[0]);
                   incrementResults[i] = new Pair<>(i, kludgeCount[0]);
                   if (kludgeCount[0] == 0)
                     break;
                }
                else
-                  logWriter.println("increment " + Float.toString(increment) + " error");
+                  logWriter.println("startIncrement " + Float.toString(increment) + " error");
                if (isCancelled())
                   break;
-               rgbaBuffer.readPos(0L);
-               orientationBuffer.closeFile();
-               orientationBuffer.openForReading(orientationFile);
             }
             catch (Exception ee)
             {
@@ -389,20 +431,21 @@ public class Three60RecordingThread extends RecordingThread
             File fn = new File(recordingDir, recordingDir.getName() + ".frames");
             framesFile.renameTo(fn);
             framesFile = fn;
+            headerWriter.println("FileFormat=RGBA");
             headerWriter.println(String.format(Locale.US, "FramesFile=%s", framesFile.getAbsolutePath()));
             headerWriter.println(String.format(Locale.US, "Increment=%6.1f", recordingIncrement));
             isCreated = true;
             progress.setStatus("Created Recording " + framesFile.getName(), 100, true, Toast.LENGTH_LONG);
             publishProgress(progress);
          }
-         if (! isDebug)
+         if (! RecorderActivity.IS_DEBUG)
          {
             File f = new File(recordingDir, "frames.RGBA");
             f.delete();
 //            for (int i=0; i<recordingIncrements.length; i++)
 //            {
-//               float increment = recordingIncrements[i];
-//               f = new File(recordingDir, String.format(Locale.US, "%s.frames.%.1f", recordingDir.getName(), increment));
+//               float startIncrement = recordingIncrements[i];
+//               f = new File(recordingDir, String.format(Locale.US, "%s.frames.%.1f", recordingDir.getName(), startIncrement));
 //               f.delete();
 //            }
          }
@@ -414,12 +457,12 @@ public class Three60RecordingThread extends RecordingThread
       {
          Log.e(TAG, "", e);
          logException("", e);
-         if (previewBuffer != null)
+         if (rawBuffer != null)
          {
-            previewBuffer.bufferOff();
-            previewBuffer.writeOff();
-            previewBuffer.stop();
-            try { previewBuffer.closeFile(); } catch (Exception ee) { Log.e(TAG, "", ee); }
+            rawBuffer.bufferOff();
+            rawBuffer.writeOff();
+            rawBuffer.stop();
+            try { rawBuffer.closeFile(); } catch (Exception ee) { Log.e(TAG, "", ee); }
          }
 
          if (orientationHandler != null)
@@ -441,7 +484,7 @@ public class Three60RecordingThread extends RecordingThread
          wakeLock.release();
          if (headerWriter != null)
             try { headerWriter.close(); } catch (Exception e) { Log.e(TAG, headerFile.getAbsolutePath(), e); }
-         if (! isDebug)
+         if ( (! RecorderActivity.IS_DEBUG) && (! isPostProcess) )
          {
             File f = new File(recordingDir, "frames.RAW");
             f.delete();
@@ -449,10 +492,10 @@ public class Three60RecordingThread extends RecordingThread
             f.delete();
             f = new File(recordingDir, "framestamps.txt");
             f.delete();
-            f = new File(recordingDir, "orientation");
-            f.delete();
-            f = new File(recordingDir, "orientation.smooth");
-            f.delete();
+//            f = new File(recordingDir, "orientation");
+//            f.delete();
+//            f = new File(recordingDir, "orientation.smooth");
+//            f.delete();
             f = new File(recordingDir, "bearingstamps.txt");
             f.delete();
          }
@@ -461,9 +504,9 @@ public class Three60RecordingThread extends RecordingThread
       }
    }
 
-   protected File createThree60(float startBearing, Bufferable framesBuffer, Bufferable orientationBuffer,
-                                float recordingIncrement, int no, int orientationCount, ProgressParam progress,
-                                int[] kludgeCount)
+   protected File createThree60(float startBearing, Bufferable rawBuffer, Bufferable rgbaBuffer,
+                                Bufferable orientationBuffer, float recordingIncrement, int no, int orientationCount,
+                                boolean mustStitch, ProgressParam progress, int[] shift_totals, int[] kludgeCount)
          throws IOException
    //------------------------------------------------------------------------------------------------------------
    {
@@ -472,34 +515,57 @@ public class Three60RecordingThread extends RecordingThread
          progress.setStatus("Creating output (" + recordingIncrement + ")", 0, false, 0);
          publishProgress(progress);
       }
+      int increments = (int) (Math.floor(360.0f / recordingIncrement));
+      int shift_mean = shift_totals[0] / increments;
       File framesFile = new File(recordingDir, String.format(Locale.US, "%s.frames.%.1f", recordingDir.getName(),
                                            recordingIncrement));
       kludgeCount[0] = 0;
       RandomAccessFile raf = new RandomAccessFile(framesFile, "rw");
       int n = 0, N = 0;
       Bufferable.BufferData orientationBufData = orientationBuffer.read();
+      if (orientationBufData == null)
+         return null;
+      long videoStartTimestamp = -1;
+      if (startBearing < 0)
+      {
+         OrientationData orientationData = (OrientationData) orientationBufData.data;
+         startBearing = orientationData.bearing();
+         videoStartTimestamp = orientationData.timestamp;
+      }
       float currentBearing = startBearing;
       long currentOffset = (long) (Math.floor(startBearing / recordingIncrement));
       long startOffset = currentOffset;
-      float stopBearing = startBearing - increment;
+      float stopBearing = startBearing - recordingIncrement;
       if (stopBearing < 0)
          stopBearing += 360;
       long stopOffset = (long) (Math.floor(stopBearing / recordingIncrement));
-      List<OrientationData> m = new ArrayList<>();
-      byte[] frameContents = new byte[renderer.rgbaBufferSize], kludgedContents = new byte[renderer.rgbaBufferSize];
-      while (orientationBufData != null)
+      List<OrientationData> orientationsPerBearing = new ArrayList<>();
+      byte[] frameContents = new byte[renderer.rgbaBufferSize]; //, kludgedContents = new byte[renderer.rgbaBufferSize];
+
+      if (videoStartTimestamp < 0)
       {
-         OrientationData orientationData = (OrientationData) orientationBufData.data;
-         float bearing = orientationData.bearing();
-         if (bearing >= startBearing)
-            break;
-         orientationBufData = orientationBuffer.read();
+         while (orientationBufData != null)
+         {
+            OrientationData orientationData = (OrientationData) orientationBufData.data;
+            float bearing = orientationData.bearing();
+            if (bearing >= startBearing)
+            {
+               videoStartTimestamp = orientationData.timestamp;
+               break;
+            }
+            orientationBufData = orientationBuffer.read();
+         }
       }
 //      final long interval = 2000000000L;
-      long nextTime, frameno = 0, matchFrameno = -1, lastFrameno =-1;
-      ByteBuffer frame = null, matchFrame = null;
+      long nextTime, frameno = 0, lastFrameno =-1;
+      ByteBuffer frame = null, lastFrame  = null;
+      ByteBuffer[] lastFrames = new ByteBuffer[2];
+      long[] lastFrameOffsets = new long[2];
+      final int LAST_FRAME = 0, FRAME_BEFORE_LAST = 1;
+      lastFrames[LAST_FRAME] = null; lastFrames[FRAME_BEFORE_LAST] = null;
+      lastFrameOffsets[LAST_FRAME] = -1; lastFrameOffsets[FRAME_BEFORE_LAST] = -1;
       long lastValidOffset = 0;
-      int kludgeTranslate = 4;
+      int kludgeTranslate = shift_mean;
       try
       {
          while (orientationBufData != null)
@@ -511,17 +577,12 @@ public class Three60RecordingThread extends RecordingThread
                publishProgress(progress);
             }
             OrientationData orientationData = (OrientationData) orientationBufData.data;
-            float bearing = orientationData.bearing();
+            float bearing = orientationData.bearing(), lastBearing = orientationData.bearing();
             long bearingOffset = (long) (Math.floor(bearing / recordingIncrement));
-            m.clear();
-            if (bearingOffset == 147)
-            {
-               int a = 1;
-               Log.i(TAG, "offset 147");
-            }
+            orientationsPerBearing.clear();
             while ( (orientationBufData != null) && (bearingOffset == currentOffset) )
             {
-               m.add(orientationData);
+               orientationsPerBearing.add(orientationData);
                orientationBufData = orientationBuffer.read();
                if (orientationBufData != null)
                {
@@ -532,106 +593,173 @@ public class Three60RecordingThread extends RecordingThread
             }
 
             nextTime = orientationData.timestamp + 300000000L;
-            Bufferable.BufferData frameBufData = framesBuffer.read();
-            OrientationData orientationMatch = null;
-            Bufferable.BufferData frameMatch = null;
-            long offset = -1;
-            long minmatch = Long.MAX_VALUE;
+            lastFrame = lastFrames[LAST_FRAME];
+            Bufferable.BufferData frameBufData = rgbaBuffer.read();
+            long frameOffset = -1;
+            long minOrientationMatch = Long.MAX_VALUE;
+            int shift_min = Integer.MAX_VALUE, matchShift1 = -1;
+            ByteBuffer matchFrame = null, matchFrame2 = null;
+            long matchTs = -1, matchTs2 = -1, matchFrameno = -1, matchFrameno2 = -1, matchOffset =-1, matchOffset2 =-1;
             while ( (frameBufData != null) && (frameBufData.timestamp < nextTime) )
             {
                long frameTimestamp = frameBufData.timestamp;
                if (frameTimestamp < 0)
                {
-                  frameBufData = framesBuffer.read();
+                  frameBufData = rgbaBuffer.read();
                   continue;
                }
 
                if (frameBufData.data != null)
                {
                   frame = (ByteBuffer) frameBufData.data;
+                  if ( (lastFrame != null) && (frame != null) )
+                  {
+                     int[] shift = new int[2];
+                     CV.TOGREY_SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrame,
+                                     frame, shift);
+                     if (shift[0] > 0)
+                     {
+                        int sh = shift[0] - shift_mean; sh *= sh;
+                        if (sh < shift_min)
+                        {
+                           shift_min = sh;
+                           matchFrame = frame;
+                           matchShift1 = shift[0];
+                           matchFrameno = frameno;
+                           matchTs = frameBufData.timestamp;
+                           matchOffset = frameBufData.fileOffset;
+                        }
+                     }
+                  }
+                  if (frame != null)
+                  {
+                     for (OrientationData od : orientationsPerBearing)
+                     {
+                        long timediff = Math.abs(od.timestamp - frameTimestamp);
+                        if ( (timediff < minOrientationMatch) && (frameno > lastFrameno) )
+                        {
+                           minOrientationMatch = timediff;
+                           matchFrame2 = frame;
+                           matchFrameno2 = frameno;
+                           matchTs2 = frameBufData.timestamp;
+                           matchOffset2 = frameBufData.fileOffset;
+                        }
+                     }
+                  }
                   frameno++;
                }
-//               else
-//                  isDuplicateFrame = true;
-               for (OrientationData od : m)
+
+               frameBufData = rgbaBuffer.read();
+            }
+            if (matchFrame == null)
+            {
+               matchFrame = matchFrame2;
+               matchFrameno = matchFrameno2;
+               matchTs = matchTs2;
+               matchOffset = matchOffset2;
+            }
+            int matchShift2 = -1;
+            if ( (matchFrame != matchFrame2) && (shift_min > 0) )
+            {
+               int[] shift = new int[2];
+               CV.TOGREY_SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrame, matchFrame2, shift);
+               matchShift2 = shift[0];
+               int sh = matchShift2 - shift_mean; sh *= sh;
+               if (sh < shift_min)
                {
-                  long timediff = Math.abs(od.timestamp - frameTimestamp);
-                  if ( (timediff < minmatch) && (frameno > lastFrameno) )
+                  shift_min = sh;
+                  matchFrame = matchFrame2;
+                  matchFrameno = matchFrameno2;
+                  matchTs = matchTs2;
+                  matchOffset = matchOffset2;
+               }
+            }
+
+            if (matchFrame != null)
+            {
+               frameOffset = matchOffset;
+               ByteBuffer beforeLastFrame = lastFrames[FRAME_BEFORE_LAST];
+               if ( (mustStitch) && (lastFrame != null) && (beforeLastFrame != null))
+               {
+                  ByteBuffer stitchedFrame = ByteBuffer.allocateDirect(renderer.rgbaBufferSize);
+                  if (CV.STITCH3(renderer.previewWidth, renderer.previewHeight, beforeLastFrame, lastFrame,
+                                 matchFrame, stitchedFrame))
                   {
-                     minmatch = timediff;
-                     orientationMatch = od;
-                     frameMatch = frameBufData;
-                     matchFrame = frame;
-                     matchFrameno = frameno;
-                     offset = frameBufData.fileOffset;
+//                     Mat M = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
+//                     matchFrame.rewind(); matchFrame.get(frameContents); M.put(0, 0, frameContents);
+//                     Mat MM = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
+//                     Imgproc.cvtColor(M, MM, Imgproc.COLOR_RGBA2BGR); Imgcodecs.imwrite("/sdcard/matchframe.png", MM);
+//                     lastFrame.rewind(); lastFrame.get(frameContents); M.put(0, 0, frameContents);
+//                     Imgproc.cvtColor(M, MM, Imgproc.COLOR_RGBA2BGR); Imgcodecs.imwrite("/sdcard/lastframe.png", MM);
+//                     beforeLastFrame.rewind(); beforeLastFrame.get(frameContents); M.put(0, 0, frameContents);
+//                     Imgproc.cvtColor(M, MM, Imgproc.COLOR_RGBA2BGR); Imgcodecs.imwrite("/sdcard/beforelastframe.png", MM);
+//                     stitchedFrame.rewind(); stitchedFrame.get(frameContents); M.put(0, 0, frameContents);
+//                     Imgproc.cvtColor(M, MM, Imgproc.COLOR_RGBA2BGR); Imgcodecs.imwrite("/sdcard/stitchframe.png", MM);
+
+//                     CV.TOGREY_SHIFT(renderer.previewWidth, renderer.previewHeight, beforeLastFrame,  stitchedFrame, shift);
+//                     int sh = shift[0] - shift_mean; sh *= sh;
+//                     if ( (sh <= Math.max(shift_min, 9)) && (lastFrameOffsets[LAST_FRAME] >= 0) )
+//                     {
+                        raf.seek(lastFrameOffsets[LAST_FRAME] * renderer.rgbaBufferSize);
+                        stitchedFrame.rewind();
+                        stitchedFrame.get(frameContents);
+                        raf.write(frameContents);
+//                     }
                   }
                }
-               frameBufData = framesBuffer.read();
-            }
-
-            if ( (bearing >= 111) && (bearing <= 115) )
-            {
-               int a = 1;
-               int c = a + 2;
-            }
-
-            if ( (orientationMatch != null) && (minmatch < 300000000L) )
-            {
                raf.seek(currentOffset * renderer.rgbaBufferSize);
                matchFrame.rewind();
                lastFrameno = matchFrameno;
                matchFrame.get(frameContents);
                raf.write(frameContents);
+               lastFrames[FRAME_BEFORE_LAST] = lastFrames[LAST_FRAME];
+               lastFrames[LAST_FRAME] = matchFrame;
+               lastFrameOffsets[FRAME_BEFORE_LAST] = lastFrameOffsets[LAST_FRAME];
+               lastFrameOffsets[LAST_FRAME] = currentOffset;
                Log.i(TAG, Integer.toString(n) + ": Wrote offset " + currentOffset + " bearing " + currentBearing +
-                     " using bearing timestamp " + orientationMatch.timestamp +" frame timestamp " + frameMatch.timestamp);
+                     " frame timestamp " + matchTs);
                logWriter.println(Integer.toString(n) + ": Wrote offset " + currentOffset + " bearing " + currentBearing +
-                                 " using bearing timestamp " + orientationMatch.timestamp +" frame timestamp " +
-                                 frameMatch.timestamp);
-
-//               boolean SAVE_FRAME = false;
-//               if (SAVE_FRAME)
-//               {
-//                  Mat M = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
-//                  M.put(0, 0, frameContents);
-//                  Imgcodecs.imwrite("/storage/emulated/0/Documents/ARRecorder/2/frame.png", M);
-//               }
-
+                                 " frame timestamp " + matchTs);
                n++;
-               framesBuffer.readPos(offset);
-               lastValidOffset = offset;
-               kludgeTranslate = 4;
+               rgbaBuffer.readPos(frameOffset);
+               lastValidOffset = frameOffset;
+               kludgeTranslate = shift_mean;
             }
             else
             {
                kludgeCount[0]++;
                if (kludgeCount[0] > MAX_KLUDGES)
                   return null;
-               CV.KLUDGE_RGBA(renderer.previewWidth, renderer.previewHeight, frameContents, kludgeTranslate, true,
-                              kludgedContents);
-               kludgeTranslate += 4;
-               raf.seek(currentOffset * renderer.rgbaBufferSize);
-               raf.write(kludgedContents);
-               Log.i(TAG, "******** " + n + ": Kludged offset" + currentOffset + " bearing " + currentBearing);
-               logWriter.println("******** " + n + ": Kludged offset " + currentOffset + " bearing " + currentBearing);
-               n++;
-               framesBuffer.readPos(lastValidOffset);
-//               boolean SAVE_FRAME = false;
-//               if (SAVE_FRAME)
-//               {
-//                  Mat M = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
-//                  M.put(0, 0, kludgedContents);
-//                  Imgcodecs.imwrite("/storage/emulated/0/Documents/ARRecorder/frame.png", M);
-//               }
+               ByteBuffer kludgedFrame = ByteBuffer.allocateDirect(renderer.rgbaBufferSize);
+               if (lastFrame == null)
+                  lastFrame = (ByteBuffer) frameBufData.data;
+               if (lastFrames != null)
+               {
+                  CV.KLUDGE_RGBA(renderer.previewWidth, renderer.previewHeight, lastFrame,
+                                 kludgeTranslate, true, kludgedFrame);
+                  kludgeTranslate += shift_mean;
+                  raf.seek(currentOffset * renderer.rgbaBufferSize);
+                  kludgedFrame.get(frameContents);
+                  raf.write(frameContents);
+                  lastFrames[FRAME_BEFORE_LAST] = lastFrames[LAST_FRAME];
+                  lastFrames[LAST_FRAME] = kludgedFrame;
+                  lastFrameOffsets[FRAME_BEFORE_LAST] = lastFrameOffsets[LAST_FRAME];
+                  lastFrameOffsets[LAST_FRAME] = currentOffset;
+                  Log.i(TAG, "******** " + n + ": Kludged offset" + currentOffset + " bearing " + currentBearing);
+                        logWriter.println("******** " + n + ": Kludged offset " + currentOffset + " bearing " + currentBearing);
+                  n++;
+                  rgbaBuffer.readPos(lastValidOffset);
+               }
             }
+            lastBearing = currentBearing;
             currentOffset = bearingOffset;
             currentBearing = bearing;
-            m.clear();
+            orientationsPerBearing.clear();
          }
-         if (progress != null)
-         {
-            progress.setStatus("Creating output (" + recordingIncrement + ")", 100, false, 0);
-            publishProgress(progress);
-         }
+         raf.close();
+
+         if (currentOffset == stopOffset)
+            syncLastFrame(framesFile, startOffset, stopOffset, shift_mean, videoStartTimestamp, mustStitch, progress);
          if ( (n >= no) && (currentOffset == stopOffset) )
             return framesFile;
          //return (n >= no) ? framesFile : null;
@@ -644,6 +772,126 @@ public class Three60RecordingThread extends RecordingThread
       return framesFile;
    }
 
+   private void syncLastFrame(File framesFile, long startOffset, long stopOffset, int shift_mean,
+                              long startTimestamp, boolean mustStitch, ProgressParam progress)
+   //----------------------------------------------------------------------------------------------------
+   {
+      if (progress != null)
+      {
+         progress.setStatus("Synchronizing last frame", 100, false, 0);
+         publishProgress(progress);
+      }
+      NativeFrameBuffer rawBuffer = null;
+      RandomAccessFile raf = null;
+      try
+      {
+         File rawFile = new File(recordingDir, "frames.RAW");
+         if (rawFile.exists())
+         {
+            rawBuffer = new NativeFrameBuffer(3, renderer.rawBufferSize, false);
+            if (! rawBuffer.openForReading(rawFile))
+            {
+               Log.e(TAG, "Could not reopen RAW frames buffer in syncLastFrame");
+               return;
+            }
+            byte[] startFrameBuf = new byte[renderer.rgbaBufferSize], nextFrameBuf = new byte[renderer.rgbaBufferSize],
+                   lastFrameBuf = new byte[renderer.rgbaBufferSize];
+            raf = new RandomAccessFile(framesFile, "rw");
+            raf.seek(startOffset * renderer.rgbaBufferSize);
+            raf.readFully(startFrameBuf);
+            raf.seek((startOffset + 1) * renderer.rgbaBufferSize);
+            raf.readFully(nextFrameBuf);
+            raf.seek(stopOffset * renderer.rgbaBufferSize);
+            raf.readFully(lastFrameBuf);
+            byte[] startFrameBufGrey = new byte[renderer.rgbaBufferSize / 4],
+                   nextFrameBufGrey = new byte[renderer.rgbaBufferSize / 4],
+                   lastFrameBufGrey = new byte[renderer.rgbaBufferSize / 4];
+            Mat CM = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
+            Mat BM = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC1);
+            CM.put(0, 0, startFrameBuf);
+            Imgproc.cvtColor(CM, BM, Imgproc.COLOR_RGBA2GRAY);
+            BM.get(0, 0, startFrameBufGrey);
+            CM.put(0, 0, nextFrameBuf);
+            Imgproc.cvtColor(CM, BM, Imgproc.COLOR_RGBA2GRAY);
+            BM.get(0, 0, nextFrameBufGrey);
+            CM.put(0, 0, lastFrameBuf);
+            Imgproc.cvtColor(CM, BM, Imgproc.COLOR_RGBA2GRAY);
+            BM.get(0, 0, lastFrameBufGrey);
+
+            int[] shift = new int[2];
+            int sh, shift_min = Integer.MAX_VALUE;
+            // First compare last and first frames from written frame file
+//            CV.TOGREY_SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrameBuf, startFrameBuf, shift);
+            CV.SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrameBufGrey, startFrameBufGrey, shift);
+            if (shift[0] > 0)
+            {
+               sh = shift[0] - shift_mean; sh *= sh;
+               shift_min = sh;
+            }
+            byte[] frameMatchBuf = null;
+            Bufferable.BufferData frameBufData = rawBuffer.read();
+            while ( (frameBufData != null) && (frameBufData.timestamp < startTimestamp) )
+            {
+               if ( (frameBufData.timestamp < 0) ||  (frameBufData.data == null) )
+               {
+                  frameBufData = rawBuffer.read();
+                  continue;
+               }
+               ByteBuffer bb = (ByteBuffer) frameBufData.data;
+               bb.rewind();
+               lastFrameBuf = convertRGBA(previewer, bb, previewer.getPreviewBufferSize(), lastFrameBufGrey);
+//               CV.TOGREY_SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrameBuf, startFrameBuf, shift);
+               CV.SHIFT(renderer.previewWidth, renderer.previewHeight, lastFrameBufGrey, startFrameBufGrey, shift);
+               if (shift[0] > 0)
+               {
+                  sh = shift[0] - shift_mean; sh *= sh;
+                  if (sh < shift_min)
+                  {
+                     shift_min = sh;
+                     frameMatchBuf = lastFrameBuf;
+                     if (sh == 0)
+                        break;
+                  }
+               }
+               frameBufData = rawBuffer.read();
+            }
+            if (frameMatchBuf != null)
+            {
+               raf.seek(stopOffset * renderer.rgbaBufferSize);
+               if (mustStitch)
+               {
+                  byte[] stitchedFrame = new byte[renderer.rgbaBufferSize];
+                  if (CV.STITCH3(renderer.previewWidth, renderer.previewHeight, frameMatchBuf, startFrameBuf,
+                                 nextFrameBuf, stitchedFrame))
+                  {
+                     raf.write(stitchedFrame);
+                     Mat M = new Mat(renderer.previewHeight, renderer.previewWidth, CvType.CV_8UC4);
+//                     M.put(0, 0, startFrameBuf); Imgcodecs.imwrite("/sdcard/startframe.png", M);
+//                     M.put(0, 0, frameMatchBuf); Imgcodecs.imwrite("/sdcard/syncframe.png", M);
+//                     M.put(0, 0, stitchedFrame); Imgcodecs.imwrite("/sdcard/stitchframe.png", M);
+                  }
+               }
+               else
+                  raf.write(frameMatchBuf);
+
+            }
+         }
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "", e);
+         return;
+      }
+      finally
+      {
+         if (rawBuffer != null)
+            try { rawBuffer.closeFile(); } catch (Exception _e) {}
+         if (raf != null)
+            try { raf.close(); } catch (Exception _e) {}
+      }
+
+   }
+
    private Boolean testPostProcess(File headerFile) throws IOException
    //-----------------------------------------------------------------
    {
@@ -652,11 +900,7 @@ public class Three60RecordingThread extends RecordingThread
          try
          {
             renderer.toast("Debugging in testPostProcess");
-            final boolean isCreateOrient = false, isCreateRGBA = false;
-            Bufferable previewBuffer = (Bufferable) previewer;
-            //      previewBuffer.writeFile(new File("/sdcard/Documents/ARRecorder/t/moreframes"));
-            //      previewBuffer.bufferOn();
-            //      previewBuffer.writeOn();
+            Bufferable rawBuffer = (Bufferable) previewer;
 
             boolean isCreated = false;
             float startBearing = -1;
@@ -696,9 +940,9 @@ public class Three60RecordingThread extends RecordingThread
                   Log.e(TAG, "", E);
                }
             }
-            if (isCreateOrient)
+            if (IS_CREATE_ORIENT)
             {
-               int ocount = orientationFilter(recordingDir, orientationFile, startBearing, null, 0, true, 8, true);
+               int ocount = orientationFilter(recordingDir, orientationFile, startBearing, null, 0, true, 8);
                if (ocount >= 0)
                   orientationFile = new File(recordingDir, orientationFile.getName() + ".smooth");
             }
@@ -710,12 +954,14 @@ public class Three60RecordingThread extends RecordingThread
             }
 
             Bufferable rgbaBuffer;
-            if (isCreateRGBA)
+            int[] shift_totals = new int[2], framecount = new int[1];
+            if (IS_CREATE_RGBA)
             {
                File rf = new File(recordingDir, "frames.RAW");
-               if (!previewBuffer.openForReading(rf))
+               if (!rawBuffer.openForReading(rf))
                   throw new RuntimeException("Could not open file " + rf);
-               rgbaBuffer = convertFrames(recordingDir, previewBuffer, previewer, null, true, true);
+               rgbaBuffer = convertFrames(recordingDir, rawBuffer, previewer, null, true,
+                                          shift_totals, framecount);
                rgbaBuffer.openForReading();
             }
             else
@@ -726,6 +972,9 @@ public class Three60RecordingThread extends RecordingThread
                if (! rf.exists())
                   throw new RuntimeException(rf.getAbsolutePath());
                rgbaBuffer.openForReading(rf);
+
+
+               shift_totals[0] = 3238; shift_totals[1] = 0;
             }
 
             //      Bufferable.BufferData frameBufData;
@@ -748,32 +997,52 @@ public class Three60RecordingThread extends RecordingThread
                try
                {
                   float increment = recordingIncrements[i];
-                  if (increment < this.increment)
+                  if (increment < this.startIncrement)
                      continue;;
-   //               int no = (int) (Math.floor(360.0 / increment));
+   //               int no = (int) (Math.floor(360.0 / startIncrement));
                   int no = (int) (Math.floor(((float) (n + 1)) / increment));
-                  logWriter.println(); logWriter.println("increment " + Float.toString(increment) + " n = " + n +
+                  rgbaBuffer.readPos(0L);
+                  rawBuffer.readPos(0L);
+                  orientationBuffer.closeFile();
+                  orientationBuffer.openForReading(orientationFile);
+                  logWriter.println(); logWriter.println("startIncrement " + Float.toString(increment) + " n = " + n +
                                                          " no = " + no);
-                  File ff = createThree60(startBearing, rgbaBuffer, orientationBuffer, increment, no, 0, null,
-                                          kludgeCount);
+                  File ff = createThree60(startBearing, rawBuffer, rgbaBuffer, orientationBuffer, increment, no, 0,
+                                          false, null, shift_totals, kludgeCount);
                   if (ff != null)
                   {
-                     logWriter.println("increment " + Float.toString(increment) + " kludges " + kludgeCount[0]);
+                     logWriter.println("startIncrement " + Float.toString(increment) + " kludges " + kludgeCount[0]);
                      incrementResults[i] = new Pair<>(i, kludgeCount[0]);
+
+                     //TODO: DELETE ME
+//                     rgbaBuffer.readPos(0L);
+//                     rawBuffer.readPos(0L);
+//                     orientationBuffer.closeFile();
+//                     orientationBuffer.openForReading(orientationFile);
+//                     createThree60(startBearing, rawBuffer, rgbaBuffer, orientationBuffer, increment, no, 0,
+//                                   false, null, shift_totals, kludgeCount);
+
                      if (kludgeCount[0] == 0)
                         break;
                   }
                   else
-                     logWriter.println("increment " + Float.toString(increment) + " error");
+                  {
+                     logWriter.println("startIncrement " + Float.toString(increment) + " error");
+
+                     //TODO: DELETE ME
+//                     rgbaBuffer.readPos(0L);
+//                     rawBuffer.readPos(0L);
+//                     orientationBuffer.closeFile();
+//                     orientationBuffer.openForReading(orientationFile);
+//                     createThree60(startBearing, rawBuffer, rgbaBuffer, orientationBuffer, increment, no, 0,
+//                                   false, null, shift_totals, kludgeCount);
+                  }
                   if (isCancelled())
                      break;
-                  rgbaBuffer.readPos(0L);
-                  orientationBuffer.closeFile();
-                  orientationBuffer.openForReading(orientationFile);
                }
                catch (Exception ee)
                {
-                  logException("increment " + Float.toString(increment), ee);
+                  logException("startIncrement " + Float.toString(startIncrement), ee);
                   Log.e(TAG, "", ee);
                }
             }

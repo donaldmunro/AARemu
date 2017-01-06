@@ -456,6 +456,7 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
          stopPreview();
       try
       {
+         int version = getMapInt(headers, "Version", -1);
          switch (recordingType)
          {
             case THREE60:
@@ -469,12 +470,12 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
                   case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
                      playbackThread = new DirtyPlaybackThread360(context, framesFile, bufferSize, increment,
                                                                  orientationProviderType, fileFormat, bufferQueue,
-                                                                 previewFrameRate);
+                                                                 previewFrameRate, previewWidth, previewHeight, surface);
                      break;
                   case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
                      playbackThread = new ContinuousPlaybackThread360(context, framesFile, bufferSize, increment,
                                                                       orientationProviderType, fileFormat, bufferQueue,
-                                                                      previewFrameRate);
+                                                                      previewFrameRate, previewWidth, previewHeight, surface);
                      break;
                   default:
                      throw new RuntimeException("Invalid renderMode (" + renderMode + ")");
@@ -487,12 +488,15 @@ abstract public class AbstractARCamera implements Reviewable, ARCameraInterface,
                   case GLSurfaceView.RENDERMODE_WHEN_DIRTY:
                      playbackThread = new DirtyPlaybackThreadFree(framesFile, orientationFile, locationFile, fileFormat,
                                                                   bufferSize, previewFrameRate, isRepeat, bufferQueue,
-                                                                  sensorManager, progress);
+                                                                  sensorManager, previewWidth, previewHeight, context,
+                                                                  surface, version, progress);
                      break;
                   case GLSurfaceView.RENDERMODE_CONTINUOUSLY:
                      playbackThread = new ContinuousPlaybackThreadFree(framesFile, orientationFile, locationFile,
                                                                        fileFormat, bufferSize, previewFrameRate,
-                                                                       isRepeat, bufferQueue, sensorManager, progress);
+                                                                       isRepeat, bufferQueue, sensorManager,
+                                                                       previewWidth, previewHeight, context, surface,
+                                                                       version, progress);
                      break;
                   default:
                      throw new RuntimeException("Invalid renderMode (" + renderMode + ")");

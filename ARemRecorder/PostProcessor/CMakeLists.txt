@@ -1,0 +1,55 @@
+cmake_minimum_required(VERSION 3.6)
+project(postprocessor)
+include(CheckFunctionExists)
+set(CMAKE_CXX_STANDARD 11)
+
+IF (CMAKE_COMPILER_IS_GNUCXX)
+   MESSAGE(STATUS "GCC Detected")
+   SET(CMAKE_CXX_FLAGS "-Wall -std=c++11")
+   SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-ggdb -O2")
+   SET(CMAKE_CXX_FLAGS_RELEASE "-march=native -O2 -pipe -fstack-protector --param=ssp-buffer-size=4 -D_FORTIFY_SOURCE=2")
+   #   SET(CMAKE_CXX_FLAGS_DEBUG  "-O0 -g3 -ggdb")
+   SET(CMAKE_CXX_FLAGS_DEBUG  "-O0 -g3 -gdwarf-4")
+   ADD_DEFINITIONS( -DISGPP )
+ENDIF()
+
+set(USE_CUSTOM_OPENCV TRUE)
+set(OPENCVSTATIC_LINK TRUE)
+set(CUSTOM_OPENCV_DIR "/opt/opencv-static")
+set(CUDA_TOOLKIT_ROOT_DIR "/opt/cuda")
+
+#if(STATIC_LINK)
+#   SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+#   SET(BUILD_SHARED_LIBRARIES OFF)
+#   SET(CMAKE_EXE_LINKER_FLAGS "-static")
+#endif()
+
+if(USE_CUSTOM_OPENCV)
+#To find OpenCV at a non system prefix (system prefix /usr/lib on Linux) eg
+#to use new features not yet available in the stock distribution or when the system is still on 2 and you need/want to use 3.
+    set(OpenCV_FIND_QUIETLY false)
+    set (OpenCV_DIR "${CUSTOM_OPENCV_DIR}")
+    find_package( OpenCV REQUIRED
+                  HINTS "${CMAKE_PREFIX_PATH}${CUSTOM_OPENCV_DIR}")
+    if ("${OpenCV_INCLUDE_DIR}" STREQUAL "")
+        set(OpenCV_INCLUDE_DIR "${CUSTOM_OPENCV_DIR}/include/")
+    endif()
+else()
+#Find OpenCV at system location
+    find_package( OpenCV REQUIRED)
+    if ("${OpenCV_INCLUDE_DIR}" STREQUAL "")
+#        set(OpenCV_INCLUDE_DIR "/usr/include/") #WARNING: Unix specific
+        set(OpenCV_INCLUDE_DIR ".")
+    endif()
+endif()
+
+MESSAGE(STATUS "OpenCV Dir:" "${OpenCV_INSTALL_PATH}")
+MESSAGE(STATUS "OpenCV Version:" "${OpenCV_VERSION_MAJOR}.${OpenCV_VERSION_MINOR}")
+MESSAGE(STATUS "OpenCV include directory: " "${OpenCV_INCLUDE_DIR}")
+MESSAGE(STATUS "OpenCV libs: " "${OpenCV_LIBS}")
+
+set(SOURCE_FILES src/main.cc src/processing.cc src/processing.h src/Orientation.cc src/Orientation.h src/RingBuffer.h src/cv.h src/cv.cc src/util.cc src/util.h src/create360.cc src/create360.h)
+add_executable(postprocessor ${SOURCE_FILES})
+INCLUDE_DIRECTORIES("${OpenCV_INCLUDE_DIR}")
+TARGET_LINK_LIBRARIES(postprocessor ${OpenCV_LIBS})
+#target_link_libraries(postprocessor m)

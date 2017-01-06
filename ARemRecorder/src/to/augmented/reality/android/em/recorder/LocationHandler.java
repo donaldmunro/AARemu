@@ -130,7 +130,7 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
    {
       if (locationWriter != null)
       {
-         locationWriter.close();
+         try { locationWriter.close(); } catch (Exception _e) { return false; }
          return true;
       }
       else
@@ -150,7 +150,7 @@ public class LocationHandler implements LocationListener, Bufferable, Freezeable
 
    @Override public void writeOn() { mustWrite = true; }
 
-   @Override public void push(long timestamp, byte[] data) {  }
+   @Override public void push(long timestamp, byte[] data, int retries) {  }
 
    @Override public void startTimestamp(long timestamp) { this.startTimestamp = timestamp; }
 

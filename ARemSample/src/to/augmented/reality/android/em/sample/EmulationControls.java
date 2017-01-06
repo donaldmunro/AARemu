@@ -29,7 +29,7 @@ public class EmulationControls
    // false uses the ARCameraInterface shortcuts.
    final static public boolean IS_EMULATE_CAMERA = false;
 
-   //true skips repeated frames, false shows all frames (for RecordingType.FREE recordings).
+   //true skips repeated frames, false shows all frames (ie GLSurfaceView.RENDERMODE_WHEN_DIRTY vs GLSurfaceView.RENDERMODE_CONTINUOUSLY)
    final static public boolean DIRTY_VIDEO = false;
 
    //Frames per second. If DIRTY_VIDEO is false then FPS > 0 plays back at the specified frame rate

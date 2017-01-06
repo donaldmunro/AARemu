@@ -125,13 +125,15 @@ public class OrientationHandler implements OrientationListenable, RawSensorListe
       cond.open();
       try
       {
-         writerFuture.get(200, TimeUnit.MILLISECONDS);
+         if (writerFuture != null)
+            writerFuture.get(200, TimeUnit.MILLISECONDS);
       }
       catch (Exception e)
       {
          if (isRunning)
             isRunning = false;
-         try { writerFuture.get(500, TimeUnit.MILLISECONDS); } catch (Exception ee) { writerFuture.cancel(true); }
+         if (writerFuture != null)
+            try { writerFuture.get(500, TimeUnit.MILLISECONDS); } catch (Exception ee) { if (writerFuture != null) writerFuture.cancel(true); }
       }
       writerThread = null;
       writerFuture = null;
@@ -146,16 +148,17 @@ public class OrientationHandler implements OrientationListenable, RawSensorListe
          {
             if (eventWriterThread.isRunning)
                eventWriterThread.isRunning = false;
-            try { eventWriterFuture.get(500, TimeUnit.MILLISECONDS); } catch (Exception ee) { eventWriterFuture.cancel(true); }
+            if (eventWriterFuture != null)
+               try { eventWriterFuture.get(500, TimeUnit.MILLISECONDS); } catch (Exception ee) { eventWriterFuture.cancel(true); }
          }
          eventWriterThread = null;
          eventWriterFuture = null;
       }
 
       if (orientationWriter != null)
-         try { orientationWriter.close(); orientationWriter = null; } catch (Exception e) { Log.e(TAG, "", e); }
+         try { orientationWriter.close(); orientationWriter = null; } catch (Exception e) {  }
       if (xtraOrientationWriter != null)
-         try { xtraOrientationWriter.close(); xtraOrientationWriter = null; } catch (Exception e) { Log.e(TAG, "", e); }
+         try { xtraOrientationWriter.close(); xtraOrientationWriter = null; } catch (Exception e) { }
       xtraRecordingFile = null;
       xtraSensorList = null;
    }
@@ -275,7 +278,7 @@ public class OrientationHandler implements OrientationListenable, RawSensorListe
 
    @Override public void startTimestamp(long timestamp) { this.startTimestamp = timestamp; }
 
-   @Override public void push(long timestamp, byte[] data) { }
+   @Override public void push(long timestamp, byte[] data, int retries) { }
 
    @Override public int writeCount() { return writeCount; }
 

@@ -73,6 +73,22 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_CV_TOGREY_1
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    STITCH3
+ * Signature: (IILjava/nio/ByteBuffer;Ljava/nio/ByteBuffer;Ljava/nio/ByteBuffer;Ljava/nio/ByteBuffer;)Z
+ */
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_STITCH3__IILjava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2Ljava_nio_ByteBuffer_2
+  (JNIEnv *, jclass, jint, jint, jobject, jobject, jobject, jobject);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
+ * Method:    STITCH3
+ * Signature: (II[B[B[B[B)Z
+ */
+JNIEXPORT jboolean JNICALL Java_to_augmented_reality_android_em_recorder_CV_STITCH3__II_3B_3B_3B_3B
+  (JNIEnv *, jclass, jint, jint, jbyteArray, jbyteArray, jbyteArray, jbyteArray);
+
+/*
+ * Class:     to_augmented_reality_android_em_recorder_CV
  * Method:    KLUDGE_NV21
  * Signature: (IILjava/nio/ByteBuffer;IZLjava/nio/ByteBuffer;)Z
  */

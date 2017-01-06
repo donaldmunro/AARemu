@@ -62,6 +62,8 @@ public interface Previewable extends Freezeable
 
    byte[] toRGBA(Context context, byte[] frame, int previewWidth, int previewHeight, int rgbaSize, byte[] grey);
 
+
+
    boolean isFlashOn();
 
    boolean hasFlash();

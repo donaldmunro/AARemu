@@ -19,6 +19,7 @@ package to.augmented.reality.android.em.three60;
 import android.content.*;
 import android.os.*;
 import android.util.*;
+import android.view.Surface;
 import to.augmented.reality.android.common.sensor.orientation.*;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.Reviewable;
@@ -38,18 +39,13 @@ public class ContinuousPlaybackThread360 extends PlaybackThread360 implements Ru
    final static private String TAG = ContinuousPlaybackThread360.class.getSimpleName();
 
    public ContinuousPlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
-                                      OrientationProvider.ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat)
-   //-----------------------------------------------------------------------------------------------
-   {
-      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, null, -1);
-   }
-
-   public ContinuousPlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
                                       OrientationProvider.ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat,
-                                      ArrayBlockingQueue<byte[]> bufferQueue, int fps)
+                                      ArrayBlockingQueue<byte[]> bufferQueue, int fps,
+                                      int previewWidth, int previewHeight, Surface previewSurface)
    //-----------------------------------------------------------------------------------------------
    {
-      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, bufferQueue, fps);
+      super(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, bufferQueue, fps,
+            previewWidth, previewHeight, previewSurface);
    }
 
    /**
@@ -141,7 +137,11 @@ public class ContinuousPlaybackThread360 extends PlaybackThread360 implements Ru
                if (dt < fpsInterval)
                   onIdle((fpsInterval - dt)<<1);
                if (previewCallback != null)
+               {
                   previewCallback.onPreviewFrame(frameBuffer, null);
+                  if (surface != null)
+                     super.drawToSurface(frameBuffer);
+               }
                else
                   captureCallback.onPreviewFrame(frameBuffer);
                startTime = endTime;
@@ -149,7 +149,11 @@ public class ContinuousPlaybackThread360 extends PlaybackThread360 implements Ru
             else
             {
                if (previewCallback != null)
+               {
                   previewCallback.onPreviewFrame(frameBuffer, null);
+                  if (surface != null)
+                     super.drawToSurface(frameBuffer);
+               }
                else
                   captureCallback.onPreviewFrame(frameBuffer);
             }

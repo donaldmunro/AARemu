@@ -62,6 +62,12 @@ public class CV
 
    public static native void TOGREY_SHIFT(int width, int height, byte[] image1, byte[] image2, int[] result) throws NativeCVException;
 
+   public static native boolean STITCH3(int width, int height, ByteBuffer image1, ByteBuffer image2, ByteBuffer image3,
+                                        ByteBuffer result) throws NativeCVException;
+
+   public static native boolean STITCH3(int width, int height, byte[] image1, byte[] image2, byte[] image3,
+                                        byte[] result) throws NativeCVException;
+
    public static native boolean KLUDGE_NV21(int width, int height, ByteBuffer image, int shift, boolean isRight,
                                             ByteBuffer imageOut)  throws NativeCVException;
 

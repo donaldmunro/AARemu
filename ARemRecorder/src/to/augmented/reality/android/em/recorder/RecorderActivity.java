@@ -28,6 +28,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Color;
+import android.graphics.ImageFormat;
 import android.hardware.Sensor;
 import android.location.Location;
 import android.location.LocationManager;
@@ -51,12 +52,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.WebView;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
 import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
 import android.widget.TextView;
@@ -78,6 +81,8 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -90,10 +95,15 @@ public class RecorderActivity extends Activity
 //============================================
 {
    private static final String TAG = RecorderActivity.class.getSimpleName();
-   static final boolean NO_OVERWRITE_CHECK = false;
-   static final private String[]
-         EXTRA_RECORD_SENSORS_NAMES = {"Rotation Vector", "Gyroscope", "Gravity", "Magnetic", "Acceleration",
-                                 "Linear Acceleration"};
+
+   // Don't check if recording directory with the specified name exists. If false then a prompt to
+   // overwrite the files occurs.
+   // See also Three60RecordingThread.TEST_POST_PROCESS
+   static final boolean IS_DEBUG = false;
+   static final boolean NO_OVERWRITE_CHECK = (Three60RecordingThread.TEST_POST_PROCESS);
+   static final String[] EXTRA_SENSORS_NAMES = {"Rotation Vector", "Gyroscope", "Gravity", "Magnetic",
+                                                "Acceleration", "Linear Acceleration"};
+   static final private Collection<String> EXTRA_RECORD_SENSORS_NAMES = Arrays.asList(EXTRA_SENSORS_NAMES);
    static final private int[] EXTRA_RECORD_SENSORS = { Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GYROSCOPE,
                                                        Sensor.TYPE_GRAVITY, Sensor.TYPE_MAGNETIC_FIELD,
                                                        Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_LINEAR_ACCELERATION };
@@ -237,12 +247,18 @@ public class RecorderActivity extends Activity
    boolean isOpeningDrawer = false, isDrawerOpen = false;
    private String[] resolutions = null;
    private boolean isRecording = false, isStartRecording = false, isRecordingPaused = false;
+   private String versionName = "";
+   public String getVersionName() { return versionName; }
+   private int versionCode =-1;
+   public int getVersionCode() { return versionCode; }
 
    @Override
    protected void onCreate(Bundle B)
    //--------------------------------
    {
       super.onCreate(B);
+      try { versionName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { versionName = "N/A";}
+      try { versionCode = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception e) { versionCode = -1; }
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
       {
          requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -439,7 +455,7 @@ public class RecorderActivity extends Activity
 //      selectResult(new File(DIR, "test"), recordingIncrements, incrementResults);
    }
 
-   AlertDialog recordDialog = null;
+   AlertDialog recordDialog = null, helpDialog = null;
 
    private class RecordingClickedHandler implements View.OnClickListener
    //-------------------------------------------------------------------
@@ -564,8 +580,8 @@ public class RecorderActivity extends Activity
          @Override public void onNothingSelected(AdapterView<?> parent) { }
       });
       resolutionsSpinner.setSelection(currentResolutionIndex);
-      final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
-      incrementSpinner.setSelection(0);
+//      final Spinner incrementSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_increments);
+//      incrementSpinner.setSelection(0);
       final Spinner orientationSpinner = (Spinner) dialogLayout.findViewById(R.id.spinner_sensors);
 
       ORIENTATION_PROVIDER[] orientationProviders = ORIENTATION_PROVIDER.values();
@@ -585,9 +601,11 @@ public class RecorderActivity extends Activity
                                        @Override public void onItemsSelected(boolean[] selected) { }
                                     });
 
-      CheckBox debugCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_debug);
+      CheckBox postProcessCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_postprocess);
       CheckBox flashCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_flash);
       TextView textFlash = (TextView) dialogLayout.findViewById(R.id.label_flash);
+      RelativeLayout layoutFlash = (RelativeLayout) dialogLayout.findViewById(R.id.layout_flash);
+      CheckBox stitchCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_stitching);
       boolean hasFlash = previewSurface.hasFlash();
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
       {
@@ -596,24 +614,29 @@ public class RecorderActivity extends Activity
       }
       if (hasFlash)
       {
+         layoutFlash.setVisibility(View.VISIBLE);
          flashCheckbox.setVisibility(View.VISIBLE);
          textFlash.setVisibility(View.VISIBLE);
       }
       else
       {
+         layoutFlash.setVisibility(View.GONE);
          flashCheckbox.setVisibility(View.GONE);
          textFlash.setVisibility(View.GONE);
          flashCheckbox = null;
       }
       TextView cameraApiText = (TextView) dialogLayout.findViewById(R.id.label_api);
       CheckBox cameraApiCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_api);
+      RelativeLayout layoutcameraAPI = (RelativeLayout) dialogLayout.findViewById(R.id.layout_api);
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP)
       {
+         layoutcameraAPI.setVisibility(View.VISIBLE);
          cameraApiText.setVisibility(View.VISIBLE);
          cameraApiCheckbox.setVisibility(View.VISIBLE);
       }
       else
       {
+         layoutcameraAPI.setVisibility(View.GONE);
          cameraApiText.setVisibility(View.GONE);
          cameraApiCheckbox.setVisibility(View.GONE);
          cameraApiCheckbox = null;
@@ -627,9 +650,9 @@ public class RecorderActivity extends Activity
       }
       sizeText.setText(size.toString());
 
-      recordDialog = createRecordDialog(dialogLayout, nameText, resolutionsSpinner, incrementSpinner, orientationSpinner, sizeText,
-                                        record360Button, xtraSensorsSpinner, debugCheckbox, flashCheckbox, cameraApiCheckbox,
-                                        RecordingThread.RecordingType.THREE60);
+      recordDialog = createRecordDialog(dialogLayout, nameText, resolutionsSpinner, orientationSpinner, sizeText,
+                                        record360Button, xtraSensorsSpinner, postProcessCheckbox, flashCheckbox, cameraApiCheckbox,
+                                        stitchCheckbox, RecordingThread.RecordingType.THREE60);
       recordDialog.show();
    }
 
@@ -698,9 +721,11 @@ public class RecorderActivity extends Activity
                                        @Override public void onItemsSelected(boolean[] selected) { }
                                     });
 
-      CheckBox debugCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_debug);
+      CheckBox postProcessCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_postprocess);
       TextView textFlash = (TextView) dialogLayout.findViewById(R.id.label_free_flash);
       CheckBox flashCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_flash);
+      RelativeLayout flashLayout = (RelativeLayout) dialogLayout.findViewById(R.id.layout_free_flash);
+//      CheckBox stitchCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_stitching);
       boolean hasFlash = previewSurface.hasFlash();
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
       {
@@ -709,24 +734,29 @@ public class RecorderActivity extends Activity
       }
       if (hasFlash)
       {
+         flashLayout.setVisibility(View.VISIBLE);
          flashCheckbox.setVisibility(View.VISIBLE);
          textFlash.setVisibility(View.VISIBLE);
       }
       else
       {
+         flashLayout.setVisibility(View.GONE);
          flashCheckbox.setVisibility(View.GONE);
          textFlash.setVisibility(View.GONE);
          flashCheckbox = null;
       }
       TextView cameraApiText = (TextView) dialogLayout.findViewById(R.id.label_free_api);
       CheckBox cameraApiCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_api);
+      RelativeLayout cameraApiLayout = (RelativeLayout) dialogLayout.findViewById(R.id.layout_free_api);
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP)
       {
+         cameraApiLayout.setVisibility(View.VISIBLE);
          cameraApiText.setVisibility(View.VISIBLE);
          cameraApiCheckbox.setVisibility(View.VISIBLE);
       }
       else
       {
+         cameraApiLayout.setVisibility(View.GONE);
          cameraApiText.setVisibility(View.GONE);
          cameraApiCheckbox.setVisibility(View.GONE);
          cameraApiCheckbox = null;
@@ -737,19 +767,21 @@ public class RecorderActivity extends Activity
          return;
       sizeText.setText(size.toString());
 
-      recordDialog = createRecordDialog(dialogLayout, nameText, resolutionsSpinner, null, orientationSpinner, sizeText,
-                                        recordFreeButton, xtraSensorsSpinner, debugCheckbox, flashCheckbox, cameraApiCheckbox,
-                                        RecordingThread.RecordingType.FREE);
+      recordDialog = createRecordDialog(dialogLayout, nameText, resolutionsSpinner, orientationSpinner, sizeText,
+                                        recordFreeButton, xtraSensorsSpinner, postProcessCheckbox, flashCheckbox,
+                                        cameraApiCheckbox, null, RecordingThread.RecordingType.FREE);
       recordDialog.show();
    }
 
+   boolean isPostProcess = false;
+
    private AlertDialog createRecordDialog(final ViewGroup dialogLayout, final EditText nameText,
-                                          final Spinner resolutionsSpinner, final Spinner incrementSpinner,
+                                          final Spinner resolutionsSpinner,
                                           final Spinner orientationSpinner, final TextView sizeText,
                                           final ImageButton button, final MultiSpinner xtraSensorsSpinner,
-                                          final CheckBox debugCheckbox,
+                                          final CheckBox postProcessCheckbox,
                                           final CheckBox flashCheckbox, final CheckBox cameraApiCheckbox,
-                                          final RecordingThread.RecordingType recordingType)
+                                          final CheckBox stitchCheckbox, final RecordingThread.RecordingType recordingType)
    //-----------------------------------------------------------------------------------------------------------------
    {
       recordDialog = new AlertDialog.Builder(this).create();
@@ -758,21 +790,21 @@ public class RecorderActivity extends Activity
       recordDialog.setView(dialogLayout);
       final ResolutionAdapter resolutionSpinnerAdapter = (ResolutionAdapter) resolutionsSpinner.getAdapter();
       recordDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Ok", new DialogInterface.OnClickListener()
-            //=============================================================================================
+      //=============================================================================================
       {
          public void onClick(DialogInterface dialog, int whichButton)
          //-----------------------------------------------------------
          {
             final StringBuilder errbuf = new StringBuilder();
             final String name = nameText.getText().toString();
-            final float increment;
-            if (incrementSpinner != null)
-            {
-               String s = (String) incrementSpinner.getSelectedItem();
-               increment = Float.parseFloat(s.trim());
-            }
-            else
-               increment = -1f;
+            final float increment = -1f;;
+//            if (incrementSpinner != null)
+//            {
+//               String s = (String) incrementSpinner.getSelectedItem();
+//               increment = Float.parseFloat(s.trim());
+//            }
+//            else
+//               increment = -1f;
             final String orientationSensorType = inhuman((String) orientationSpinner.getSelectedItem());
             final long maxStorageBytes = freeSpaceGb(sizeText.getText().toString(), errbuf);
             if (maxStorageBytes < 0)
@@ -780,7 +812,8 @@ public class RecorderActivity extends Activity
                Toast.makeText(RecorderActivity.this, errbuf.toString(), Toast.LENGTH_LONG).show();
                return;
             }
-            final boolean isDebug = debugCheckbox.isChecked();
+            isPostProcess = postProcessCheckbox.isChecked();
+            final boolean isStitch = ( (stitchCheckbox != null) && (stitchCheckbox.isChecked()) );
             final boolean isFlashOn = ( (flashCheckbox != null) && (flashCheckbox.isChecked()) );
             final boolean useCamera2Api = ( (cameraApiCheckbox != null) && (cameraApiCheckbox.isChecked()) );
             final File headerFile, framesFile, dir = new File(DIR, name);
@@ -852,7 +885,7 @@ public class RecorderActivity extends Activity
                         return;
                      }
                      startRecording(name, wh[0], wh[1], increment, maxStorageBytes, recordingType, orientationSensorType,
-                                    button, xtraSensorList, isDebug, isFlashOn, useCamera2Api);
+                                    button, xtraSensorList, isPostProcess, isFlashOn, useCamera2Api, isStitch);
                   }
                });
                overwriteDialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener()
@@ -877,7 +910,7 @@ public class RecorderActivity extends Activity
                }
 //               previewSurface.startPreview(wh[0], wh[1], isFlashOn);
                startRecording(name, wh[0], wh[1], increment, maxStorageBytes, recordingType, orientationSensorType,
-                              button, xtraSensorList, isDebug, isFlashOn, useCamera2Api);
+                              button, xtraSensorList, isPostProcess, isFlashOn, useCamera2Api, isStitch);
             }
          }
       });
@@ -888,6 +921,32 @@ public class RecorderActivity extends Activity
          {
             isStartRecording = false;
             recordDialog.dismiss(); recordDialog = null;
+         }
+      });
+      recordDialog.setButton(AlertDialog.BUTTON_NEUTRAL, "Help", new DialogInterface.OnClickListener()
+      {
+         public void onClick(DialogInterface dialog, int whichButton)
+         //----------------------------------------------------------
+         {
+            if (helpDialog != null)
+               helpDialog.dismiss();
+            helpDialog = new AlertDialog.Builder(RecorderActivity.this).create();
+            helpDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            final LayoutInflater inflater = LayoutInflater.from(RecorderActivity.this);
+            final ViewGroup helpLayout = (ViewGroup) inflater.inflate(R.layout.record_help_dialog, null);
+            helpDialog.setView(helpLayout);
+            WebView helpView = (WebView) helpLayout.findViewById(R.id.help_html);
+            final String helpText = readAssetTextFile("record_help.html", null);
+            if (helpText == null)
+               return;
+            helpView.loadData(helpText, "text/html", null);
+            helpDialog.setButton(AlertDialog.BUTTON_POSITIVE, "Ok", new DialogInterface.OnClickListener()
+            //=============================================================================================
+            {
+               public void onClick(DialogInterface dialog, int whichButton) { helpDialog.dismiss(); helpDialog = null; }
+            });
+            helpDialog.show();
+
          }
       });
       return recordDialog;
@@ -925,7 +984,7 @@ public class RecorderActivity extends Activity
    //------------------------------------------------------
    {
       long gbFree = freeSpaceGb(dir);
-      if (gbFree < 3)
+      if ( (gbFree < 3) && (! NO_OVERWRITE_CHECK) )
       {
          Toast.makeText(this, "Not enough free space in directory " + dir.getAbsolutePath() + " for recording",
                         Toast.LENGTH_LONG).show();
@@ -967,7 +1026,7 @@ public class RecorderActivity extends Activity
             errbuf.append("Could not parse number: ").append(s);
          return -1L;
       }
-      if (gb < 3*1073741824L)
+      if ( (gb < 3*1073741824L) && (! NO_OVERWRITE_CHECK) )
       {
          if (errbuf != null)
          {
@@ -1017,7 +1076,8 @@ public class RecorderActivity extends Activity
 
    private void startRecording(String name, int width, int height, float increment, long maxsize,
                                RecordingThread.RecordingType recordingType, String orientationType, ImageButton button,
-                               List<Integer> xtraSensorList, boolean isDebug, boolean isFlashOn, boolean useCamera2Api)
+                               List<Integer> xtraSensorList, boolean isPostProcess, boolean isFlashOn,
+                               boolean useCamera2Api, boolean isStitch)
    //-------------------------------------------------------------------------------------------------------------
    {
       recordDialog = null;
@@ -1039,8 +1099,8 @@ public class RecorderActivity extends Activity
 
       ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.valueOf(orientationType);
       isRecording = previewSurface.startRecording(DIR, width, height, name, increment, maxsize, recordingType,
-                                                  orientationProviderType, xtraSensorList, isDebug, isFlashOn,
-                                                  useCamera2Api);
+                                                  orientationProviderType, xtraSensorList, isPostProcess, isFlashOn,
+                                                  useCamera2Api, isStitch);
       isStartRecording = false;
       if (isRecording)
       {
@@ -1050,6 +1110,15 @@ public class RecorderActivity extends Activity
                b.setVisibility(View.GONE);
          pauseButton.setVisibility(View.VISIBLE);
          statusText.setText("Recording");
+      }
+      else
+      {
+         previewSurface.stopRecording(true);
+         button.setImageResource(R.drawable.start);
+         for (ImageButton b : recordingButtons)
+            b.setVisibility(View.VISIBLE);
+         pauseButton.setVisibility(View.GONE);
+         statusText.setText("");
       }
 //      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
 //      {
@@ -1068,7 +1137,8 @@ public class RecorderActivity extends Activity
       runOnUiThread(new Runnable()
       //==========================
       {
-         @Override public void run()
+         @Override
+         public void run()
          //-------------------------
          {
             record360Button.setImageResource(R.drawable.three60);
@@ -1080,29 +1150,30 @@ public class RecorderActivity extends Activity
 
 //             bearingDestLabel.setVisibility(View.INVISIBLE);
 //             bearingDestText.setVisibility(View.INVISIBLE);
-             statusProgress.setVisibility(View.INVISIBLE);
-             statusText.setVisibility(View.INVISIBLE);
-             locationLabel.setVisibility(View.INVISIBLE);
-             locationText.setVisibility(View.INVISIBLE);
+            statusProgress.setVisibility(View.INVISIBLE);
+            statusText.setVisibility(View.INVISIBLE);
+            locationLabel.setVisibility(View.INVISIBLE);
+            locationText.setVisibility(View.INVISIBLE);
 
-               if ( (recordHeaderFile != null) && (recordHeaderFile.exists()) && (recordHeaderFile.length() > 0) &&
-                     (recordFramesFile != null) && (recordFramesFile.exists()) && (recordFramesFile.length() > 0) )
-               {
-                  Toast.makeText(RecorderActivity.this, String.format(Locale.US, "Saved recording to %s, %s",
-                                                                      recordHeaderFile.getAbsolutePath(),
-                                                                      recordFramesFile.getAbsolutePath()),
-                                 Toast.LENGTH_LONG).show();
-                  statusText.setText(
-                        String.format("Saved %s, %s in %s", recordHeaderFile.getName(), recordFramesFile.getName(),
-                                      recordFramesFile.getParentFile().getAbsolutePath()));
-               }
+            if ((recordHeaderFile != null) && (recordHeaderFile.exists()) && (recordHeaderFile.length() > 0) &&
+                  (recordFramesFile != null) && (recordFramesFile.exists()) && (recordFramesFile.length() > 0))
+            {
+               Toast.makeText(RecorderActivity.this, String.format(Locale.US, "Saved recording to %s, %s",
+                                                                   recordHeaderFile.getAbsolutePath(),
+                                                                   recordFramesFile.getAbsolutePath()),
+                              Toast.LENGTH_LONG).show();
+               statusText.setText(
+                     String.format("Saved %s, %s in %s", recordHeaderFile.getName(), recordFramesFile.getName(),
+                                   recordFramesFile.getParentFile().getAbsolutePath()));
+            }
+            else if (isPostProcess)
+            {
+               statusText.setText(String.format("Saved raw recording files%s. Use desktop postprocessor to process",
+                                                (recordHeaderFile == null) ? "" : (" in " + recordHeaderFile.getParent())));
+               isPostProcess = false;
+            }
          }
       });
-//      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-//      {
-//         hideHandler.removeCallbacks(hideRunner);
-//         hideHandler.postDelayed(hideRunner, 1500);
-//      }
    }
 
    public void userRecalibrate(final ConditionVariable cond, final String message)
@@ -1262,26 +1333,28 @@ public class RecorderActivity extends Activity
 //      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, loaderCallback);
 
       isOpenCVJava = false;
-      if ( (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) &&
-           (Build.SUPPORTED_64_BIT_ABIS.length > 0) )
-      {
-         Throwable ex = null;
-         try
-         {
-            if (OpenCVLoader.initDebug())
-               isOpenCVJava = true;
-         }
-         catch (Exception ee)
-         {
-            ex = ee;
-            isOpenCVJava = false;
-         }
-         if (! isOpenCVJava)
-         {
-            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, loaderCallback);
-            Log.e(TAG, "Error loading internal OpenCV Java binding. Trying OpenCV Manager...", ex);
-         }
-      }
+      if (OpenCVLoader.initDebug())
+         isOpenCVJava = true;
+//      if ( (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) &&
+//           (Build.SUPPORTED_64_BIT_ABIS.length > 0) )
+//      {
+//         Throwable ex = null;
+//         try
+//         {
+//            if (OpenCVLoader.initDebug())
+//               isOpenCVJava = true;
+//         }
+//         catch (Exception ee)
+//         {
+//            ex = ee;
+//            isOpenCVJava = false;
+//         }
+//         if (! isOpenCVJava)
+//         {
+//            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, loaderCallback);
+//            Log.e(TAG, "Error loading internal OpenCV Java binding. Trying OpenCV Manager...", ex);
+//         }
+//      }
       else
          OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, loaderCallback);
 
@@ -1443,7 +1516,7 @@ public class RecorderActivity extends Activity
 //      });
    }
 
-   public void onResolutionChange(final String[] resolutions)
+   public void onResolutionChange(String[] resolutions)
    //-------------------------------------------------------
    {
       if (resolutions.length > 0)
@@ -1683,6 +1756,32 @@ public class RecorderActivity extends Activity
       location.setAccuracy(accuracy);
       return location;
    }
+
+   public static String imageFormatString(int imageFormat)
+   //-----------------------------------------------------
+   {
+      switch (imageFormat)
+      {
+         case ImageFormat.NV21: return "NV21";
+         case 0x23: return "YUV_420_888";
+         case ImageFormat.NV16: return "NV16";
+         case 0x27: return "YUV_422_888";
+         case 0x28: return "YUV_444_888";
+         case ImageFormat.JPEG: return "JPEG";
+         case ImageFormat.RGB_565: return "RGB_565";
+         case 0x29: return "FLEX_RGB_888";
+         case 0x2A: return "FLEX_RGBA_8888";
+         case ImageFormat.YUY2: return "YUY2";
+         case ImageFormat.YV12: return "YV12";
+         case 0x44363159: return "DEPTH16";
+         case 0x101: return "DEPTH_POINT_CLOUD";
+         case 0x25: return "RAW10";
+         case 0x26: return "RAW12";
+         case ImageFormat.UNKNOWN:
+         default: return "UNKNOWN";
+      }
+   }
+
 //   public void save()
 //   //----------------
 //   {

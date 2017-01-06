@@ -4,6 +4,7 @@
 //
 package org.opencv.ml;
 
+import java.lang.String;
 import org.opencv.core.Mat;
 import org.opencv.core.TermCriteria;
 
@@ -62,6 +63,20 @@ public class ANN_MLP extends StatModel {
     {
         
         ANN_MLP retVal = new ANN_MLP(create_0());
+        
+        return retVal;
+    }
+
+
+    //
+    // C++: static Ptr_ANN_MLP load(String filepath)
+    //
+
+    //javadoc: ANN_MLP::load(filepath)
+    public static ANN_MLP load(String filepath)
+    {
+        
+        ANN_MLP retVal = new ANN_MLP(load_0(filepath));
         
         return retVal;
     }
@@ -380,6 +395,9 @@ public class ANN_MLP extends StatModel {
 
     // C++: static Ptr_ANN_MLP create()
     private static native long create_0();
+
+    // C++: static Ptr_ANN_MLP load(String filepath)
+    private static native long load_0(String filepath);
 
     // C++:  TermCriteria getTermCriteria()
     private static native double[] getTermCriteria_0(long nativeObj);

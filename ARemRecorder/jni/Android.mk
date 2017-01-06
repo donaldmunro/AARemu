@@ -26,8 +26,10 @@ LOCAL_C_INCLUDES = $(HOME)/opencv/native/jni/include/
 LOCAL_LDLIBS := -lstdc++
 LOCAL_LDLIBS += -llog
 LOCAL_LDLIBS += -lz
+LOCAL_LDLIBS += -latomic
 
 #TARGET_ARCH_ABI := armeabi-v7a x86
+TARGET_ARCH_ABI=arm64-v8a
 
 include $(BUILD_SHARED_LIBRARY)
 

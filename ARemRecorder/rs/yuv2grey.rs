@@ -17,6 +17,8 @@
 #pragma version(1)
 #pragma rs java_package_name(to.augmented.reality.em.recorder)
 
+//#include "rs_debug.rsh"
+
 rs_allocation in;
 
 //uchar4 RS_KERNEL yuv2grey(uint32_t x, uint32_t y)
@@ -35,5 +37,6 @@ uchar RS_KERNEL yuv2grey(uint32_t x, uint32_t y)
    uchar Y = rsGetElementAtYuv_uchar_Y(in, x, y)  & 0xFF;
    uchar out;
    out = Y;
+//   rsDebug("YUV Y = ", (char) out);
    return out;
 }

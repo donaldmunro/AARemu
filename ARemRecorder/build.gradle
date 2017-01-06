@@ -9,9 +9,9 @@ android {
       minSdkVersion 19
       targetSdkVersion 23
       renderscriptTargetApi 19
-        renderscriptSupportModeEnabled false
-      versionCode 20
-        versionName '2.01'
+      renderscriptSupportModeEnabled false
+      versionCode 21
+      versionName '2.1'
    }
 
    android {
@@ -46,6 +46,11 @@ android {
     }
     productFlavors {
    }
+//   externalNativeBuild {
+//      cmake {
+//         path 'jni/framebuffer/CMakeLists.txt'
+//      }
+//   }
 }
 
 ext {

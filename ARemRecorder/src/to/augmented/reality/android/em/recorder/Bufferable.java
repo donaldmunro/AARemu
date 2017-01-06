@@ -48,7 +48,13 @@ public interface Bufferable
 
    void writeOff();
 
-   void push(long timestamp, byte[] data);
+   /**
+    * Push data onto buffer
+    * @param timestamp The timestamp for the data
+    * @param data The data
+    * @param retries Number of retries when buffer is full. 0 = no retries, -1 = Retry forever
+    */
+   void push(long timestamp, byte[] data, int retries);
 
    void stop();
 

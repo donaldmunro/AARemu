@@ -136,7 +136,12 @@ public class GLTexture
       if (error != GL_NO_ERROR)
          return false;
       if ( (uniform >= 0) && (unit >= 0) )
+      {
          glUniform1i(uniform, unit);
+         error = glGetError();
+         if (error != GL_NO_ERROR)
+            return false;
+      }
       glBindTexture(target, name);
       error = glGetError();
       if (error != GL_NO_ERROR)

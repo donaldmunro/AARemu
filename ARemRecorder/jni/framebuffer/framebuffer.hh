@@ -179,13 +179,21 @@ public:
 
    inline bool writing() { return _writing; }
 
-   void push(int64_t timestamp, unsigned char *buf)
-   //----------------------------------------------
+   void push(int64_t timestamp, unsigned char *buf, const int retries)
+   //-----------------------------------------------------------
    {
       if ( (! _buffering) || (_stopping) ) return;
       timestamp -= _timeoffset;
       FrameBufferData *data = new FrameBufferData(timestamp, _size, buf);
-      if (! q->try_enqueue(data))
+      bool is_queued = false;
+      int retry = 0;
+      while ( (retries < 0) || (retry++ < retries) )
+      {
+         is_queued = q->try_enqueue(data);
+         if (is_queued) break;
+         std::this_thread::yield();
+      }
+      if (! is_queued)
       {
          delete data;
 #ifdef ANDROID_LOG
@@ -201,7 +209,7 @@ public:
    }
 
    void push_YUV(int64_t timestamp, unsigned char *Y, int yLen, unsigned char* U, int uLen, int uStride,
-                 unsigned char *V, int vLen, int vStride)
+                 unsigned char *V, int vLen, int vStride, const int retries)
    //------------------------------------------------------------------------------------------------
    {
       if ( (! _buffering) || (_stopping) ) return;
@@ -229,19 +237,27 @@ public:
          }
       }
       FrameBufferData *data = new FrameBufferData(timestamp, _size, buf);
-      if (! q->try_enqueue(data))
+      bool is_queued = false;
+      int retry = 0;
+      while ( (retries < 0) || (retry++ < retries) )
+      {
+         is_queued = q->try_enqueue(data);
+         if (is_queued) break;
+         std::this_thread::yield();
+      }
+      if (! is_queued)
       {
          delete data;
 #ifdef ANDROID_LOG
          LOGE("Error enqueueing frame at timestamp %lld", (long long) timestamp);
 #endif
       }
-      else
-      {
-#ifdef ANDROID_LOG
-         LOGE("Enqueued frame at timestamp %lld", (long long) timestamp);
-#endif
-      }
+//       else
+//       {
+// #ifdef ANDROID_LOG
+//          LOGE("Enqueued frame at timestamp %lld", (long long) timestamp);
+// #endif
+//       }
    }
 
    FrameBufferData *pop()

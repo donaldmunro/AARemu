@@ -36,8 +36,6 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.os.Debug;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.PowerManager;
 import android.os.Process;
 import android.util.Log;
@@ -78,7 +76,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private static final String FRAGMENT_SHADER = "fragment.glsl";
    static final int SIZEOF_FLOAT = Float.SIZE / 8;
    static final int SIZEOF_SHORT = Short.SIZE / 8;
-   final static int MAX_BUFFERED_FRAMES = 10;
+   final static int MAX_BUFFERED_FRAMES = 15;
    final private static int GL_TEXTURE_EXTERNAL_OES = GLES11Ext.GL_TEXTURE_EXTERNAL_OES;
    final static boolean DEBUG_TRACE = false;
 
@@ -91,7 +89,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    private int uIndex = -1, vIndex;
 
    private int displayWidth, displayHeight;
-   private Surface displaySurface;
+   Surface displaySurface;
 
    private ORIENTATION_PROVIDER orientationProviderType = ORIENTATION_PROVIDER.DEFAULT;
    OrientationProvider orientationProvider = null;
@@ -102,8 +100,6 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    SurfaceTexture previewSurfaceTexture = null;
    private String cameraID = null;
    boolean isLegacyCamera = true;
-   private HandlerThread cameraThread;
-   private Handler cameraHandler = null;
 
    private NativeFrameBuffer frameBuffer;
    public NativeFrameBuffer getFrameBuffer() { return frameBuffer; }
@@ -123,7 +119,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    protected int rgbaBufferSize = 0;
    private int rgbBufferSize = 0;
-   int nv21BufferSize = 0, yuvBufferSize = 0;
+   int nv21BufferSize = 0, yuvBufferSize = 0, rawBufferSize = 0;
    private int rgb565BufferSize = 0;
 
    private float lastSaveBearing = 0;
@@ -404,6 +400,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
          if (isLegacyCamera)
          {
+            rawBufferSize = nv21BufferSize;
             int n = MAX_BUFFERED_FRAMES;
             for (; n >= 2; n--)
             {
@@ -423,6 +420,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          }
          else
          {
+            rawBufferSize = yuvBufferSize;
             int n = MAX_BUFFERED_FRAMES;
             for (; n >= 2; n--)
             {
@@ -432,10 +430,7 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             }
             frameBuffer = new NativeFrameBuffer(n, yuvBufferSize, false);
             Log.i(TAG, "Buffer size " + n + " x " + yuvBufferSize + " = " + n * yuvBufferSize);
-            cameraThread = new HandlerThread("CameraPreview");
-            cameraThread.start();
-            cameraHandler = new Handler(cameraThread.getLooper());
-            camera = new PreviewCamera(this, view, displaySurface, frameBuffer, frameAvailCondVar, cameraHandler);
+            camera = new PreviewCamera(this, view, displaySurface, frameBuffer, frameAvailCondVar);
             if (! camera.open(CameraCharacteristics.LENS_FACING_BACK, width, height, errbuf))
             {
                toast(errbuf.toString());
@@ -1065,8 +1060,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
 
    public boolean startRecording(File dir, int width, int height, String name, float increment, long maxsize,
                                  RecordingThread.RecordingType recordingType, ORIENTATION_PROVIDER orientationType,
-                                 List<Integer> xtraSensorList, boolean isDebug, boolean isFlashOn,
-                                 boolean useCamera2Api)
+                                 List<Integer> xtraSensorList, boolean isPostProcess, boolean isFlashOn,
+                                 boolean useCamera2Api, boolean isStitch)
    //---------------------------------------------------------------------------------------------------------------
    {
       if ( (isRecording) || (dir == null) ) return false;
@@ -1174,11 +1169,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             case THREE60:
                recordingThread = new Three60RecordingThread(this, previewer, recordDir, increment, maxsize,
                                                             frameAvailCondVar, orientationListener, locationHandler,
-                                                            isDebug);
+                                                            isStitch, isPostProcess);
                break;
             case FREE:
                recordingThread = new FreeRecordingThread(this, previewer, recordDir, maxsize, frameAvailCondVar,
-                                                         orientationListener, locationHandler, isDebug);
+                                                         orientationListener, locationHandler, isPostProcess);
                break;
          }
       }
@@ -1229,7 +1224,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
          isRecording = false;
          recordingCondVar.open();
          try { Thread.sleep(100); } catch (Exception _e) {}
-         recordingThread.cancel(true);
+         if (recordingThread.getStatus() == AsyncTask.Status.RUNNING)
+            recordingThread.cancel(true);
          try { Thread.sleep(50); } catch (Exception _e) {}
          if (recordingThread.getStatus() == AsyncTask.Status.RUNNING)
          {
@@ -1246,25 +1242,20 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //-----------------------------------------------------
    {
       if (DEBUG_TRACE) Debug.stopMethodTracing();
+      if ( (previewer != null) && (previewer.hasFlash()) )
+         previewer.setFlash(false);
       if ( (recordingThread == null) || (isStoppingRecording) ) return false;
       isStoppingRecording = true;
       if (locationHandler != null) try { locationHandler.stop(); } catch (Exception _e) { Log.e(TAG, "", _e); }
       stopRecordingThread();
-      if ( (isCancelled) || (recordFramesFile == null) || (! recordFramesFile.exists()) && (recordFramesFile.length() == 0) )
-      {
-         if (recordFramesFile != null)
-            recordFramesFile.delete();
-         activity.stoppedRecording(recordingType, null, null);
-         return true;
-      }
-      if (! stopRecordingThread.isComplete)
+      if ( (stopRecordingThread != null) && (! stopRecordingThread.isComplete) )
       {
          stopRecordingThread.cancel(true);
          if (stopRecordingPool != null)
             stopRecordingPool.shutdownNow();
       }
       stopRecordingPool = createSingleThreadPool("Stop Recording");
-      stopRecordingThread = new StopRecordingThread();
+      stopRecordingThread = new StopRecordingThread(isCancelled);
       stopRecordingFuture = stopRecordingThread.executeOnExecutor(stopRecordingPool);
       return true;
    }
@@ -1364,6 +1355,10 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       */
    }
 
+   public String getVersionName() { return activity.getVersionName(); }
+
+   public int getVersionCode() { return activity.getVersionCode(); }
+
    public Surface newDisplaySurface()
    //-------------------------------
    {
@@ -1423,8 +1418,11 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
    //=========================================================================
    {
       File recordHeaderFile = null;
+      boolean isCancelled = false;
 
       public boolean isComplete = false;
+
+      public StopRecordingThread(boolean isCancelled) { this.isCancelled = isCancelled; }
 
       @Override
       protected Boolean doInBackground(Void... params)
@@ -1432,28 +1430,43 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       {
          PowerManager powerManager = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
          PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
-         wakeLock.acquire();
-         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-         isRecording = false;
-         isStopRecording = true;
-         ((Bufferable) previewer).bufferOff();
-         previewer.stopPreview();
-         orientationListener.bufferOff();
-         orientationListener.stop();
-         orientationProvider.deactivateRawSensors();
-         if (locationHandler != null)
+         try
          {
-            locationHandler.bufferOff();
-            locationHandler.stop();
+            wakeLock.acquire();
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            isRecording = false;
+            isStopRecording = true;
+            ((Bufferable) previewer).bufferOff();
+            if (previewer.isPreviewing())
+            {
+               if (previewSurfaceTexture != null)
+                  previewSurfaceTexture.setOnFrameAvailableListener(null);
+            }
+            previewer.stopPreview();
+            orientationListener.bufferOff();
+            orientationListener.stop();
+            orientationProvider.deactivateRawSensors();
+            if (locationHandler != null)
+            {
+               locationHandler.bufferOff();
+               locationHandler.stop();
+            }
+            if ( (isCancelled) && (recordFramesFile != null) && (recordFramesFile.getParentFile() != null) )
+               RecordingThread.delDirContents(recordFramesFile.getParentFile());
+            recordColor = GREEN;
+            arrowRotation = 0;
+            recordFramesFile = null;
+            recordFileName = null;
+            arrowRotation = 0;
+            isRecording = isStoppingRecording = isStopRecording = false;
+            startPreview(640, 480, false, false);
+            return true;
          }
-         recordColor = GREEN;
-         arrowRotation = 0;
-         recordFramesFile = null;
-         recordFileName = null;
-         arrowRotation = 0;
-         isRecording = isStoppingRecording = isStopRecording = false;
-         isComplete = true;
-         return true;
+         finally
+         {
+            wakeLock.release();
+            isComplete = true;
+         }
       }
 
       @Override

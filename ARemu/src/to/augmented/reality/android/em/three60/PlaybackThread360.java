@@ -17,11 +17,16 @@ package to.augmented.reality.android.em.three60;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.hardware.Camera;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.ConditionVariable;
+import android.renderscript.RenderScript;
 import android.util.Log;
+import android.view.Surface;
 import to.augmented.reality.android.common.math.Quaternion;
 import to.augmented.reality.android.common.sensor.orientation.AccelerometerCompassProvider;
 import to.augmented.reality.android.common.sensor.orientation.FastFusedGyroscopeRotationVector;
@@ -47,6 +52,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicYuvToRGB;
+import android.renderscript.Type;
+import to.augmented.reality.android.em.rs.ScriptC_rgba2argb;
+
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
 
 /**
@@ -66,7 +78,6 @@ abstract public class PlaybackThread360 implements Runnable, Stoppable, Latcheab
    protected CountDownLatch startLatch = null;
    @Override public void setLatch(CountDownLatch latch) { startLatch = latch; }
 
-   final protected Context context;
    final protected int bufferSize;
    final protected float recordingIncrement;
    protected Camera.PreviewCallback previewCallback;
@@ -106,20 +117,19 @@ abstract public class PlaybackThread360 implements Runnable, Stoppable, Latcheab
    private Future<?> reviewFuture;
    private int reviewPause = 0;
 
-   public PlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
-                            ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat)
-   {
-      this(context, framesFile, bufferSize, recordingIncrement, providerType, fileFormat, null, -1);
-   }
+   private RenderScript renderscript = null;
+   protected Surface surface; // Only not null If the ARCamera had a setPreviewDisplay(holder) call. The surface is from the holder
+   protected final Context context; // ""
+   protected int width, height; // Only necessary where surface is not null
 
    public PlaybackThread360(Context context, File framesFile, int bufferSize, float recordingIncrement,
                             ORIENTATION_PROVIDER providerType, ARCamera.RecordFileFormat fileFormat,
-                            ArrayBlockingQueue<byte[]> bufferQueue, int fps)
+                            ArrayBlockingQueue<byte[]> bufferQueue, int fps,
+                            int previewWidth, int previewHeight, Surface previewSurface)
    //----------------------------------------------------------------------------------------------
    {
       if (context == null)
          throw new RuntimeException("Context cannot be null");
-      this.context = context;
       this.fileLen = framesFile.length();
       if (! framesFile.canRead())
          throw new RuntimeException("Frames file " + framesFile + " not readable");
@@ -130,6 +140,12 @@ abstract public class PlaybackThread360 implements Runnable, Stoppable, Latcheab
       this.providerType = providerType;
       this.fileFormat = fileFormat;
       this.fps = fps;
+      this.surface = previewSurface;
+      this.context = context;
+      width = previewWidth;
+      height = previewHeight;
+      if (this.surface != null)
+         renderscript = RenderScript.create(context);
       this.isUseBuffer = (bufferQueue != null);
       if (! isUseBuffer)
       {  // If not using user defined buffers create an internal buffer of buffers
@@ -340,6 +356,48 @@ abstract public class PlaybackThread360 implements Runnable, Stoppable, Latcheab
       });
       orientationProvider.initiate();
       return orientationProvider.isStarted();
+   }
+
+   public void drawToSurface(final byte[] buffer)
+   //--------------------------------------------
+   {
+      int[] ARGB = new int[buffer.length/4];
+      try
+      {
+         Type.Builder rgbaType = new Type.Builder(renderscript, Element.RGBA_8888(renderscript)).setX(width).
+               setY( height).setMipmaps(false);
+         Allocation aIn = Allocation.createTyped(renderscript, rgbaType.create(), Allocation.USAGE_SCRIPT);
+         Type.Builder argbType = new Type.Builder(renderscript, Element.U32(renderscript)).setX(width).
+               setY( height).setMipmaps(false);
+         Allocation aOut = Allocation.createTyped(renderscript, argbType.create(), Allocation.USAGE_SCRIPT);
+         ScriptC_rgba2argb rs = new ScriptC_rgba2argb(renderscript);
+         aIn.copyFrom(buffer);
+         rs.set_in(aIn);
+         rs.forEach_rgba2argb(aOut);
+         aOut.copyTo(ARGB);
+      }
+      catch (Exception e)
+      {
+         Log.e("PlaybackThreadFree", "drawToSurface: Renderscript RGBA to ARGB error", e);
+         int i=0, j = 0;
+         while (i<buffer.length)
+         {
+            int r = (int) buffer[i++];
+            if (r < 0) r = 256 + r; // Brain-dead Java has no unsigned char
+            int g = (int) buffer[i++];
+            if (g < 0) g = 256 + g;
+            int b = (int) buffer[i++];
+            if (b < 0) b = 256 + b;
+            int a = buffer[i++];
+            if (a < 0) a = 256 + a;
+            ARGB[j++] = Color.argb(a, r, g, b);
+         }
+      }
+
+      Bitmap bmp = Bitmap.createBitmap(ARGB, width, height, Bitmap.Config.ARGB_8888);
+      Canvas canvas = surface.lockCanvas(null);
+      canvas.drawBitmap(bmp, 0, 0, null);
+      surface.unlockCanvasAndPost(canvas);
    }
 
 //   protected boolean onSetupRotationSensor()

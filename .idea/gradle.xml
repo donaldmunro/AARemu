@@ -10,6 +10,7 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/AROpenCVemu" />
+            <option value="$PROJECT_DIR$/ARToolKitEm" />
             <option value="$PROJECT_DIR$/ARemOpenCVSample" />
             <option value="$PROJECT_DIR$/ARemRecorder" />
             <option value="$PROJECT_DIR$/ARemSample" />
@@ -17,6 +18,7 @@
             <option value="$PROJECT_DIR$/Common" />
             <option value="$PROJECT_DIR$/DisplayFrames" />
             <option value="$PROJECT_DIR$/OpenCV" />
+            <option value="$PROJECT_DIR$/vuforia" />
           </set>
         </option>
         <option name="resolveModulePerSourceSet" value="false" />

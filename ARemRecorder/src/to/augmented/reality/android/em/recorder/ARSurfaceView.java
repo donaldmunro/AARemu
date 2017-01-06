@@ -159,11 +159,12 @@ public class ARSurfaceView extends GLSurfaceView
 
    public boolean startRecording(File dir, int width, int height, String name, float increment, long maxsize,
                                  RecordingThread.RecordingType recordingType, ORIENTATION_PROVIDER orientationType,
-                                 List<Integer> xtraSensorList, boolean isDebug, boolean isFlashOn, boolean useCamera2Api)
+                                 List<Integer> xtraSensorList, boolean isPostProcess, boolean isFlashOn,
+                                 boolean useCamera2Api, boolean isStitch)
    //-----------------------------------------------------------------------------------------------
    {
       return renderer.startRecording(dir, width, height, name, increment, maxsize, recordingType, orientationType,
-                                     xtraSensorList, isDebug, isFlashOn, useCamera2Api);
+                                     xtraSensorList, isPostProcess, isFlashOn, useCamera2Api, isStitch);
    }
 
    public void stopRecording(final boolean isCancelled) { renderer.stopRecording(isCancelled); }

@@ -87,19 +87,20 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrame
 }
 
 JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrameBuffer_push
-(JNIEnv *env, jobject instance, jlong timestamp, jbyteArray data)
+(JNIEnv *env, jobject instance, jlong timestamp, jbyteArray data, jint retries)
 //---------------------------------------------------------------
 {
    FrameBuffer *buffer = getBuffer(env, instance);
    if (buffer)
    {
       //if (env->IsSameObject(data, nullptr))
+      if (retries == 0) retries = 1;
       if (data == nullptr)
-         buffer->push((int64_t) timestamp, nullptr);
+         buffer->push((int64_t) timestamp, nullptr, retries);
       else
       {
          jbyte *buf = (jbyte *) env->GetPrimitiveArrayCritical(data, 0);
-         buffer->push((int64_t) timestamp, reinterpret_cast<unsigned char *>(buf));
+         buffer->push((int64_t) timestamp, reinterpret_cast<unsigned char *>(buf), retries);
          env->ReleasePrimitiveArrayCritical(data, buf, 0);
       }
 //#ifdef ANDROID_LOG
@@ -109,9 +110,9 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrame
 }
 
 JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrameBuffer_pushYUV
-   (JNIEnv *env, jobject instance, jlong timestamp, jobject Ybuffer, jint yLen, jobject Ubuffer, jint uLen, jint uStride,
-   jobject Vbuffer, jint vLen, jint vStride)
-//--------------------------------------------------------------------------------------------
+(JNIEnv *env, jobject instance, jlong timestamp, jobject Ybuffer, jint yLen, jobject Ubuffer, jint uLen, jint uStride,
+ jobject Vbuffer, jint vLen, jint vStride,  jint retries)   
+//-------------------------------------------------------------------------------------------------------------------
 {
    FrameBuffer *buffer = getBuffer(env, instance);
    if (buffer)
@@ -123,7 +124,8 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrame
       V = (unsigned char*) env->GetDirectBufferAddress(Vbuffer);
       ylen = yLen; ulen = uLen; vlen = vLen;
       ustride = uStride; vstride = vStride;
-      buffer->push_YUV((int64_t) timestamp, Y, yLen, U, uLen, uStride, V, vLen, vStride);
+      if (retries == 0) retries = 1;
+      buffer->push_YUV((int64_t) timestamp, Y, yLen, U, uLen, uStride, V, vLen, vStride, retries);
    }
 }
 

@@ -16,11 +16,16 @@
 
 package to.augmented.reality.android.em.recorder;
 
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.opengl.GLSurfaceView;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.ConditionVariable;
 import android.renderscript.Allocation;
@@ -45,6 +50,7 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
    private final ConditionVariable frameAvailCondVar;
    private final int bufferSize;
    private int cameraId = -1, cameraWidth = -1, cameraHeight = -1, format = -1;
+   private String camera2ID = null;
    private Camera camera;
    private String[] resolutions = new String[0];
    private CameraPreviewThread previewThread = null;
@@ -52,6 +58,8 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
    private RenderScript renderscript = null;
    private float focalLen = -1;
    private boolean isFlashOn = false;
+   private boolean hasYUV = false, hasNV21 = false;
+
    @Override public boolean isFlashOn() { return isFlashOn; }
    private boolean hasFlash = false;
    @Override public boolean hasFlash() { return hasFlash; }
@@ -77,10 +85,96 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
       renderscript = RenderScript.create(renderer.activity);
    }
 
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+   protected String camera2Id(final int face)
+   //----------------------------------------
+   {
+      try
+      {
+         CameraManager manager = (CameraManager) surfaceView.getContext().getSystemService(Context.CAMERA_SERVICE);
+         String camList[] = manager.getCameraIdList();
+         if (camList.length == 0)
+            return null;
+         CameraCharacteristics characteristics = null;
+         for (String cameraID : camList)
+         {
+            characteristics = manager.getCameraCharacteristics(cameraID);
+            Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            if (facing == null) continue;
+            if (face == facing)
+               return cameraID;
+         }
+      }
+      catch (Exception e)
+      {
+         return null;
+      }
+      return null;
+   }
+
+   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+   boolean detectFormatCamera2(String cameraID)
+   //------------------------------------------
+   {
+      hasYUV = hasNV21 = false;
+      CameraManager manager = (CameraManager) surfaceView.getContext().getSystemService(Context.CAMERA_SERVICE);
+      try
+      {
+         CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+         StreamConfigurationMap streamConfig =
+               characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+         if (streamConfig != null)
+         {
+            int[] outputs = streamConfig.getOutputFormats();
+            if (outputs != null)
+            {
+               for (int c : outputs)
+               {
+                  Log.i(LOGTAG, "Supported Camera Format: " + RecorderActivity.imageFormatString(c));
+                  switch (c)
+                  {
+                     case ImageFormat.YUV_420_888: hasYUV = true; break;
+                     case ImageFormat.NV21:        hasNV21 = true; break;
+                  }
+               }
+            }
+         }
+         else
+         {
+            hasYUV = (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null);
+            hasNV21 = (streamConfig.getOutputSizes(ImageFormat.NV21) != null);
+         }
+         if ((!hasYUV) && (!hasNV21))
+         {
+            hasYUV = (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null);
+            hasNV21 = (streamConfig.getOutputSizes(ImageFormat.NV21) != null);
+         }
+      }
+      catch (Exception e)
+      {
+         return false;
+      }
+      return ( (hasNV21) || (hasYUV) );
+   }
+
+   @Override public String getPreviewFormat()
+   //----------------------------------------
+   {
+      int imageFormat = ((hasYUV) ? ImageFormat.YUV_420_888 : ((hasNV21) ? ImageFormat.NV21 : -1));
+      switch (imageFormat)
+      {
+         case ImageFormat.YUV_420_888: return "YUV_420_888";
+         case ImageFormat.NV21:
+         default:                      return "NV21";
+      }
+   }
+
+
    @Override
    public boolean open(int facing, int width, int height, StringBuilder errbuf) throws CameraAccessException
    //-------------------------------------------------------------------------------------------------------
    {
+
       Camera.CameraInfo cameraInfo = new Camera.CameraInfo();
       for (int i = 0; i < Camera.getNumberOfCameras(); i++)
       {
@@ -88,10 +182,13 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
          if (cameraInfo.facing == facing)
          {
             cameraId = i;
-            try { camera = Camera.open(cameraId); } catch (Exception _e) { camera = null; }
             break;
          }
       }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
+         camera2ID = camera2Id(facing);
+
+      try { camera = Camera.open(cameraId); } catch (Exception _e) { camera = null; }
       if (camera == null)
       {
          if (errbuf != null) errbuf.append("Error acquiring camera");
@@ -99,8 +196,19 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
       }
 
       Camera.Parameters cameraParameters = camera.getParameters();
-      if (format < 0)
-         format = cameraParameters.getPreviewFormat();
+      format = cameraParameters.getPreviewFormat();
+
+      // On newer devices eg Nexus 6P the frames seem to get written in YUV_420_888 when using Camera 1 API despite the
+      // NV21 format returned by Parameters.getPreviewFormat(). The following ensures that this.getPreviewFormat returns
+      // the (hopefully) correct value for writing to the recording header file (the symptom for an incorrect value here
+      // is messed up colors after RGBA conversion as NV21 UV colors are interleaved).
+      if ( (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) && (camera2ID != null) )
+            detectFormatCamera2(camera2ID);
+      else
+      {
+         hasYUV = false; //(format == ImageFormat.YUV_420_888);
+         hasNV21 = true; //(format == ImageFormat.NV21);
+      }
       List<Camera.Size> resolutions = cameraParameters.getSupportedPreviewSizes();
       int bestWidth = 0, bestHeight = 0;
       float aspect = (float) width / height;
@@ -133,10 +241,25 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
       List<String> flashModes = cameraParameters.getSupportedFlashModes();
       hasFlash = ( (flashModes != null) && (flashModes.contains(Camera.Parameters.FLASH_MODE_TORCH)) );
       List<String> focusModes = cameraParameters.getSupportedFocusModes();
-      if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
+      if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_FIXED))
+         cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_FIXED);
+      else if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_INFINITY))
          cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_INFINITY);
-      if (cameraParameters.isZoomSupported())
-         cameraParameters.setZoom(0);
+      else if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO))
+      {
+         cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+         if (cameraParameters.isZoomSupported())
+            cameraParameters.setZoom(0);
+         camera.cancelAutoFocus();
+      }
+      else
+         if (focusModes != null && focusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO))
+         {
+            cameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+            if (cameraParameters.isZoomSupported())
+               cameraParameters.setZoom(0);
+         }
+
       fovx = cameraParameters.getHorizontalViewAngle();
       fovy = cameraParameters.getVerticalViewAngle();
       focalLen = cameraParameters.getFocalLength();
@@ -144,6 +267,7 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
       cameraParameters.getPreviewFpsRange(fps);
       cameraParameters.setPreviewFpsRange(fps[1], fps[1]);
       camera.setParameters(cameraParameters);
+      //camera.cancelAutoFocus();
 
       final int inputFormat = ImageFormat.NV21;
       previewThread = new CameraPreviewThread(renderer, camera, cameraWidth, cameraHeight, bufferSize, format,
@@ -271,7 +395,7 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
 
    @Override public void writeOn() { frameBuffer.writeOn(); }
 
-   @Override public void push(long timestamp, byte[] data) { frameBuffer.push(timestamp, data); }
+   @Override public void push(long timestamp, byte[] data, int retries) { frameBuffer.push(timestamp, data, retries); }
 
    @Override public void startTimestamp(long timestamp) { frameBuffer.startTimestamp(timestamp); }
 
@@ -290,8 +414,6 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
    @Override public void stop() { frameBuffer.stop(); }
 
    @Override public PreviewData pop() { throw new RuntimeException("N/A (NativeFrameBuffer writes data)"); }
-
-   @Override public String getPreviewFormat() { return "NV21"; }
 
    @Override public String[] availableResolutions() { return resolutions; }
 
@@ -320,22 +442,21 @@ public class LegacyPreviewCamera implements Previewable, Bufferable
          rgbaBuffer = new byte[rgbaSize];
          rgbType.setX(previewWidth).setY(previewHeight).setMipmaps(false);
          Allocation aOut = Allocation.createTyped(renderscript, rgbType.create(), Allocation.USAGE_SCRIPT);
-         Allocation allocGrayOut = null;
-         ScriptC_yuv2grey rsYUVtoGrey = null;
-         if (grey != null)
-         {
-            Type.Builder greyTypeBuilder = new Type.Builder(renderscript, Element.U8(renderscript));
-            greyTypeBuilder.setX(previewWidth).setY(previewHeight);
-            allocGrayOut = Allocation.createTyped(renderscript, greyTypeBuilder.create(), Allocation.USAGE_SCRIPT);
-            rsYUVtoGrey = new ScriptC_yuv2grey(renderscript);
-            rsYUVtoGrey.set_in(ain);
-         }
          ain.copyFrom(frame);
          YUVToRGB.setInput(ain);
          YUVToRGB.forEach(aOut);
          aOut.copyTo(rgbaBuffer);
          if (grey != null)
          {
+            Allocation allocGrayOut = null;
+            ScriptC_yuv2grey rsYUVtoGrey = null;
+            Type.Builder greyTypeBuilder = new Type.Builder(renderscript, Element.U8(renderscript));
+            greyTypeBuilder.setX(previewWidth).setY(previewHeight);
+            allocGrayOut = Allocation.createTyped(renderscript, greyTypeBuilder.create(), Allocation.USAGE_SCRIPT);
+            rsYUVtoGrey = new ScriptC_yuv2grey(renderscript);
+            Allocation ainbw = Allocation.createTyped(renderscript, yuvType.create(), Allocation.USAGE_SCRIPT);
+            ainbw.copyFrom(frame);
+            rsYUVtoGrey.set_in(ainbw);
             rsYUVtoGrey.forEach_yuv2grey(allocGrayOut);
             allocGrayOut.copyTo(grey);
          }

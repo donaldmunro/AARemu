@@ -400,7 +400,8 @@ public class MainActivity extends Activity implements OpenDialog.DialogCloseable
    //-----------------------
    {
       super.onResume();
-      OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_11, this, loaderCallback);
+      if (! OpenCVLoader.initDebug())
+         OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, loaderCallback);
       if ( (headerFile != null) && (framesFile != null) )
          cameraView.setRecordingFiles(headerFile, framesFile);
    }

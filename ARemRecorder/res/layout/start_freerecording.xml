@@ -172,59 +172,120 @@
          android:layout_width="match_parent"
          android:layout_below="@+id/layout_free_sensors"
          >
-      <TextView
-            android:id="@+id/label_free_debug"
-            android:layout_width="45sp"
-            android:layout_height="16sp"
-            android:text="Debug"
-            android:textColor="@android:color/white"
-            android:textAppearance="@android:style/TextAppearance.Small"
-            />
 
-      <CheckBox
-            android:id="@+id/checkbox_free_debug"
-            android:layout_height="36sp"
-            android:layout_width="37sp"
-            android:layout_toRightOf="@+id/label_free_debug"
-            />
+      <RelativeLayout
+            android:id="@+id/layout_free_postprocess"
+            android:layout_width="110sp"
+            android:layout_height="match_parent"
+            android:background="@drawable/rect_border"
+            >
+         <TextView
+               android:id="@+id/label_free_postprocess"
+               android:layout_width="80sp"
+               android:layout_height="16sp"
+               android:text="Off-Device"
+               android:textColor="@android:color/white"
+               android:textAppearance="@android:style/TextAppearance.Small"
+               />
+         <TextView
+               android:id="@+id/label_free_postprocess2"
+               android:layout_width="80sp"
+               android:layout_height="16sp"
+               android:layout_below="@+id/label_free_postprocess"
+               android:text="Finalization"
+               android:textColor="@android:color/white"
+               android:textAppearance="@android:style/TextAppearance.Small"
+               />
+         <CheckBox
+               android:id="@+id/checkbox_free_postprocess"
+               android:layout_height="36sp"
+               android:layout_width="30sp"
+               android:layout_toRightOf="@+id/label_free_postprocess"
+               android:textColor="#ff0000ff"
+               />
+      </RelativeLayout>
 
-      <TextView
-            android:id="@+id/label_free_flash"
-            android:layout_width="55sp"
-            android:layout_height="16sp"
-            android:layout_toRightOf="@id/checkbox_free_debug"
-            android:text="Flash On"
-            android:textColor="@android:color/white"
-            android:textAppearance="@android:style/TextAppearance.Small"
+      <RelativeLayout
+            android:id="@+id/layout_free_flash"
+            android:layout_width="91sp"
+            android:layout_height="match_parent"
+            android:layout_toRightOf="@+id/layout_free_postprocess"
+            android:background="@drawable/rect_border"
             android:visibility="gone"
-            />
+            >
+         <TextView
+               android:id="@+id/label_free_flash"
+               android:layout_width="55sp"
+               android:layout_height="16sp"
+               android:text="Flash On"
+               android:textColor="@android:color/white"
+               android:paddingLeft="2px"
+               android:textAppearance="@android:style/TextAppearance.Small"
+               android:visibility="gone"
+               />
 
-      <CheckBox
-            android:id="@+id/checkbox_free_flash"
-            android:layout_height="36sp"
-            android:layout_width="37sp"
-            android:layout_toRightOf="@+id/label_free_flash"
-            android:visibility="gone"
-            />
+         <CheckBox
+               android:id="@+id/checkbox_free_flash"
+               android:layout_height="36sp"
+               android:layout_width="37sp"
+               android:layout_toRightOf="@+id/label_free_flash"
+               android:visibility="gone"
+               />
+      </RelativeLayout>
 
-      <TextView
-            android:id="@+id/label_free_api"
-            android:layout_width="85sp"
-            android:layout_height="16sp"
-            android:layout_toRightOf="@+id/checkbox_free_flash"
-            android:text="Camera2 API"
-            android:textColor="@android:color/white"
-            android:textAppearance="@android:style/TextAppearance.Small"
-            android:visibility="gone"
-            />
+<!--
+            <RelativeLayout
+                  android:id="@+id/layout_free_stitching"
+                  android:layout_width="100sp"
+                  android:layout_height="match_parent"
+                  android:layout_toRightOf="@+id/layout_free_flash"
+                  android:background="@drawable/rect_border"
+                  >
+               <TextView
+                     android:id="@+id/label_free_stitching"
+                     android:layout_width="70sp"
+                     android:layout_height="16sp"
+                     android:text="Stitching"
+                     android:textColor="@android:color/white"
+                     android:paddingLeft="2px"
+                     android:textAppearance="@android:style/TextAppearance.Small"
+                     />
 
-      <CheckBox
-            android:id="@+id/checkbox_free_api"
-            android:layout_height="36sp"
-            android:layout_width="30sp"
-            android:layout_toRightOf="@+id/label_free_api"
-            android:visibility="gone"
-            />
-   </RelativeLayout>
+               <CheckBox
+                     android:id="@+id/checkbox_free_stitching"
+                     android:layout_height="36sp"
+                     android:layout_width="30sp"
+                     android:layout_toRightOf="@+id/label_free_stitching"
+                     />
+            </RelativeLayout>
+-->
+            <RelativeLayout
+                  android:id="@+id/layout_free_api"
+                  android:layout_width="115sp"
+                  android:layout_height="match_parent"
+                  android:layout_toRightOf="@+id/layout_free_flash"
+                  android:background="@drawable/rect_border"
+                  >
+               <TextView
+                     android:id="@+id/label_free_api"
+                     android:layout_width="85sp"
+                     android:layout_height="16sp"
+                     android:text="Camera2 API"
+                     android:textColor="@android:color/white"
+                     android:paddingLeft="2px"
+                     android:textAppearance="@android:style/TextAppearance.Small"
+                     android:visibility="gone"
+                     />
 
-</RelativeLayout>
+               <CheckBox
+                     android:id="@+id/checkbox_free_api"
+                     android:layout_height="36sp"
+                     android:layout_width="30sp"
+                     android:layout_toRightOf="@+id/label_free_api"
+                     android:visibility="gone"
+                     />
+            </RelativeLayout>
+
+         </RelativeLayout>
+
+      </RelativeLayout>

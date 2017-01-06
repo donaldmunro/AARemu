@@ -66,18 +66,18 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrame
 /*
  * Class:     to_augmented_reality_android_em_recorder_NativeFrameBuffer
  * Method:    push
- * Signature: (J[B)V
+ * Signature: (J[BI)V
  */
 JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrameBuffer_push
-  (JNIEnv *, jobject, jlong, jbyteArray);
+  (JNIEnv *, jobject, jlong, jbyteArray, jint);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_NativeFrameBuffer
  * Method:    pushYUV
- * Signature: (JLjava/nio/ByteBuffer;ILjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ * Signature: (JLjava/nio/ByteBuffer;ILjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;III)V
  */
 JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrameBuffer_pushYUV
-  (JNIEnv *, jobject, jlong, jobject, jint, jobject, jint, jint, jobject, jint, jint);
+  (JNIEnv *, jobject, jlong, jobject, jint, jobject, jint, jint, jobject, jint, jint, jint);
 
 /*
  * Class:     to_augmented_reality_android_em_recorder_NativeFrameBuffer

@@ -70,12 +70,12 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
    private final NativeFrameBuffer frameBuffer;
    private final ConditionVariable frameAvailCondVar;
    private Semaphore mCameraOpenCloseLock = new Semaphore(1);
-   private HandlerThread cameraThread = null;
-   private Handler cameraHandler = null;
    private String cameraID = null;
+   private int legacyCameraId = -1;
    private CameraDevice cameraDevice;
    private int cameraWidth, cameraHeight;
    private boolean hasYUV = false, hasNV21 = false;
+   private int imageFormat =-1;
    private Range<Integer> fps[] = null;
    private CameraCaptureSession captureSession;
    private ImageReader previewImageReader;
@@ -83,6 +83,13 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
    private Surface previewSurface, displaySurface;
    private volatile boolean mustBuffer = false;
    private boolean hasFlash = false;
+   private HandlerThread cameraThread;
+   private Handler cameraHandler;
+   private HandlerThread previewThread;
+   private Handler previewHandler;
+   private HandlerThread captureThread;
+   private Handler captureHandler;
+
    @Override public boolean hasFlash() { return hasFlash; }
 
    @Override public void bufferOn() { frameBuffer.bufferOn(); mustBuffer = true; }
@@ -95,7 +102,7 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
    @Override public void flushFile() { frameBuffer.flushFile(); }
    @Override public void writeOff() { frameBuffer.writeOff(); }
    @Override public void writeOn() { frameBuffer.writeOn(); }
-   @Override public void push(long timestamp, byte[] data) { frameBuffer.push(timestamp, data); }
+   @Override public void push(long timestamp, byte[] data, int retries) { frameBuffer.push(timestamp, data, retries); }
 
    @Override public void startTimestamp(long timestamp) { frameBuffer.startTimestamp(timestamp); }
    @Override public int writeCount() { return frameBuffer.writeCount(); }
@@ -122,13 +129,12 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
    @Override public void setFlash(boolean isOnOff) { isFlashOn = isOnOff; }
 
    public PreviewCamera(GLRecorderRenderer renderer, GLSurfaceView surfaceView, Surface displaySurface,
-                        NativeFrameBuffer frameBuffer, ConditionVariable frameAvailCondVar, Handler handler)
+                        NativeFrameBuffer frameBuffer, ConditionVariable frameAvailCondVar)
    //--------------------------------------------------------------------------------------------
    {
       this.renderer = renderer;
       this.surfaceView = surfaceView;
       this.displaySurface = displaySurface;
-      this.cameraHandler = handler;
       this.frameBuffer = frameBuffer;
       this.frameAvailCondVar = frameAvailCondVar;
       renderscript = RenderScript.create(renderer.activity);
@@ -174,7 +180,7 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
             throw new RuntimeException("Time out waiting to lock camera opening.");
          isLock = true;
          setPreviewSize(width, height, errbuf);
-         int imageFormat = ((hasYUV) ? ImageFormat.YUV_420_888 : ((hasNV21) ? ImageFormat.NV21 : -1));
+         imageFormat = ((hasYUV) ? ImageFormat.YUV_420_888 : ((hasNV21) ? ImageFormat.NV21 : -1));
          if (imageFormat < 0)
          {
             Log.e(LOGTAG, "No supported output formats");
@@ -193,7 +199,6 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
                break;
          }
          Camera.CameraInfo camera1Info = new Camera.CameraInfo();
-         int camera1Id = -1;
          Camera camera1 = null;
          try
          {
@@ -202,8 +207,8 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
                Camera.getCameraInfo(i, camera1Info);
                if (camera1Info.facing == facing)
                {
-                  camera1Id = i;
-                  try { camera1 = Camera.open(camera1Id); } catch (Exception _e) { camera1 = null; }
+                  legacyCameraId = i;
+                  try { camera1 = Camera.open(legacyCameraId); } catch (Exception _e) { camera1 = null; }
                   break;
                }
             }
@@ -290,6 +295,9 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
          return;
       try
       {
+         cameraThread = new HandlerThread("CameraPreview");
+         cameraThread.start();
+         cameraHandler = new Handler(cameraThread.getLooper());
          manager.openCamera(cameraID, cameraStateCallback, cameraHandler);
       }
       catch (Exception e)
@@ -318,13 +326,39 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
             return;
          }
          previewSurface = previewImageReader.getSurface();
-         final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
          renderer.previewSurfaceTexture.setDefaultBufferSize(cameraWidth, cameraHeight);
+         final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+         displaySurface = renderer.newDisplaySurface();
          previewRequestBuilder.addTarget(displaySurface);
          previewRequestBuilder.addTarget(previewSurface);
-
+         previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
+//         previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+//         previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
+         if ( (fps != null) && (fps.length > 0) )
+            previewRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fps[fps.length - 1]);
+//         previewRequestBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON);
+         if (isFlashOn)
+         {
+            CameraManager manager = (CameraManager) surfaceView.getContext().getSystemService(Context.CAMERA_SERVICE);
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
+            Boolean isFlashAvail = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+            if ( (isFlashAvail != null) && (isFlashAvail) )
+               previewRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
+         }
          CameraCaptureSession.StateCallback cameraStatusCallback = new CameraCaptureSession.StateCallback()
          {
+            @Override
+            public void onClosed(CameraCaptureSession session)
+            {
+               Log.i(LOGTAG, "Camera2 closed");
+            }
+
+            @Override
+            public void onReady(CameraCaptureSession session)
+            {
+               Log.i(LOGTAG, "Camera2 ready");
+            }
+
             @Override
             public void onConfigured(CameraCaptureSession session)
             //-----------------------------------------------------------------
@@ -332,25 +366,12 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
                captureSession = session;
                try
                {
-                  previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                  previewRequestBuilder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f);
-//                  previewRequestBuilder.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
-//                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON);
-                  if ( (fps != null) && (fps.length > 0) )
-                     previewRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fps[fps.length - 1]);
-                  if (isFlashOn)
-                  {
-                     CameraManager manager = (CameraManager) surfaceView.getContext().getSystemService(Context.CAMERA_SERVICE);
-                     CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
-                     Boolean isFlashAvail = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-                     if ( (isFlashAvail != null) && (isFlashAvail) )
-                        previewRequestBuilder.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_TORCH);
-                  }
-                  previewImageReader.setOnImageAvailableListener(imageAvailableListener, cameraHandler);
+                  previewThread = new HandlerThread("CameraPreview");
+                  previewThread.start();
+                  previewHandler = new Handler(previewThread.getLooper());
+                  previewImageReader.setOnImageAvailableListener(imageAvailableListener, previewHandler);
 
-                  captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, cameraHandler);
-//                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) captureSession.prepare(previewSurface);
+                  captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, null); //cameraHandler);
                   Log.i(LOGTAG, "CameraPreviewSession has been started");
                   isPreviewing = true;
                }
@@ -373,7 +394,10 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
                mCameraOpenCloseLock.release();
             }
          };
-         cameraDevice.createCaptureSession(Arrays.asList(previewSurface, displaySurface), cameraStatusCallback, cameraHandler);
+         captureThread = new HandlerThread("CameraCapture");
+         captureThread.start();
+         captureHandler = new Handler(captureThread.getLooper());
+         cameraDevice.createCaptureSession(Arrays.asList(previewSurface, displaySurface), cameraStatusCallback, captureHandler);
       }
       catch (CameraAccessException e)
       {
@@ -409,10 +433,15 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
             cameraDevice.close();
             cameraDevice = null;
          }
-         HandlerThread t = (HandlerThread) cameraHandler.getLooper().getThread();
-         t.quit();
-         t = null;
+         if (cameraThread != null)
+            cameraThread.quit();
          cameraHandler = null;
+         if (previewThread != null)
+            previewThread.quit();
+         previewHandler = null;
+         if (captureThread != null)
+            captureThread.quit();
+         captureHandler = null;
       }
       catch (InterruptedException e)
       {
@@ -492,8 +521,7 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
       {
          CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
          fps = characteristics.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
-         StreamConfigurationMap streamConfig =
-               characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+         StreamConfigurationMap streamConfig = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
          if (streamConfig != null)
          {
             int[] outputs = streamConfig.getOutputFormats();
@@ -501,24 +529,19 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
             {
                for (int c : outputs)
                {
-                  if (c == ImageFormat.YUV_420_888)
+                  Log.i(LOGTAG, "Supported Camera Format: " + RecorderActivity.imageFormatString(c));
+                  switch (c)
                   {
-                     hasYUV = true;
-                     Log.i(LOGTAG, "YUV_420_888 support");
-                     //break;
-                  }
-                  if (c == ImageFormat.NV21)
-                  {
-                     hasNV21 = true;
-                     Log.i(LOGTAG, "NV21 support");
+                     case ImageFormat.YUV_420_888: hasYUV = true; break;
+                     case ImageFormat.NV21:        hasNV21 = true; break;
                   }
                }
             }
          }
          else
          {
-            hasYUV = false;
-            hasNV21 = true;
+            hasYUV = (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null);
+            hasNV21 = (streamConfig.getOutputSizes(ImageFormat.NV21) != null);
          }
          if ((!hasYUV) && (!hasNV21))
          {
@@ -583,10 +606,11 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
    {
       B.putString("cameraID", cameraID);
       B.putInt("cameraWidth", cameraWidth);
-      B.putInt("cameraHeigh", cameraHeight);
+      B.putInt("cameraHeight", cameraHeight);
       B.putBoolean("hasYUV", hasYUV);
       B.putBoolean("hasNV21", hasNV21);
       B.putBoolean("isPreviewing", isPreviewing);
+      B.putInt("ImageFormat", imageFormat);
    }
 
    @Override
@@ -599,11 +623,22 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
       hasYUV = B.getBoolean("hasYUV");
       hasNV21 = B.getBoolean("hasNV21");
       isPreviewing = B.getBoolean("isPreviewing");
+      imageFormat = B.getInt("ImageFormat");
    }
 
    @Override public PreviewData pop() { throw new RuntimeException("N/A (NativeFrameBuffer writes data)"); }
 
-   @Override public String getPreviewFormat() { return "YUV"; }
+   @Override public String getPreviewFormat()
+   //----------------------------------------
+   {
+      imageFormat = ((hasYUV) ? ImageFormat.YUV_420_888 : ((hasNV21) ? ImageFormat.NV21 : -1));
+      switch (imageFormat)
+      {
+         case ImageFormat.YUV_420_888: return "YUV_420_888";
+         case ImageFormat.NV21:        return "NV21";
+         default:                      return "UNKNOWN";
+      }
+   }
 
    ByteBuffer imagebuf = null;
 
@@ -639,7 +674,7 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
             final int vlen = V.remaining();
             final int ustride = Uplane.getPixelStride();
             final int vstride = Vplane.getPixelStride();
-            frameBuffer.pushYUV(timestamp, Y, ylen, U, ulen, ustride, V, vlen, vstride);
+            frameBuffer.pushYUV(timestamp, Y, ylen, U, ulen, ustride, V, vlen, vstride, 5);
          }
          image.close();
          frameAvailCondVar.open();
@@ -660,17 +695,6 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
          rgbTypeBuilder.setX(previewWidth).setY(previewHeight);
          Allocation allocRGBAOut = Allocation.createTyped(renderscript, rgbTypeBuilder.create(), Allocation.USAGE_SCRIPT);
 
-         Allocation allocGrayOut = null;
-         ScriptC_yuv2grey rsYUVtoGrey = null;
-         if (grey != null)
-         {
-            Type.Builder greyTypeBuilder = new Type.Builder(renderscript, Element.U8(renderscript));
-            greyTypeBuilder.setX(cameraWidth).setY(cameraHeight);
-            allocGrayOut = Allocation.createTyped(renderscript, greyTypeBuilder.create(), Allocation.USAGE_SCRIPT);
-            rsYUVtoGrey = new ScriptC_yuv2grey(renderscript);
-            rsYUVtoGrey.set_in(allocYUVIn);
-         }
-
          ScriptIntrinsicYuvToRGB YUVToRGB = ScriptIntrinsicYuvToRGB.create(renderscript, Element.RGBA_8888(renderscript));
          allocYUVIn.copyFrom(frame);
          YUVToRGB.setInput(allocYUVIn);
@@ -679,6 +703,12 @@ public class PreviewCamera implements Previewable, Bufferable, Freezeable
          allocRGBAOut.copyTo(rgbaBuffer);
          if (grey != null)
          {
+            Type.Builder greyTypeBuilder = new Type.Builder(renderscript, Element.U8(renderscript));
+            greyTypeBuilder.setX(cameraWidth).setY(cameraHeight);
+            Allocation allocGrayOut = Allocation.createTyped(renderscript, greyTypeBuilder.create(), Allocation.USAGE_SCRIPT);
+            ScriptC_yuv2grey rsYUVtoGrey = new ScriptC_yuv2grey(renderscript);
+            allocYUVIn.copyFrom(frame);
+            rsYUVtoGrey.set_in(allocYUVIn);
             rsYUVtoGrey.forEach_yuv2grey(allocGrayOut);
             allocGrayOut.copyTo(grey);
          }

@@ -19,6 +19,7 @@ package to.augmented.reality.android.em;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.hardware.Camera;
 import android.os.Build;
 import android.renderscript.Allocation;
@@ -33,6 +34,8 @@ import to.augmented.reality.android.em.free.PlaybackThreadFree;
 import to.augmented.reality.android.em.three60.PlaybackThread360;
 
 import java.io.File;
+import java.io.FileFilter;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Collection;
@@ -214,6 +217,93 @@ public class ARCamera extends AbstractARCamera implements ARCameraInterface
          this.recordingType = type;
       this.orientationFile = orientationFile;
       this.locationFile = locationFile;
+      this.isRepeat = isRepeat;
+   }
+
+   /**
+    * Creates an ARCamera instance and adds it to the defined ARCamera instances map. The instance can subsequently
+    * be accessed using open() or open(int id). The Camera instance is used for delegation and to obtain an internal
+    * Camera.Parameter instance.
+    * @param context A Context instance used to access sensor classes.
+    * @param cameraId The camera id to use. It may be the original id of the accompanying Camera instance or
+    *                 a id greater than the last available hardware camera if separate ARCamera instances are desired.
+    *                 If it is the original id or the id of an existing hardware camera then the emulated camera
+    *                 replaces the hadrware camera when opened using ARCamera.open(id).
+    * @param camera A Camera instance is used for delegation and to obtain an internal
+    *               Camera.Parameter instance as Camera.Size has a private constructor. Can be null in which case
+    *               reflection is used to obtain a Camera.Parameter.
+    * @param recordingDir The recording directory. The frames, orientation and location files as wellas
+    *                     the recording typeare inferred from the header file in the directory or by their
+    *                     default names .
+    * @param isRepeat Specifies whether to continue repeating a free (non-360) recording.
+    * @throws Exception
+    */
+   public ARCamera(Context context, int cameraId, Camera camera, File recordingDir, boolean isRepeat)
+         throws IOException
+   //------------------------------------------------------------------------------------------
+   {
+      super(context);
+      this.camera = camera;
+      init(cameraId, camera);
+      if ( (recordingDir == null) || (! recordingDir.isDirectory()) )
+         throw new FileNotFoundException( (recordingDir == null) ? "null" : recordingDir.getAbsolutePath());
+      File[] headerFile = recordingDir.listFiles(new FileFilter()
+      {
+         @Override
+         public boolean accept(File f)
+         //---------------------------
+         {
+            String filename = f.getName();
+            Log.i(TAG, filename);
+            int p = filename.lastIndexOf(".");
+            if (p < 0) return false;
+            String ext = filename.substring(p);
+            if (ext.equalsIgnoreCase(".head"))
+               return true;
+            return false;
+         }
+      });
+      if ( (headerFile == null) || (headerFile.length < 1) )
+         throw new FileNotFoundException("No headers file (.head) in directory " + recordingDir.getAbsolutePath());
+      headers = parseHeader(headerFile[0]);
+      String filename = headers.get("FramesFile");
+      if (filename == null)
+         throw new FileNotFoundException("No frames file found in header file " + headerFile[0]);
+      File framesFile = new File(filename);
+      if (! framesFile.isFile())
+         throw new FileNotFoundException("No frames file in directory " + recordingDir.getAbsolutePath() + " (" +
+                                         framesFile.getAbsolutePath() + ")");
+      File orientationFile = null;
+      filename = headers.get("FilteredOrientationFile");
+      if (filename == null)
+         filename = headers.get("OrientationFile");
+      if (filename != null)
+      {
+         orientationFile = new File(filename);
+         if ( (! orientationFile.isFile()) || (orientationFile.length() == 0) )
+            orientationFile = null;
+      }
+      File locationFile = null;
+      filename = headers.get("LocationFile");
+      if (filename != null)
+      {
+         locationFile = new File(filename);
+         if ( (! locationFile.isFile()) || (locationFile.length() == 0) )
+            locationFile = null;
+      }
+      setFiles(headerFile[0], framesFile, orientationFile, locationFile);
+      String type  = headers.get("Type");
+      if (type != null)
+      {
+         if (type.equalsIgnoreCase("THREE60"))
+            this.recordingType = RecordingType.THREE60;
+         else if (type.equalsIgnoreCase("FREE"))
+            this.recordingType = RecordingType.FREE;
+         else if (this.recordingType == null)
+           throw new RuntimeException("RecordingType not in header file " + headerFile);
+      }
+//      if (this.recordingType == null)
+//         this.recordingType = type;
       this.isRepeat = isRepeat;
    }
 
@@ -450,6 +540,16 @@ public class ARCamera extends AbstractARCamera implements ARCameraInterface
       final String v = String.format(Locale.US, "%dx%d", previewWidth, previewHeight);
       parameters.set(KEY_PREVIEW_SIZE, v);
       parameters.set(KEY_PREVIEW_SIZE + SUPPORTED_VALUES_SUFFIX, v); //If more than one then comma delimited
+      if ( (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) && (fileFormat == RecordFileFormat.YUV_420) )
+         parameters.set(KEY_PREVIEW_FORMAT, ImageFormat.YUV_420_888);
+      else
+      {
+         switch (fileFormat)
+         {
+            case NV21:     parameters.set(KEY_PREVIEW_FORMAT, ImageFormat.NV21); break;
+            default:       parameters.set(KEY_PREVIEW_FORMAT, PixelFormat.RGBA_8888); break;
+         }
+      }
    }
 
    /**
@@ -862,12 +962,40 @@ public class ARCamera extends AbstractARCamera implements ARCameraInterface
          checkFPSRange(range[1]);
          previewFrameRate = range[1];
       }
-      if (! QuickFloat.equals(parameters.getFocalLength(), focalLength, 0.0001f))
-         focalLength = parameters.getFocalLength();
-      if (! QuickFloat.equals(parameters.getHorizontalViewAngle(), fovx, 0.0001f))
-         fovx = parameters.getHorizontalViewAngle();
-      if (! QuickFloat.equals(parameters.getVerticalViewAngle(), fovy, 0.0001f))
-         fovy = parameters.getVerticalViewAngle();
+      try
+      {
+         float paramFocalLen = parameters.getFocalLength();
+         if (! QuickFloat.equals(paramFocalLen, focalLength, 0.0001f))
+            focalLength = paramFocalLen;
+      }
+      catch (Exception e)
+      {
+         if (focalLength >= 0)
+            parameters.set(KEY_FOCAL_LENGTH, Float.toString(focalLength));
+      }
+
+      try
+      {
+         float paramHorizAngle = parameters.getHorizontalViewAngle();
+         if (! QuickFloat.equals(paramHorizAngle, fovx, 0.0001f))
+            fovx = paramHorizAngle;
+      }
+      catch (Exception e)
+      {
+         if (fovx >= 0)
+            parameters.set(KEY_HORIZONTAL_VIEW_ANGLE, Float.toString(fovx));
+      }
+      try
+      {
+         float paramVertAngle = parameters.getVerticalViewAngle();
+         if (! QuickFloat.equals(paramVertAngle, fovy, 0.0001f))
+            fovy = paramVertAngle;
+      }
+      catch (Exception e)
+      {
+         if (fovy >= 0)
+            parameters.set(KEY_VERTICAL_VIEW_ANGLE, Float.toString(fovy));
+      }
    }
 
 }

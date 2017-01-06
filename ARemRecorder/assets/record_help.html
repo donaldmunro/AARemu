@@ -1,0 +1,26 @@
+<html>
+<head></head>
+<body>
+<p><b>Recording Name</b> - Name of the recording. This will be a directory on the device sdcard, usually in /sdcard/Documents/ARRecorder.</p>
+<p><b>Resolutions</b> - Select the camera resolution for the recording</p>
+<p><b>Rotation/Orientation Sensor</b> - Select the type of sensor used for detecting rotation/orientation.</p>
+<p><b>Max Size </b> - Specify the maximum file size used during recording (append G for Gigabytes, M for Megabytes or nothing for bytes)</p>
+<p><b>Record Sensors</b> - Specify sensors to record data for.</p>
+<hr>
+<b>Options</b>
+<br>
+<p><b>Off-Device Finalization</b> - Only perform initial raw frame and sensor recording on the Android device.
+   A desktop postprocessor available at https://github.com/donaldmunro/AARemu can then be used
+   to perform the frame conversion and post-processing much faster than is possible on
+  an Android device, particularly if the desktop has a modern GPU so CUDA or OpenCL can be
+used to accelerate the processing.</p>
+<p><b>Flash On</b> - Switch the camera flash on when recording (only visible if the device has a flash)</p>
+<p><b>Stitching</b> - Use image stitching to provide a 3-up averaging filter for rotational recordings
+   (only available for rotational recording). Note this will take a <b>long</b> time on most
+   Android devices so the use of Off-Device Finalization is recommended
+   (if Off-Device Finalization is enabled then this setting does not make any difference as stitching
+   is a command line option in the post-processor).</p>
+<p><b>Camera2 API</b> - Use the Camera2 API if available (for this application there is no real
+   advantage to using the Camera2 API)</p>
+</body>
+</html>
