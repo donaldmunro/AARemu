@@ -8,9 +8,12 @@ NEWS
     (step 2 above) just about requires this as it is rather slow on an Android device.
     This also allows making multiple quick recordings on site with subsequent
     post-processing on a fast GPU enabled desktop later. The post-processor code
-    is in the ARem/ARemRecorder/PostProcessor/ directory with an Ubuntu 16.10
-    compatible binary in the dist sub-directory. A Windows executable will be
-    available shortly. Run postprocessor -h for instructions; a simple example
+    is in the ARem/ARemRecorder/PostProcessor/ directory with Linux and Windows
+    binaries in the dist sub-directory (note the Windows executable was created
+    in a KVM virtual machine so it may not be linked with CUDA/OpenCL - the
+    build.windows directory contains Visual Studio solutions to recompile with).
+
+    Run postprocessor -h for instructions; a simple example
     which downloads a recording from the default location on the device
     (/sdcard/Documents/ARRecorder) to directory ~/myrecordings, performs
     post-processing and uploads the processed files back to the device:<br>
