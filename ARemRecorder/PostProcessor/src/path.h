@@ -20,6 +20,8 @@
 #include <cstring>
 
 #if defined(_WIN32)
+#define NOMINMAX
+#include <WinSock2.h>  //Must include winsock before windows
 # include <windows.h>
 #else
 # include <unistd.h>

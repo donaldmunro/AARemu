@@ -1,15 +1,20 @@
+#include <stdio.h>
 #include <stdlib.h>
-//#if defined(_WIN32) || defined(_WIN64)
-//#include <process.h>
-//#define WIFEXITED(w)    (((w) & 0XFFFFFF00) == 0)
-//#define WIFSIGNALED(w)  (!WIFEXITED(w))
-//#define WEXITSTATUS(w)  (w)
-//#define WTERMSIG(w)     (w)
-//#else
-#include <unistd.h>
 #include <math.h>
+#include <sys/stat.h>
+#if defined(_WIN32) || defined(_WIN64)
+#include <direct.h>
+#include <sys/types.h>
+//#include <process.h>
+#define WIFEXITED(w)    (((w) & 0XFFFFFF00) == 0)
+#define WIFSIGNALED(w)  (!WIFEXITED(w))
+#define WEXITSTATUS(w)  (w)
+#define WTERMSIG(w)     (w)
+#define NOMINMAX
+#else
+#include <unistd.h>
 #include <sys/wait.h>
-//#endif
+#endif
 
 #include <iostream>
 #include <string>
@@ -138,7 +143,11 @@ bool make_path(const filesystem::path& path, std::string& error)
          const char *path = sofar.c_str();
          if (stat(path, &st) != 0)
          {
+#if defined(_WIN32) || defined(_WIN64)
+			     if ((_mkdir(path) != 0) && (errno != EEXIST))
+#else
             if ( (mkdir(path, 0774) != 0) && (errno != EEXIST) )
+#endif
             {
                int err = errno;
                std::stringstream ss;
@@ -149,7 +158,11 @@ bool make_path(const filesystem::path& path, std::string& error)
             else
                sofar += file_delimiter;
          }
+#if defined(_WIN32) || defined(_WIN64)
+		     else if ( (st.st_mode & S_IFDIR) == 0)
+#else
          else if (! S_ISDIR(st.st_mode))
+#endif
          {
             int err = ENOTDIR;
             errno = ENOTDIR;

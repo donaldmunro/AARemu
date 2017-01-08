@@ -333,7 +333,7 @@ bool convert_frames(filesystem::path dir, std::unordered_map<std::string, std::s
    std::ifstream yuvfile(raw_file.str());
    std::ofstream rgbafile(frames_file.str());
    shift_totalx = shift_totaly = framecount = 0;
-   unsigned char YUV[(w * h * 12) / 8];
+   std::unique_ptr<unsigned char> YUV(new unsigned char [(w * h * 12) / 8]);
    int size;
    long offset;
    cv::ColorConversionCodes convertColorCode, convertGreyCode;
@@ -348,13 +348,13 @@ bool convert_frames(filesystem::path dir, std::unordered_map<std::string, std::s
       convertGreyCode = cv::COLOR_YUV2GRAY_I420;
    }
    long ts, ts2;
-   offset = readFrame(yuvfile, ts, size, YUV);
+   offset = readFrame(yuvfile, ts, size, YUV.get());
    if (offset < 0)
    {
       std::cerr << "WARNING: Empty Raw frames file." << std::endl;
       return true;
    }
-   cv::Mat yuv(h+h/2, w, CV_8UC1, YUV);
+   cv::Mat yuv(h+h/2, w, CV_8UC1, YUV.get());
    cv::Mat frame(h, w, CV_8UC4),
            grey(h, w, CV_8UC1);
    cv::cvtColor(yuv, frame, convertColorCode);
@@ -367,11 +367,11 @@ bool convert_frames(filesystem::path dir, std::unordered_map<std::string, std::s
    double psnr;
    int n = 0;
    std::cout << " .";
-   while ( (offset = readFrame(yuvfile, ts2, size, YUV)) >= 0 )
+   while ( (offset = readFrame(yuvfile, ts2, size, YUV.get())) >= 0 )
    {
       std::cout << "." << std::flush;
       n++;
-      yuv = cv::Mat(h+h/2, w, CV_8UC1, YUV);
+      yuv = cv::Mat(h+h/2, w, CV_8UC1, YUV.get());
       cv::Mat nextframe(h, w, CV_8UC4),
               nextGrey(h, w, CV_8UC1);
       cv::cvtColor(yuv, nextframe, convertColorCode);

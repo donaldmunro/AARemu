@@ -65,7 +65,8 @@ long FrameData::readFrame(std::ifstream &in, long filepos, bool isCompressed)
    return fileOffset;
 }
 
-bool readRGBA(std::fstream& raf, long offset, int size, int width, int height, cv::Mat &rgba, cv::Mat &bw)
+bool readRGBA(std::fstream& raf, long offset, int size, int width, int height, char *buffer,
+              cv::Mat &rgba, cv::Mat &bw)
 //-------------------------------------------------------------------------------------------------------
 {
    raf.seekg(offset, std::ios::beg);
@@ -74,14 +75,13 @@ bool readRGBA(std::fstream& raf, long offset, int size, int width, int height, c
       std::cerr << "Could not seek to  location " << offset;
       return false;
    }
-   char startFrameBuf[size];
-   raf.read((char *) startFrameBuf, size);
+   raf.read(buffer, size);
    if (! raf.good())
    {
       std::cerr << "Could not read " << size << " bytes ";
       return false;
    }
-   rgba = cv::Mat(height, width, CV_8UC4, startFrameBuf);
+   rgba = cv::Mat(height, width, CV_8UC4, buffer);
    cv::cvtColor(rgba, bw, cv::COLOR_RGBA2GRAY);
    return true;
 }
@@ -104,24 +104,26 @@ void syncLastFrame(filesystem::path recordingDir, filesystem::path framesFile, i
       std::cerr << "Could not open frames file " << framesFile.str() << " in syncLastFrame" << std::endl;
       return;
    }
+   std::unique_ptr<char> startFrameBuf(new char [rgbaBufferSize]), nextFrameBuf(new char [rgbaBufferSize]),
+                         lastFrameBuf(new char [rgbaBufferSize]);
    try
    {
       cv::Mat startFrame(previewHeight, previewWidth, CV_8UC4), startFrameBW,
               nextFrame(previewHeight, previewWidth, CV_8UC4), nextFrameBW,
               lastFrame(previewHeight, previewWidth, CV_8UC4), lastFrameBW;
-      if (! readRGBA(raf, startOffset * rgbaBufferSize, rgbaBufferSize, previewWidth, previewHeight,
+      if (! readRGBA(raf, startOffset * rgbaBufferSize, rgbaBufferSize, previewWidth, previewHeight, startFrameBuf.get(),
                      startFrame, startFrameBW))
       {
          std::cerr << " in frames file " << framesFile.str() << " in syncLastFrame" << std::endl;
          return;
       }
       if (! readRGBA(raf, (startOffset + 1) * rgbaBufferSize, rgbaBufferSize, previewWidth, previewHeight,
-                     nextFrame, nextFrameBW))
+                     nextFrameBuf.get(), nextFrame, nextFrameBW))
       {
          std::cerr << " in frames file " << framesFile.str() << " in syncLastFrame" << std::endl;
          return;
       }
-      if (! readRGBA(raf, stopOffset * rgbaBufferSize, rgbaBufferSize, previewWidth, previewHeight,
+      if (! readRGBA(raf, stopOffset * rgbaBufferSize, rgbaBufferSize, previewWidth, previewHeight, lastFrameBuf.get(),
                      lastFrame, lastFrameBW))
       {
          std::cerr << " in frames file " << framesFile.str() << " in syncLastFrame" << std::endl;
