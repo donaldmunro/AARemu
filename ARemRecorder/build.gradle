@@ -10,8 +10,8 @@ android {
       targetSdkVersion 23
       renderscriptTargetApi 19
       renderscriptSupportModeEnabled false
-      versionCode 21
-      versionName '2.1'
+      versionCode 22
+      versionName '2.2'
    }
 
    android {
@@ -35,9 +35,10 @@ android {
 
    buildTypes {
       release {
-            minifyEnabled true
-            shrinkResources true
-         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled false
+            shrinkResources false
+         proguardFiles 'proguard-rules.pro'
+//         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
       }
     }
     compileOptions {

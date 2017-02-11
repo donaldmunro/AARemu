@@ -38,23 +38,32 @@ FrameBuffer *getBuffer(JNIEnv *env, jobject instance)
    jclass c = env->GetObjectClass(instance);
    if (c == nullptr)
    {
-      throw_jni(env, "Error obtaining Java class");
+#ifdef ANDROID_LOG
+      LOGE("Error obtaining Java class NativeFrameBuffer");
+#endif
+//      throw_jni(env, "Error obtaining Java class");
       return nullptr;
    }
    jfieldID id = env->GetFieldID(c, field.c_str(), "Ljava/nio/ByteBuffer;");
    if (id == nullptr)
    {
       std::stringstream ss;
-      ss << "Error obtaining Java field " << field;
-      throw_jni(env, ss.str().c_str());
+      ss << "Error obtaining Java field " << field.c_str();
+#ifdef ANDROID_LOG
+      LOGE("%s", ss.str().c_str());
+#endif
+//      throw_jni(env, ss.str().c_str());
       return nullptr;
    }
    jobject obj = env->GetObjectField(instance, id);
    if (obj == nullptr)
    {
       std::stringstream ss;
-      ss << "Error obtaining Java field " << field;
-      throw_jni(env, ss.str().c_str());
+      ss << "Error obtaining Java field " << field.c_str();
+#ifdef ANDROID_LOG
+      LOGE("%s", ss.str().c_str());
+#endif
+//      throw_jni(env, ss.str().c_str());
       return nullptr;
    }
    return (FrameBuffer*) env->GetDirectBufferAddress(obj);
@@ -111,7 +120,7 @@ JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrame
 
 JNIEXPORT void JNICALL Java_to_augmented_reality_android_em_recorder_NativeFrameBuffer_pushYUV
 (JNIEnv *env, jobject instance, jlong timestamp, jobject Ybuffer, jint yLen, jobject Ubuffer, jint uLen, jint uStride,
- jobject Vbuffer, jint vLen, jint vStride,  jint retries)   
+ jobject Vbuffer, jint vLen, jint vStride,  jint retries)
 //-------------------------------------------------------------------------------------------------------------------
 {
    FrameBuffer *buffer = getBuffer(env, instance);

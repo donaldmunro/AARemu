@@ -39,8 +39,10 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.StatFs;
 import android.os.SystemClock;
+import android.text.Html;
 import android.text.Spannable;
 import android.text.SpannableString;
+import android.text.method.LinkMovementMethod;
 import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 import android.util.Pair;
@@ -391,6 +393,24 @@ public class RecorderActivity extends Activity
       statusText.setVisibility(View.INVISIBLE);
       locationLabel.setVisibility(View.INVISIBLE);
       locationText.setVisibility(View.INVISIBLE);
+      TextView privacyText = (TextView) findViewById(R.id.privacy);
+//      TextView webText = (TextView) findViewById(R.id.website);
+      String privacyLink = "<a href=https://donaldmunro.github.io/ARemRecorder-Privacy.html>Privacy Policy</a>";
+//      String webLink = "<a href=https://github.com/donaldmunro/AARemu/>Web Site</a>";
+//      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+//      {
+//         privacyText.setMovementMethod(LinkMovementMethod.getInstance());
+//         privacyText.setText(Html.fromHtml(privacyLink, Html.FROM_HTML_MODE_LEGACY));
+//         webText.setMovementMethod(LinkMovementMethod.getInstance());
+//         webText.setText(Html.fromHtml(webLink, Html.FROM_HTML_MODE_LEGACY));
+//      }
+//      else
+      {
+         privacyText.setMovementMethod(LinkMovementMethod.getInstance());
+         privacyText.setText(Html.fromHtml(privacyLink));
+//         webText.setMovementMethod(LinkMovementMethod.getInstance());
+//         webText.setText(Html.fromHtml(webLink));
+      }
 
       pauseButton = (ImageButton) findViewById(R.id.button_pause);
       recordFreeButton = (ImageButton) findViewById(R.id.button_start_free);

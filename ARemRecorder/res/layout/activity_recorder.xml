@@ -170,6 +170,30 @@
          />
       </RelativeLayout>
 
+      <TextView
+            android:id="@+id/privacy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/layout_location"
+            android:paddingTop="4dp"
+            android:background="@android:color/background_dark"
+            android:textAppearance="@android:style/TextAppearance.Holo.Small"
+            android:text=""
+            android:lines="1"
+      />
+      <!--<TextView-->
+            <!--android:id="@+id/website"-->
+            <!--android:autoLink="web"-->
+            <!--android:layout_width="wrap_content"-->
+            <!--android:layout_height="wrap_content"-->
+            <!--android:layout_below="@+id/privacy"-->
+            <!--android:textColor="@android:color/black"-->
+            <!--android:textAppearance="@android:style/TextAppearance.Holo.Small"-->
+            <!--android:text=""-->
+            <!--android:lines="1"-->
+            <!--/>-->
+
+
       <!--<ImageView-->
             <!--android:id="@+id/gps_on_off"-->
             <!--android:layout_height="match_parent"-->
