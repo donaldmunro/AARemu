@@ -30,6 +30,8 @@ import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.hardware.Sensor;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Build;
@@ -120,12 +122,21 @@ public class RecorderActivity extends Activity
    static File DIR;
    static
    {
+      File dir = null;
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
-         DIR = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+      {
+         dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
                         "ARRecorder");
+         if (! dir.mkdirs())
+         {
+            dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                           "ARRecorder");
+            dir.mkdirs();
+         }
+      }
       else
       {
-         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+         dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                         "../Documents/ARRecorder");
          if (! dir.mkdirs())
          {
@@ -133,8 +144,8 @@ public class RecorderActivity extends Activity
                            "ARRecorder");
             dir.mkdirs();
          }
-         try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
       }
+      try { DIR = dir.getCanonicalFile(); } catch (IOException e) { DIR = dir.getAbsoluteFile(); }
    }
    private static final int AUTO_HIDE_DELAY_MILLIS = 2000;
 
@@ -380,7 +391,40 @@ public class RecorderActivity extends Activity
                   GLRecorderRenderer renderer = RecorderActivity.this.previewSurface.getRenderer();
                   while (! renderer.isInitialised())
                      try { Thread.sleep(50); } catch (InterruptedException e) { break; }
-                  previewSurface.startPreview(640, 480, false, false);
+                  boolean isCamera2API = false;
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP)
+                  {
+                     CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+                     String camList[];
+                     try { camList =  manager.getCameraIdList(); } catch (Exception _e) { camList = new String[0]; }
+                     String cameraID = null;
+                     for (String id : camList)
+                     {
+                        CameraCharacteristics characteristics;
+                        try { characteristics = manager.getCameraCharacteristics(id); } catch (Exception _e) { characteristics = null; }
+                        if (characteristics == null) continue;
+                        Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                        if (facing == null) continue;
+                        if (facing == CameraCharacteristics.LENS_FACING_BACK)
+                        {
+                           cameraID = id;
+                           break;
+                        }
+                     }
+                     if (cameraID != null)
+                     {
+                        CameraCharacteristics characteristics;
+                        try {  characteristics = manager.getCameraCharacteristics(cameraID); } catch (Exception _e) { characteristics = null; }
+                        if (characteristics != null)
+                        {
+                           Integer level = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+                           isCamera2API = (level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL);
+                        }
+                     }
+                     else
+                        isCamera2API = false;
+                  }
+                  previewSurface.startPreview(640, 480, false, isCamera2API);
                }
             });
          }
@@ -1070,6 +1114,7 @@ public class RecorderActivity extends Activity
          catch (Exception ee)
          {
             gb = -1;
+            Log.e(TAG, "", e);
          }
       }
       return gb;
@@ -1078,8 +1123,16 @@ public class RecorderActivity extends Activity
    public static long freeSpaceGb(File dir)
    //--------------------------------------
    {
-      StatFs stat = new StatFs(dir.getAbsolutePath());
-      return stat.getBlockSizeLong() * stat.getBlockCountLong();
+      try
+      {
+         StatFs stat = new StatFs(dir.getAbsolutePath());
+         return stat.getBlockSizeLong() * stat.getBlockCountLong();
+      }
+      catch (Exception e)
+      {
+         Log.e(TAG, "", e);
+         return 0;
+      }
    }
 
    private String human(String name) { return (Character.toUpperCase(name.charAt(0)) + name.substring(1)).replace("_",

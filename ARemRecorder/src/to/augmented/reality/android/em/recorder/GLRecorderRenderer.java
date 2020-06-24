@@ -41,16 +41,7 @@ import android.os.Process;
 import android.util.Log;
 import android.view.Surface;
 import android.widget.Toast;
-import to.augmented.reality.android.common.gl.GLHelper;
-import to.augmented.reality.android.common.sensor.orientation.AccelerometerCompassProvider;
-import to.augmented.reality.android.common.sensor.orientation.FastFusedGyroscopeRotationVector;
-import to.augmented.reality.android.common.sensor.orientation.FusedGyroAccelMagnetic;
-import to.augmented.reality.android.common.sensor.orientation.OrientationProvider;
-import to.augmented.reality.android.common.sensor.orientation.RotationVectorProvider;
-import to.augmented.reality.android.common.sensor.orientation.StableFusedGyroscopeRotationVector;
 
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -64,6 +55,17 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
+
+import to.augmented.reality.android.common.gl.GLHelper;
+import to.augmented.reality.android.common.sensor.orientation.AccelerometerCompassProvider;
+import to.augmented.reality.android.common.sensor.orientation.FastFusedGyroscopeRotationVector;
+import to.augmented.reality.android.common.sensor.orientation.FusedGyroAccelMagnetic;
+import to.augmented.reality.android.common.sensor.orientation.OrientationProvider;
+import to.augmented.reality.android.common.sensor.orientation.RotationVectorProvider;
+import to.augmented.reality.android.common.sensor.orientation.StableFusedGyroscopeRotationVector;
 
 import static android.opengl.GLES20.*;
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
@@ -366,8 +368,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
             {
                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraID);
                Integer level = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-//               isLegacyCamera = (level == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY); //TODO: Uncomment
-               isLegacyCamera = false;
+               isLegacyCamera = (level != CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL);
+//               isLegacyCamera = false;
                StreamConfigurationMap streamConfig =
                      characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 //               if (streamConfig.getOutputSizes(ImageFormat.YUV_420_888) != null)
@@ -1429,7 +1431,8 @@ public class GLRecorderRenderer implements GLSurfaceView.Renderer, SurfaceTextur
       //----------------------------------------------
       {
          PowerManager powerManager = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
-         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
+         PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                                                                   "arem:wakelock");
          try
          {
             wakeLock.acquire();
