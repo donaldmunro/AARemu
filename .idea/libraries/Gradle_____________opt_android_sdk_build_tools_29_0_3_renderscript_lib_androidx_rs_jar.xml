@@ -1,5 +1,5 @@
 <component name="libraryTable">
-  <library name="Gradle: ./../../../../opt/android-sdk/build-tools/29.0.3/renderscript/lib/androidx-rs.jar">
+  <library name="Gradle: ./../../../opt/android-sdk/build-tools/29.0.3/renderscript/lib/androidx-rs.jar">
     <CLASSES>
       <root url="jar:///opt/android-sdk/build-tools/29.0.3/renderscript/lib/androidx-rs.jar!/" />
     </CLASSES>

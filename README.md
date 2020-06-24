@@ -1,5 +1,9 @@
 NEWS
 ====
+* 24-Jun-2020
+  1. Converted C++ to CMake.
+  2. Updated to Android Studio 4.0
+
 * 05-Jan-2017 - Version 2.1
     1. ARToolkit support.
     2. Optional 3-Up image stitching providing an averaging filter for rotational
