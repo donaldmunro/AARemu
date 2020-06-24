@@ -570,8 +570,7 @@ int main(int argc, char **argv)
       filesystem::path headerfile(dir.str() + "/" + recording_name + ".head");
       if (! headerfile.exists())
       {
-         std::cerr << "Header file " << headerfile.make_absolute().str() << " not found. Aborting " << recording_name
-                   << std::endl;
+         std::cerr << "Header file " << dir.str() << "/" + recording_name + ".head" << " not found. Aborting " << std::endl;
          continue;
       }
       std::unordered_map<std::string, std::string> headers;

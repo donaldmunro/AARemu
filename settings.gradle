@@ -1,5 +1,3 @@
 include ':Common', ':ARemRecorder', ':ARemu', ':AROpenCVemu', ':DisplayFrames', ':ARemSample', ':ARemOpenCVSample',
-      ':ARToolKitEm',
-      ':vuforia'
-include ':OpenCV'
+      ':ARToolKitEm'
 include ':OpenCV'

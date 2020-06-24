@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="GradleMigrationSettings" migrationVersion="1" />
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
-        <option name="distributionType" value="LOCAL" />
+        <option name="testRunner" value="PLATFORM" />
+        <option name="distributionType" value="DEFAULT_WRAPPED" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleHome" value="$APPLICATION_HOME_DIR$/gradle/gradle-2.14.1" />
+        <option name="gradleJvm" value="JDK" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
@@ -18,7 +20,6 @@
             <option value="$PROJECT_DIR$/Common" />
             <option value="$PROJECT_DIR$/DisplayFrames" />
             <option value="$PROJECT_DIR$/OpenCV" />
-            <option value="$PROJECT_DIR$/vuforia" />
           </set>
         </option>
         <option name="resolveModulePerSourceSet" value="false" />

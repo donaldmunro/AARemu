@@ -23,20 +23,31 @@ import android.hardware.Camera;
 import android.os.Build;
 import android.os.ConditionVariable;
 import android.os.SystemClock;
-import android.support.v8.renderscript.*;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicYuvToRGB;
+import android.renderscript.Type;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.ViewGroup;
-import org.opencv.android.*;
+
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.JavaCameraView;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
-import to.augmented.reality.android.em.ARCamera;
 
 import java.io.File;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+
+import to.augmented.reality.android.em.ARCamera;
 
 /**
  OpenCV4Android provides an Android View which users can use in their user interfaces which provides

@@ -43,7 +43,7 @@ public abstract class BaseLoaderCallback implements LoaderCallbackInterface {
             /** Package installation has been canceled. **/
             case LoaderCallbackInterface.INSTALL_CANCELED:
             {
-                Log.d(TAG, "OpenCV library instalation was canceled by user");
+                Log.d(TAG, "OpenCV library installation was canceled by user");
                 finish();
             } break;
             /** Application is incompatible with this version of OpenCV Manager. Possibly, a service update is required. **/
@@ -137,5 +137,5 @@ public abstract class BaseLoaderCallback implements LoaderCallbackInterface {
     }
 
     protected Context mAppContext;
-    private final static String TAG = "OpenCVLoader/BaseLoaderCallback";
+    private final static String TAG = "OCV/BaseLoaderCallback";
 }

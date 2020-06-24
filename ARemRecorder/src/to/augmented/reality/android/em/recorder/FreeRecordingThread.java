@@ -126,7 +126,8 @@ public class FreeRecordingThread extends RecordingThread
          orientationHandler.stop();
          orientationHandler.closeFile();
          previewBuffer.bufferOff();
-         previewBuffer.stop();
+         previewBuffer.writeOff();
+         previewBuffer.flushFile();
          previewBuffer.closeFile();
 
          if (locationHandler != null)
@@ -253,7 +254,6 @@ public class FreeRecordingThread extends RecordingThread
          {
             previewBuffer.bufferOff();
             previewBuffer.writeOff();
-            previewBuffer.stop();
             try { previewBuffer.closeFile(); } catch (Exception ee) { Log.e(TAG, "", ee); }
          }
 
@@ -273,6 +273,7 @@ public class FreeRecordingThread extends RecordingThread
       }
       finally
       {
+         previewBuffer.stop();
          wakeLock.release();
          if (headerWriter != null)
             try { headerWriter.close(); } catch (Exception _e) { Log.e(TAG, "", _e); }

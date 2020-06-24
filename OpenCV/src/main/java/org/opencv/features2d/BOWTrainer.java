@@ -1,4 +1,3 @@
-
 //
 // This file is auto-generated. Please don't modify it!
 //
@@ -10,62 +9,73 @@ import org.opencv.core.Mat;
 import org.opencv.utils.Converters;
 
 // C++: class BOWTrainer
-//javadoc: BOWTrainer
+/**
+ * Abstract base class for training the *bag of visual words* vocabulary from a set of descriptors.
+ *
+ * For details, see, for example, *Visual Categorization with Bags of Keypoints* by Gabriella Csurka,
+ * Christopher R. Dance, Lixin Fan, Jutta Willamowski, Cedric Bray, 2004. :
+ */
 public class BOWTrainer {
 
     protected final long nativeObj;
     protected BOWTrainer(long addr) { nativeObj = addr; }
 
+    public long getNativeObjAddr() { return nativeObj; }
+
+    // internal usage only
+    public static BOWTrainer __fromPtr__(long addr) { return new BOWTrainer(addr); }
 
     //
-    // C++:  Mat cluster(Mat descriptors)
+    // C++:  Mat cv::BOWTrainer::cluster(Mat descriptors)
     //
 
-    //javadoc: BOWTrainer::cluster(descriptors)
-    public  Mat cluster(Mat descriptors)
-    {
-        
-        Mat retVal = new Mat(cluster_0(nativeObj, descriptors.nativeObj));
-        
-        return retVal;
+    /**
+     * Clusters train descriptors.
+     *
+     *     @param descriptors Descriptors to cluster. Each row of the descriptors matrix is a descriptor.
+     *     Descriptors are not added to the inner train descriptor set.
+     *
+     *     The vocabulary consists of cluster centers. So, this method returns the vocabulary. In the first
+     *     variant of the method, train descriptors stored in the object are clustered. In the second variant,
+     *     input descriptors are clustered.
+     * @return automatically generated
+     */
+    public Mat cluster(Mat descriptors) {
+        return new Mat(cluster_0(nativeObj, descriptors.nativeObj));
     }
 
 
     //
-    // C++:  Mat cluster()
+    // C++:  Mat cv::BOWTrainer::cluster()
     //
 
-    //javadoc: BOWTrainer::cluster()
-    public  Mat cluster()
-    {
-        
-        Mat retVal = new Mat(cluster_1(nativeObj));
-        
-        return retVal;
+    public Mat cluster() {
+        return new Mat(cluster_1(nativeObj));
     }
 
 
     //
-    // C++:  int descriptorsCount()
+    // C++:  int cv::BOWTrainer::descriptorsCount()
     //
 
-    //javadoc: BOWTrainer::descriptorsCount()
-    public  int descriptorsCount()
-    {
-        
-        int retVal = descriptorsCount_0(nativeObj);
-        
-        return retVal;
+    /**
+     * Returns the count of all descriptors stored in the training set.
+     * @return automatically generated
+     */
+    public int descriptorsCount() {
+        return descriptorsCount_0(nativeObj);
     }
 
 
     //
-    // C++:  vector_Mat getDescriptors()
+    // C++:  vector_Mat cv::BOWTrainer::getDescriptors()
     //
 
-    //javadoc: BOWTrainer::getDescriptors()
-    public  List<Mat> getDescriptors()
-    {
+    /**
+     * Returns a training set of descriptors.
+     * @return automatically generated
+     */
+    public List<Mat> getDescriptors() {
         List<Mat> retVal = new ArrayList<Mat>();
         Mat retValMat = new Mat(getDescriptors_0(nativeObj));
         Converters.Mat_to_vector_Mat(retValMat, retVal);
@@ -74,30 +84,28 @@ public class BOWTrainer {
 
 
     //
-    // C++:  void add(Mat descriptors)
+    // C++:  void cv::BOWTrainer::add(Mat descriptors)
     //
 
-    //javadoc: BOWTrainer::add(descriptors)
-    public  void add(Mat descriptors)
-    {
-        
+    /**
+     * Adds descriptors to a training set.
+     *
+     *     @param descriptors Descriptors to add to a training set. Each row of the descriptors matrix is a
+     *     descriptor.
+     *
+     *     The training set is clustered using clustermethod to construct the vocabulary.
+     */
+    public void add(Mat descriptors) {
         add_0(nativeObj, descriptors.nativeObj);
-        
-        return;
     }
 
 
     //
-    // C++:  void clear()
+    // C++:  void cv::BOWTrainer::clear()
     //
 
-    //javadoc: BOWTrainer::clear()
-    public  void clear()
-    {
-        
+    public void clear() {
         clear_0(nativeObj);
-        
-        return;
     }
 
 
@@ -108,22 +116,22 @@ public class BOWTrainer {
 
 
 
-    // C++:  Mat cluster(Mat descriptors)
+    // C++:  Mat cv::BOWTrainer::cluster(Mat descriptors)
     private static native long cluster_0(long nativeObj, long descriptors_nativeObj);
 
-    // C++:  Mat cluster()
+    // C++:  Mat cv::BOWTrainer::cluster()
     private static native long cluster_1(long nativeObj);
 
-    // C++:  int descriptorsCount()
+    // C++:  int cv::BOWTrainer::descriptorsCount()
     private static native int descriptorsCount_0(long nativeObj);
 
-    // C++:  vector_Mat getDescriptors()
+    // C++:  vector_Mat cv::BOWTrainer::getDescriptors()
     private static native long getDescriptors_0(long nativeObj);
 
-    // C++:  void add(Mat descriptors)
+    // C++:  void cv::BOWTrainer::add(Mat descriptors)
     private static native void add_0(long nativeObj, long descriptors_nativeObj);
 
-    // C++:  void clear()
+    // C++:  void cv::BOWTrainer::clear()
     private static native void clear_0(long nativeObj);
 
     // native support for java finalize()

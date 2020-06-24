@@ -1,25 +1,25 @@
 apply plugin: 'com.android.application'
 
 android {
-   compileSdkVersion 25
-   buildToolsVersion "25.0.1"
+   compileSdkVersion 29
 
    defaultConfig {
       applicationId "to.augmented.reality.android.em.artoolkitem"
-      minSdkVersion 19
-      targetSdkVersion 25
+      minSdkVersion 21
+      targetSdkVersion 29
       renderscriptTargetApi 19
       renderscriptSupportModeEnabled false
       versionCode 1
       versionName "1.0"
       testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
-      externalNativeBuild {
-         // For ndk-build, instead use ndkBuild {}
-         cmake {
-            arguments "-DANDROID_ARM_NEON=TRUE", "-DANDROID_TOOLCHAIN=clang", "-DANDROID_STL=c++_static"
-            cppFlags "-std=c++11", "-fexceptions",  "-D__STDC_FORMAT_MACROS"
-         }
-      }
+       externalNativeBuild
+               {
+                   cmake
+                           {   cppFlags "-std=c++14 -fexceptions"
+                               arguments "-DANDROID_STL=c++_shared"
+                           }
+               }
+       ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64', 'x86' }
    }
 
    android {
@@ -28,7 +28,7 @@ android {
                     manifest.srcFile 'AndroidManifest.xml'
                     java.srcDirs = ['src']
                     jniLibs.srcDirs = ['libs']
-                    jni.srcDirs = ['jni']
+                    jni.srcDirs = ['c++']
                     resources.srcDirs = ['src']
                     aidl.srcDirs = ['src']
                     renderscript.srcDirs = ['rs']
@@ -38,36 +38,42 @@ android {
                 test { java.srcDirs = ['test'] }
                 //androidTest.setRoot('test')
             }
+      packagingOptions {
+         pickFirst 'lib/arm64-v8a/libARWrapper.so'
+         pickFirst 'lib/armeabi-v7a/libARWrapper.so'
+         pickFirst 'lib/x86/libARWrapper.so'
+         pickFirst 'lib/x86_64/libARWrapper.so'
+      }
+
         }
 
    buildTypes {
       release {
-         minifyEnabled true
-         shrinkResources true
-         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-      }
-      debug {
-         jniDebuggable true
+         minifyEnabled false
+         shrinkResources false
+          proguardFiles 'proguard-rules.pro'
+//         proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
       }
    }
         compileOptions {
-            sourceCompatibility JavaVersion.VERSION_1_7
-            targetCompatibility JavaVersion.VERSION_1_7
+            sourceCompatibility JavaVersion.VERSION_1_8
+            targetCompatibility JavaVersion.VERSION_1_8
         }
 
         productFlavors {}
 
         externalNativeBuild {
             cmake {
-                path 'jni/CMakeLists.txt'
+                path 'c++/CMakeLists.txt'
 //               see defaultConfig - externalNativeBuild - cmake for config
             }
         }
-    }
-
-ext {
-   supportLibVersion = '23.2.1'  // variable that can be referenced to keep support libs consistent
+   buildToolsVersion '29.0.3'
 }
+
+//ext {
+//   supportLibVersion = '23.2.1'  // variable that can be referenced to keep support libs consistent
+//}
 
 repositories {
    flatDir {
@@ -76,12 +82,8 @@ repositories {
 }
 
 dependencies {
-   compile fileTree(include: ['*.jar'], dir: 'javalibs')
-   compile(name: 'aRBaseLib', ext: 'aar')
-   compile project(':ARemu')
-   androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
-      exclude group: 'com.android.support', module: 'support-annotations'
-   })
-   compile 'com.android.support:appcompat-v7:25.0.1'
-   testCompile 'junit:junit:4.12'
+    implementation fileTree(include: ['*.jar'], dir: 'javalibs')
+    implementation(name: 'aRBaseLib', ext: 'aar')
+    implementation project(':ARemu')
+//   implementation 'com.android.support:appcompat-v7:25.2.0'
 }

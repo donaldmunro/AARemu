@@ -1,13 +1,11 @@
 apply plugin: 'com.android.application'
 
 android {
-   compileSdkVersion 23
-   buildToolsVersion '23.0.2'
-
+   compileSdkVersion 28
    defaultConfig {
       applicationId "to.augmented.reality.android.em.sample"
-      minSdkVersion 19
-      targetSdkVersion 23
+      minSdkVersion 21
+      targetSdkVersion 26
       renderscriptTargetApi 18
       renderscriptSupportModeEnabled true
       versionCode 10
@@ -41,12 +39,13 @@ android {
    }
    productFlavors {
    }
+   buildToolsVersion '29.0.3'
 }
 
 dependencies {
-   compile fileTree(dir: 'libs', include: ['*.jar'])
-   compile project(':ARemu')
-   testCompile 'junit:junit:4.12'
-   compile 'com.android.support:appcompat-v7:22.2.1'
-   compile project(':Common')
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation project(':ARemu')
+    testImplementation 'junit:junit:4.12'
+    implementation 'com.android.support:appcompat-v7:26.1.0'
+    implementation project(':Common')
 }

@@ -23,9 +23,14 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.params.OutputConfiguration;
+import android.media.ImageReader;
+import android.media.ImageWriter;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.util.Log;
 import android.view.Surface;
 import to.augmented.reality.android.em.free.PlaybackThreadFree;
@@ -263,6 +268,14 @@ public class ARCameraDevice extends AbstractARCamera implements AutoCloseable, A
    {
       @Override public CameraDevice getDevice() { return delegateCamera; }
 
+
+      @Override public void prepare(@NonNull Surface surface) throws CameraAccessException { }
+
+      @Override public void finalizeOutputConfigurations(List<OutputConfiguration> outputConfigs) throws CameraAccessException
+      {
+
+      }
+
       @Override
       public int capture(CaptureRequest request, CaptureCallback listener, Handler handler) throws CameraAccessException
       {
@@ -305,6 +318,42 @@ public class ARCameraDevice extends AbstractARCamera implements AutoCloseable, A
 
       @Override
       public void abortCaptures() throws CameraAccessException { stopRepeating(); }
+
+      /**
+       * Return if the application can submit reprocess capture requests with this camera capture
+       * session.
+       *
+       * @return {@code true} if the application can submit reprocess capture requests with this
+       * camera capture session. {@code false} otherwise.
+       * @see CameraDevice#createReprocessableCaptureSession
+       */
+      @Override
+      public boolean isReprocessable()
+      {
+         return false;
+      }
+
+      /**
+       * Get the input Surface associated with a reprocessable capture session.
+       * <p>
+       * <p>Each reprocessable capture session has an input {@link Surface} where the reprocess
+       * capture requests get the input images from, rather than the camera device. The application
+       * can create a {@link ImageWriter ImageWriter} with this input {@link Surface}
+       * and use it to provide input images for reprocess capture requests. When the reprocessable
+       * capture session is closed, the input {@link Surface} is abandoned and becomes invalid.</p>
+       *
+       * @return The {@link Surface} where reprocessing capture requests get the input images from. If
+       * this is not a reprocess capture session, {@code null} will be returned.
+       * @see CameraDevice#createReprocessableCaptureSession
+       * @see ImageWriter
+       * @see ImageReader
+       */
+      @Nullable
+      @Override
+      public Surface getInputSurface()
+      {
+         return null;
+      }
 
       @Override
       public void close() { try { stopRepeating(); } catch (Exception _e) {} }

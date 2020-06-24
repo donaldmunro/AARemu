@@ -1,0 +1,10 @@
+test
+test.cc
+*.o
+m
+m.cc
+clang_complete
+cmake-build-debug/
+CMakeFindJavaCommon.cmake
+readerwriterqueue/
+.idea/

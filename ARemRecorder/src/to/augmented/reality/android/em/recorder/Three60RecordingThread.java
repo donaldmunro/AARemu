@@ -100,7 +100,8 @@ public class Three60RecordingThread extends RecordingThread
 
       ProgressParam progress = new ProgressParam();
       PowerManager powerManager = (PowerManager) renderer.activity.getSystemService(Context.POWER_SERVICE);
-      PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wakelock");
+      PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                                                                "ARemRecorder:wakelock");
       wakeLock.acquire();
       Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
       Bufferable rawBuffer = (Bufferable) previewer;
@@ -257,9 +258,10 @@ public class Three60RecordingThread extends RecordingThread
 
          Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
          rawBuffer.bufferOff();
+         rawBuffer.writeOff();
          orientationHandler.bufferOff();
 
-         rawBuffer.stop();
+         rawBuffer.flushFile();
          rawBuffer.closeFile();
 
          orientationHandler.stop();
@@ -306,6 +308,7 @@ public class Three60RecordingThread extends RecordingThread
             renderer.requestRender();
             previewer.setFlash(false);
             previewer.restartPreview();
+            activity.showExit();
             return true;
          }
 
@@ -461,7 +464,6 @@ public class Three60RecordingThread extends RecordingThread
          {
             rawBuffer.bufferOff();
             rawBuffer.writeOff();
-            rawBuffer.stop();
             try { rawBuffer.closeFile(); } catch (Exception ee) { Log.e(TAG, "", ee); }
          }
 
@@ -482,6 +484,7 @@ public class Three60RecordingThread extends RecordingThread
       finally
       {
          wakeLock.release();
+         rawBuffer.stop();
          if (headerWriter != null)
             try { headerWriter.close(); } catch (Exception e) { Log.e(TAG, headerFile.getAbsolutePath(), e); }
          if ( (! RecorderActivity.IS_DEBUG) && (! isPostProcess) )

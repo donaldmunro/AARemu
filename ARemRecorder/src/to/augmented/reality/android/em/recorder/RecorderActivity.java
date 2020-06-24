@@ -66,12 +66,13 @@ import android.widget.Spinner;
 import android.widget.SpinnerAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import com.doubleTwist.drawerlib.ADrawerLayout;
 import com.thomashaertel.widget.MultiSpinner;
+
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
-import to.augmented.reality.android.em.recorder.fullscreen.SystemUiHider;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -90,6 +91,8 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import to.augmented.reality.android.em.recorder.fullscreen.SystemUiHider;
 
 import static to.augmented.reality.android.common.sensor.orientation.OrientationProvider.ORIENTATION_PROVIDER;
 
@@ -160,8 +163,8 @@ public class RecorderActivity extends Activity
    final static public String[] ESSENTIAL_PERMISSIONS = { Manifest.permission.CAMERA,
                                                           Manifest.permission.WRITE_EXTERNAL_STORAGE };
    final static public String[] OPTIONAL_PERMISSIONS = { Manifest.permission.ACCESS_COARSE_LOCATION,
-                                                         Manifest.permission.ACCESS_FINE_LOCATION,
-                                                         Manifest.permission.FLASHLIGHT };
+                                                         Manifest.permission.ACCESS_FINE_LOCATION
+                                                       };
    private int permissionCount = 0, locationsDenied = 0;
 
    boolean isLocationRecorded() { return isLocationRecorded; }
@@ -627,11 +630,6 @@ public class RecorderActivity extends Activity
       RelativeLayout layoutFlash = (RelativeLayout) dialogLayout.findViewById(R.id.layout_flash);
       CheckBox stitchCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_stitching);
       boolean hasFlash = previewSurface.hasFlash();
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-      {
-         if (! hasPermissions(Manifest.permission.FLASHLIGHT))
-            hasFlash = false;
-      }
       if (hasFlash)
       {
          layoutFlash.setVisibility(View.VISIBLE);
@@ -747,11 +745,6 @@ public class RecorderActivity extends Activity
       RelativeLayout flashLayout = (RelativeLayout) dialogLayout.findViewById(R.id.layout_free_flash);
 //      CheckBox stitchCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_stitching);
       boolean hasFlash = previewSurface.hasFlash();
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
-      {
-         if (! hasPermissions(Manifest.permission.FLASHLIGHT))
-            hasFlash = false;
-      }
       if (hasFlash)
       {
          flashLayout.setVisibility(View.VISIBLE);
@@ -765,9 +758,9 @@ public class RecorderActivity extends Activity
          textFlash.setVisibility(View.GONE);
          flashCheckbox = null;
       }
-      TextView cameraApiText = (TextView) dialogLayout.findViewById(R.id.label_free_api);
-      CheckBox cameraApiCheckbox = (CheckBox) dialogLayout.findViewById(R.id.checkbox_free_api);
-      RelativeLayout cameraApiLayout = (RelativeLayout) dialogLayout.findViewById(R.id.layout_free_api);
+      TextView cameraApiText = dialogLayout.findViewById(R.id.label_free_api);
+      CheckBox cameraApiCheckbox = dialogLayout.findViewById(R.id.checkbox_free_api);
+      RelativeLayout cameraApiLayout = dialogLayout.findViewById(R.id.layout_free_api);
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP)
       {
          cameraApiLayout.setVisibility(View.VISIBLE);
@@ -781,7 +774,7 @@ public class RecorderActivity extends Activity
          cameraApiCheckbox.setVisibility(View.GONE);
          cameraApiCheckbox = null;
       }
-      final TextView sizeText = (TextView) dialogLayout.findViewById(R.id.text_free_maxsize);
+      final TextView sizeText = dialogLayout.findViewById(R.id.text_free_maxsize);
       StringBuilder size = new StringBuilder();
       if (freeSpaceGb(DIR, size) <= 0)
          return;
@@ -1162,9 +1155,10 @@ public class RecorderActivity extends Activity
          //-------------------------
          {
             record360Button.setImageResource(R.drawable.three60);
-            record360Button.setVisibility(View.VISIBLE);
             recordFreeButton.setImageResource(R.drawable.frame);
             recordFreeButton.setVisibility(View.VISIBLE);
+            for (ImageButton b : recordingButtons)
+               b.setVisibility(View.VISIBLE);
             pauseButton.setVisibility(View.INVISIBLE);
             statusProgress.setProgress(0);
 
@@ -1451,7 +1445,7 @@ public class RecorderActivity extends Activity
                   if (shouldShowRequestPermissionRationale(permissions[i]))
                   {
                      if ( (permissions[i].equalsIgnoreCase(Manifest.permission.ACCESS_COARSE_LOCATION)) ||
-                           (permissions[i].equalsIgnoreCase(Manifest.permission.ACCESS_FINE_LOCATION)) )
+                          (permissions[i].equalsIgnoreCase(Manifest.permission.ACCESS_FINE_LOCATION)) )
                         locationsDenied++;
                   }
                }

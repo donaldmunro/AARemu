@@ -21,22 +21,23 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.opengl.GLSurfaceView;
 import android.os.Build;
-import android.support.v8.renderscript.Allocation;
-import android.support.v8.renderscript.Element;
-import android.support.v8.renderscript.RenderScript;
-import android.support.v8.renderscript.ScriptIntrinsicYuvToRGB;
-import android.support.v8.renderscript.Type;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicYuvToRGB;
+import android.renderscript.Type;
 import android.util.Log;
+
+import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+
 import to.augmented.reality.android.common.gl.GLTexture;
 import to.augmented.reality.android.em.ARCamera;
 import to.augmented.reality.android.em.ARImageFormat;
 import to.augmented.reality.android.em.ARSensorManager;
 import to.augmented.reality.android.em.Latcheable;
 import to.augmented.reality.android.em.ReviewListenable;
-
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.concurrent.CountDownLatch;
 
 public class LegacyCameraRenderer extends GLRenderer
 //=================================================
